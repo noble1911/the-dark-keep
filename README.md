@@ -4,14 +4,61 @@
 built on [DevilutionX](https://github.com/diasurgical/devilutionX).
 
 You don't play the hero — you *are* the dungeon. Parties of AI heroes raid your keep to
-steal its treasure and escape. With up to three friends, place monster lairs, traps and
-bait, then rain spells on the intruders before they get away with your gold.
+steal its treasure and escape. With up to three friends, raise monster lairs, set traps,
+lock doors and leave out fool's gold, then rain spells on the intruders — or possess one
+of your monsters and fight them yourself — before they get away with your gold.
 
 > Early development. Requires your own copies of the original game data. This project
 > contains no Blizzard assets.
 
+## How it plays
+
+- **One keep, seven raids.** A new game drops you straight into the keep (a fixed
+  Cathedral level). You get four minutes to prepare, then raids of Warriors, Rogues and
+  Sorcerers arrive at the entrance, with a short respite between each. The seventh raid is
+  the champions'.
+- **The vault is your treasury.** Everything you build is paid from the vault the heroes
+  are trying to rob. Gold you spend can't be stolen — but it isn't in the vault either.
+- **Steal and escape.** Heroes fight their way to the vault, grab what they can carry and
+  run for the exit. Kill a thief and the gold comes back (plus a bounty); let one escape
+  and it's gone. Lose when the vault is emptied by thieves who got away.
+- **Raids pay tribute.** Each raid you outlast earns gold for the next.
+- **Heroes are people too.** Rogues may spot and disarm traps, greedy heroes detour to
+  fool's gold they can see, Warriors bash through locked doors fastest, and badly hurt
+  heroes may lose their nerve, drop their loot and flee.
+- **Co-op.** Up to four masters share one keep and one vault; each has their own mana.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| WASD / arrows / screen edge | Move the camera |
+| Mouse wheel, `+` / `-` | Zoom in / out |
+| Space / V | Jump to the entrance / the vault |
+| 1–6 | Build: Zombie, Fallen, Bones, Archer and Brute lairs, Fire Trap |
+| Z X C F | Spells: Lightning Nova, Fire Wall, Guardian, Stone Curse |
+| G / T | Lock a door / place fool's-gold bait |
+| Left click | Place / cast the selected tool (or order a possessed monster) |
+| Right click / Esc | Cancel the tool (Esc also releases a possessed monster) |
+| E | Possess the monster under the cursor / release it |
+| R | Open the gates early (start the next raid) |
+
+Building during a raid is allowed, but not within sight of a hero, and new lairs take a few
+seconds to summon.
+
+## Building and running (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1
+powershell -ExecutionPolicy Bypass -File scripts\run-desktop.ps1 -DataDir <folder-with-DIABDAT.MPQ>
+```
+
+Saves and settings live in `%AppData%\diasurgical\the-dark-keep\`, separate from any other
+DevilutionX install. CI builds Windows and Nintendo Switch packages.
+
+Developer shortcuts: `--keeper-autostart` (straight into a single-player keep),
+`--keeper-host` / `--keeper-join <ip>` (co-op over TCP without menus); see `scripts/dev/`.
+
 - Design & roadmap: [docs/MOD-PLAN.md](docs/MOD-PLAN.md)
-- Building on Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1`, then
-  `powershell -ExecutionPolicy Bypass -File scripts\run-desktop.ps1 <folder-with-DIABDAT.MPQ>`
 
 Based on DevilutionX — see [LICENSE.md](LICENSE.md).
