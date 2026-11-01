@@ -60,6 +60,19 @@ constexpr std::array<HeroClassInfo, NumHeroClasses> HeroClasses { {
 
 std::array<_monster_id, NumHeroClasses> HeroMonsterIds {};
 bool heroDataRegistered = false;
+/** The Keep Lord: a Black Knight under its own name (shares the knight's sprites). */
+_monster_id BossMonsterId = MT_INVALID;
+constexpr _monster_id BossBaseType = MT_NBLACK;
+
+/** The heroes' way out once the Lord is down. Simulated on every client, like the hero AI. */
+struct PortalState {
+	int caster = -1;
+	int channel = 0;
+	bool open = false;
+	Point position;
+};
+PortalState Portal;
+constexpr int PortalChannelTicks = 8 * 20;
 
 /** Owned sprite sheets per class: Stand, Walk, Attack, Hit, Death. Loaded once, reused across games. */
 std::array<std::array<std::optional<OwnedClxSpriteListOrSheet>, 5>, NumHeroClasses> HeroSprites;
@@ -91,6 +104,7 @@ constexpr uint16_t Unreachable = 0xFFFF;
 using DistanceField = std::array<std::array<uint16_t, MAXDUNY>, MAXDUNX>;
 DistanceField ToVault;
 DistanceField ToEntrance;
+DistanceField ToPortal;
 
 std::optional<HeroClassKind> HeroClassOf(_monster_id type)
 {
@@ -437,6 +451,13 @@ void RegisterHeroMonsterData()
 		data.exp = 0;
 		HeroMonsterIds[i] = AddCustomMonsterData(std::move(data), StrCat("keeper\\", info.name));
 	}
+
+	MonsterData boss = MonstersData[BossBaseType];
+	const std::string bossSprites = boss.spritePath();
+	boss.name = "The Keep Lord";
+	boss.availability = MonsterAvailability::Never;
+	BossMonsterId = AddCustomMonsterData(std::move(boss), bossSprites);
+
 	heroDataRegistered = true;
 }
 
@@ -493,6 +514,7 @@ void AddHeroMonsterTypes()
 	}
 	for (const _monster_id type : HeroMonsterIds)
 		(void)AddMonsterType(type, PLACE_SPECIAL);
+	(void)AddMonsterType(BossMonsterId, PLACE_SPECIAL);
 }
 
 void OnMonsterInit(Monster &monster)
@@ -501,6 +523,15 @@ void OnMonsterInit(Monster &monster)
 	if (id >= MaxMonsters)
 		return;
 	Homes[id] = monster.position.tile;
+	if (IsBoss(monster)) {
+		Heroes[id] = {};
+		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : 600) << 6;
+		monster.hitPoints = monster.maxHitPoints;
+		monster.minDamage = 12;
+		monster.maxDamage = 24;
+		monster.armorClass = 40;
+		return;
+	}
 	const std::optional<HeroClassKind> cls = HeroClassOf(monster.type().type);
 	if (!cls) {
 		Heroes[id] = {};
@@ -520,6 +551,13 @@ void OnMonsterDeath(Monster &monster)
 	for (size_t pid = 0; pid < State.possessed.size(); pid++) {
 		if (State.possessed[pid] == static_cast<int16_t>(id))
 			EndPossession(pid);
+	}
+	if (IsBoss(monster)) {
+		if (State.phase == Phase::Raid && !State.bossDown) {
+			State.bossDown = true;
+			Announce("The Keep Lord has fallen! Stop the heroes before they portal out!");
+		}
+		return;
 	}
 	if (id >= MaxMonsters || !Heroes[id].active)
 		return;
@@ -582,6 +620,30 @@ void HeroAi(Monster &monster)
 	CheckFear(monster, hero);
 	RogueCheckTraps(monster, hero);
 
+	// The Lord is dead: the party's only goal is to get out through the portal.
+	if (State.bossDown) {
+		if (Portal.open) {
+			if (FieldAt(ToPortal, monster.position.tile) <= 1) {
+				State.portalEscape = true;
+				Announce(fmt::format("A {} escaped through the portal!", ClassName(hero)));
+				hero.carried = std::max(hero.carried, 0);
+				HeroEscapes(monster, hero);
+				return;
+			}
+			if (TryBashLockedDoor(monster, hero, ToPortal))
+				return;
+			if (!FollowField(monster, ToPortal))
+				KeeperAiDelay(monster, 5);
+			return;
+		}
+		if (Portal.caster == static_cast<int>(id)) {
+			// Channelling: stand still (the attack swing doubles as the casting gesture).
+			monster.enemyPosition = monster.position.tile + monster.direction;
+			KeeperAiDelay(monster, 10);
+			return;
+		}
+	}
+
 	if (!hero.fleeing && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
 		const Monster &enemy = Monsters[monster.enemy];
 		if (IsAliveMonster(enemy)) {
@@ -607,6 +669,15 @@ void HeroAi(Monster &monster)
 				break;
 			}
 		}
+	}
+
+	// No fight while the portal is being opened: guard the caster.
+	if (State.bossDown) {
+		if (Portal.caster >= 0 && monster.position.tile.WalkingDistance(Monsters[Portal.caster].position.tile) > 2)
+			StepTowards(monster, GetDirection(monster.position.tile, Monsters[Portal.caster].position.tile));
+		else
+			KeeperAiDelay(monster, 5);
+		return;
 	}
 
 	// No fight: go about the heist.
@@ -794,6 +865,7 @@ void GuardAi(Monster &monster)
 void ResetHeroes()
 {
 	Heroes.fill({});
+	Portal = {};
 	pendingParty.clear();
 	spawnCooldown = 0;
 	RebuildPaths();
@@ -856,6 +928,107 @@ int LivingHeroCount()
 			count++;
 	}
 	return count;
+}
+
+bool IsBoss(const Monster &monster)
+{
+	return heroDataRegistered && monster.type().type == BossMonsterId;
+}
+
+const Monster *FindBoss()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (IsBoss(monster) && IsAliveMonster(monster))
+			return &monster;
+	}
+	return nullptr;
+}
+
+void UpdateBoss()
+{
+	if (State.bossDown || State.phase == Phase::Victory || State.phase == Phase::Defeat)
+		return;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (IsBoss(monster) && !monster.isInvalid && monster.hitPoints > 0)
+			return; // alive (or still dying while bossDown propagates)
+	}
+	if (ActiveMonsterCount >= MaxMonsters)
+		return;
+	const std::optional<size_t> typeIndex = FindLevelMonsterType(BossMonsterId);
+	const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.vault, 1, 4);
+	if (!typeIndex || !tile)
+		return;
+	SpawnMonster(*tile, Direction::South, *typeIndex);
+}
+
+void UpdatePortal()
+{
+	if (!State.bossDown || State.phase != Phase::Raid || Portal.open)
+		return;
+	if (Portal.caster >= 0) {
+		const Monster &caster = Monsters[Portal.caster];
+		if (!IsAliveMonster(caster) || !IsHero(caster)) {
+			Announce("The portal spell was interrupted!", UiFlags::ColorGold);
+			Portal.caster = -1;
+		}
+	}
+	if (Portal.caster < 0) {
+		// The hero nearest the vault takes up the spell.
+		int best = -1;
+		uint16_t bestDistance = Unreachable;
+		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+			const unsigned id = ActiveMonsters[i];
+			const Monster &monster = Monsters[id];
+			if (!IsHero(monster) || !IsAliveMonster(monster) || !Heroes[id].active)
+				continue;
+			const uint16_t distance = FieldAt(ToVault, monster.position.tile);
+			if (best == -1 || distance < bestDistance) {
+				best = static_cast<int>(id);
+				bestDistance = distance;
+			}
+		}
+		if (best < 0)
+			return;
+		Portal.caster = best;
+		Portal.channel = PortalChannelTicks;
+		Announce(fmt::format("A {} begins to open a Town Portal! Kill them!", ClassName(Heroes[best])));
+		return;
+	}
+	if (--Portal.channel > 0)
+		return;
+
+	const Point at = Monsters[Portal.caster].position.tile;
+	Missile *missile = AddMissile(at, at, Direction::South, MissileID::TownPortal, TARGET_MONSTERS, -1, 0, 0);
+	Portal.position = (missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : at;
+	Portal.open = true;
+	Portal.caster = -1;
+	BuildField(ToPortal, Portal.position);
+	Announce("The heroes opened a portal out of the keep!");
+}
+
+void ClosePortal()
+{
+	for (Missile &missile : Missiles) {
+		if (missile._mitype == MissileID::TownPortal && missile._misource == -1)
+			missile.duration = 0;
+	}
+	Portal = {};
+}
+
+std::optional<Point> PortalPosition()
+{
+	if (!Portal.open)
+		return std::nullopt;
+	return Portal.position;
+}
+
+int PortalChannelPercent()
+{
+	if (Portal.open || Portal.caster < 0)
+		return -1;
+	return 100 * (PortalChannelTicks - Portal.channel) / PortalChannelTicks;
 }
 
 std::string_view HeroTitle(const Monster &monster)

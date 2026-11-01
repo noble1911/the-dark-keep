@@ -41,6 +41,7 @@
 namespace devilution::keeper {
 
 bool AutoStart = false;
+int TestLordHitPoints = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -319,6 +320,10 @@ void DrawOverlays(const Surface &out)
 	DrawWorldLabel(out, State.vault, fmt::format("Vault: {} gold", State.vaultGold), UiFlags::ColorGold);
 	DrawTileDiamond(out, State.entrance, PAL16_BLUE + 2, 1);
 	DrawWorldLabel(out, State.entrance, "Entrance", UiFlags::ColorBlue);
+	if (const Monster *boss = FindBoss(); boss != nullptr)
+		DrawWorldLabel(out, boss->position.tile, "The Keep Lord", UiFlags::ColorRed, 70);
+	if (const std::optional<Point> portal = PortalPosition(); portal)
+		DrawWorldLabel(out, *portal, "Heroes' portal", UiFlags::ColorBlue, 60);
 
 	for (const Lair &lair : State.lairs) {
 		if (!lair.active)
@@ -826,19 +831,30 @@ void DrawHud(const Surface &out)
 		DrawString(out, "WASD move  Space entrance  V vault  Wheel zoom", { { paletteX, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	}
 	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress  -  E: possess a monster", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	UiFlags scoutColor = UiFlags::ColorGold;
+	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
+		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;
+		scout += fmt::format("  -  Keep Lord {}%", hp);
+	} else if (State.bossDown && !IsGameOver()) {
+		const int channel = PortalChannelPercent();
+		scout = PortalPosition() ? std::string("The Lord is down - the heroes are fleeing through their portal!")
+		    : channel >= 0       ? fmt::format("The Lord is down - a hero is opening a portal ({}%)!", channel)
+		                         : std::string("The Lord is down - stop the heroes from escaping!");
+		scoutColor = UiFlags::ColorRed;
+	}
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
 		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
 		scout = fmt::format("Possessing {} ({}%)  click: move/attack  E: release", possessed->name(), hp);
 	}
-	DrawString(out, scout, { { paletteX, top + 96 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	DrawString(out, scout, { { paletteX, top + 96 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
 
 	if (IsGameOver()) {
 		const bool won = State.phase == Phase::Victory;
 		const Rectangle banner { { 0, top / 2 - 40 }, { gnScreenWidth, 80 } };
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
-		DrawString(out, won ? "THE KEEP STANDS" : "THE VAULT IS EMPTY", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
+		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, won ? fmt::format("All {} raids repelled with {} gold left. Esc for the menu.", NumWaves, State.vaultGold) : std::string("The heroes made off with your treasure. Esc for the menu."),
+		DrawString(out, won ? fmt::format("All {} raids repelled with {} gold left. Esc for the menu.", NumWaves, State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped. Esc for the menu."),
 		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	}
 }

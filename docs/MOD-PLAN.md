@@ -49,7 +49,10 @@ Last updated: **2026-11-01** (project start).
    Masters cast spells with Mana and can keep building (at a cost, see Build rules).
 4. **Breather** — ≈60–90 s between waves (skippable) to rebuild and re-plan.
 5. **Win** after surviving all waves (target ≈7, the last a named champion party).
-   **Lose** if the vault is emptied *and* the thieves escape with it.
+   **Lose** if the heroes kill the **Keep Lord** (boss at the vault) *and* one of them
+   escapes through the Town Portal they then channel (8 s; killing the caster interrupts
+   it). A wiped party means the Lord rises again. (Changed 2026-11-01: emptying the
+   vault no longer loses -- it made spending everything a dominant strategy.)
 
 ### Steal and escape
 - The **Treasure Vault** sits at the far end of the level (near the down-stairs area).
@@ -149,6 +152,8 @@ Diablo click-to-move/attack controls (Mana drain per second).
 | M5 — Traps, doors, bait, hero fear; mid-raid build rules | ✅ done (2026-11-01) |
 | M6 — 2-client co-op test | ✅ done (2026-11-01) — host + client over TCP on one machine: builds from either master, raids, theft, tribute and phases stay in step |
 | M7 — Possession | ✅ done (2026-11-01) — E over a keep monster: click to move/attack heroes, 10 mana + 2/s, E/Esc releases (it then guards where it stands) |
+| M8 — Keep Lord + Town Portal win condition | ✅ done (2026-11-01) — boss guards the vault; heroes channel a portal after killing it; escape = defeat |
+| M9 — Real player bots as heroes (4 bot slots after the 4 network slots) | 🚧 in progress |
 
 ## Co-op notes (M6, 2026-11-01)
 

@@ -19,9 +19,13 @@ of your monsters and fight them yourself — before they get away with your gold
   the champions'.
 - **The vault is your treasury.** Everything you build is paid from the vault the heroes
   are trying to rob. Gold you spend can't be stolen — but it isn't in the vault either.
-- **Steal and escape.** Heroes fight their way to the vault, grab what they can carry and
-  run for the exit. Kill a thief and the gold comes back (plus a bounty); let one escape
-  and it's gone. Lose when the vault is emptied by thieves who got away.
+- **Protect the Keep Lord.** Your boss guards the vault. Heroes win by killing him and then
+  escaping: one of them channels a Town Portal (kill the caster to interrupt it) and the
+  party runs for it. If any hero gets out after the Lord falls, the keep is lost. Wipe out
+  the party first and the Lord rises again for the next raid.
+- **Thieves.** Heroes who reach the vault grab what they can carry and run for the exit.
+  Kill a thief and the gold comes back (plus a bounty); let one escape and it's gone, which
+  leaves you less to build with.
 - **Raids pay tribute.** Each raid you outlast earns gold for the next.
 - **Heroes are people too.** Rogues may spot and disarm traps, greedy heroes detour to
   fool's gold they can see, Warriors bash through locked doors fastest, and badly hurt

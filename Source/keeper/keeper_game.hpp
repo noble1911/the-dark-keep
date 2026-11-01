@@ -143,6 +143,10 @@ struct KeepState {
 	std::array<Bait, MaxBaits> baits {};
 	/** Monster id each master is possessing (-1 = none). */
 	std::array<int16_t, 4> possessed { -1, -1, -1, -1 };
+	/** The Keep Lord has fallen this raid (heroes now try to portal out). */
+	bool bossDown = false;
+	/** A hero escaped through the portal after the Lord fell: the keep is lost. */
+	bool portalEscape = false;
 	/** Where heroes arrive (up-stairs) and where the treasure vault stands (down-stairs). */
 	Point entrance;
 	Point vault;

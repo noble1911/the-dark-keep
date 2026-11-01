@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -89,6 +90,22 @@ std::string DescribeWave(uint8_t wave);
 
 /** Recomputes the vault/entrance distance fields (after level load, or when doors change). */
 void RebuildPaths();
+
+// ---- the Keep Lord and the heroes' way out --------------------------------
+/** The boss guarding the vault. Heroes win by killing it and escaping through a Town Portal. */
+bool IsBoss(const Monster &monster);
+/** The living Keep Lord, if any. */
+const Monster *FindBoss();
+/** Host only: (re)spawns the Keep Lord at the vault when there is none and it isn't down. */
+void UpdateBoss();
+/** Every client: once the Lord is down a hero channels a portal; then the party runs for it. */
+void UpdatePortal();
+/** Closes the heroes' portal and forgets any channel (end of raid). */
+void ClosePortal();
+/** Where the open portal stands, if any. */
+std::optional<Point> PortalPosition();
+/** Percent of the portal channel completed (-1 = nobody channelling). */
+int PortalChannelPercent();
 
 // ---- possession -----------------------------------------------------------
 

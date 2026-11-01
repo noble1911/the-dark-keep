@@ -125,7 +125,7 @@ void BroadcastState()
 	cmd.bCmd = CMD_KEEPER_STATE;
 	cmd.phase = static_cast<uint8_t>(State.phase);
 	cmd.wave = State.wave;
-	cmd.reserved = 0;
+	cmd.reserved = static_cast<uint8_t>((State.bossDown ? 1 : 0) | (State.portalEscape ? 2 : 0));
 	cmd.phaseTicks = Swap32LE(static_cast<uint32_t>(std::max(State.phaseTicks, 0)));
 	cmd.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.vaultGold)));
 	cmd.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.goldLost)));
@@ -196,6 +196,8 @@ void AnnouncePhase(Phase from, Phase to)
 {
 	if (from == to)
 		return;
+	if (from == Phase::Raid)
+		ClosePortal();
 	switch (to) {
 	case Phase::Raid:
 		Announce(State.wave >= NumWaves ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
@@ -208,7 +210,7 @@ void AnnouncePhase(Phase from, Phase to)
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
-		Announce("The vault is empty. The heroes have won.", UiFlags::ColorRed);
+		Announce("The Keep Lord is slain and the heroes got away. The keep has fallen.", UiFlags::ColorRed);
 		break;
 	case Phase::Setup:
 		break;
@@ -281,6 +283,12 @@ void StartRaid()
 void EndRaid()
 {
 	const int tribute = TributeFor(State.wave);
+	if (State.bossDown) {
+		// The party was wiped out before anyone escaped: the Lord rises again (UpdateBoss respawns it).
+		State.bossDown = false;
+		State.portalEscape = false;
+		Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
+	}
 	if (State.wave >= NumWaves) {
 		SetPhase(Phase::Victory);
 		return;
@@ -503,6 +511,7 @@ void GameTick()
 		return;
 
 	UpdateTraps();
+	UpdatePortal();
 
 	for (Lair &lair : State.lairs) {
 		if (!lair.active || lair.summonTicks == 0)
@@ -514,6 +523,8 @@ void GameTick()
 	if (!IsHost())
 		return;
 
+	UpdateBoss();
+
 	switch (State.phase) {
 	case Phase::Setup:
 	case Phase::Breather:
@@ -521,7 +532,7 @@ void GameTick()
 			StartRaid();
 		break;
 	case Phase::Raid:
-		if (State.vaultGold <= 0 && State.goldLost > 0 && AllThievesGone()) {
+		if (State.bossDown && State.portalEscape) {
 			SetPhase(Phase::Defeat);
 			break;
 		}
@@ -680,7 +691,12 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		if (&player != MyPlayer && !IsHost()) {
 			const Phase phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
 			State.wave = message.wave;
+			const bool wasBossDown = State.bossDown;
+			State.bossDown = (message.reserved & 1) != 0;
+			State.portalEscape = (message.reserved & 2) != 0;
 			AnnouncePhase(State.phase, phase);
+			if (wasBossDown && !State.bossDown && phase != Phase::Defeat)
+				Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
 			State.phase = phase;
 			State.phaseTicks = static_cast<int>(Swap32LE(message.phaseTicks));
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));

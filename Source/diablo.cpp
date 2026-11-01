@@ -1161,6 +1161,9 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-autostart") { // [DARK KEEP] dev/test: straight into a single-player keep
 			keeper::AutoStart = true;
 			gbShowIntro = false;
+		} else if (arg == "--keeper-lord-hp") { // [DARK KEEP] dev/test: override the Keep Lord's hit points
+			if (i + 1 < argc)
+				keeper::TestLordHitPoints = std::atoi(argv[++i]);
 		} else if (arg == "--keeper-host") { // [DARK KEEP] dev/test: host a co-op keep over TCP
 			keeper::AutoNet = keeper::AutoNetMode::Host;
 			gbShowIntro = false;
