@@ -810,6 +810,8 @@ void GameEventHandler(const SDL_Event &event, uint16_t modState)
 		return;
 #if SDL_VERSION_ATLEAST(2, 0, 0)
 	case SDL_EVENT_MOUSE_WHEEL:
+		if (keeper::OnMouseWheel(SDLC_EventWheelIntY(event))) // [DARK KEEP] zoom
+			return;
 		if (SDLC_EventWheelIntY(event) > 0) { // Up
 			if (IsPlayerInStore()) {
 				StoreUp();

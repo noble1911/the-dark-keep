@@ -6,6 +6,7 @@
 #include "keeper/keeper.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <string>
@@ -32,6 +33,7 @@
 #include "levels/trigs.h"
 #include "lighting.h"
 #include "monster.h"
+#include "options.h"
 #include "player.h"
 #include "utils/sdl_compat.h"
 #include "utils/ui_fwd.h"
@@ -59,9 +61,16 @@ uint32_t lastCameraTicks = 0;
 
 enum class ToolType : uint8_t {
 	None,
-	Lair,
+	Build,
 	Spell,
+	LockDoor,
+	Bait,
 };
+
+/** Second palette row: four spells, then the door lock and the bait pile. */
+constexpr size_t NumActionButtons = NumSpellKinds + 2;
+constexpr std::array<SDL_Keycode, NumActionButtons> ActionKeys { SDLK_Z, SDLK_X, SDLK_C, SDLK_F, SDLK_G, SDLK_T };
+constexpr std::array<std::string_view, NumActionButtons> ActionKeyNames { "Z", "X", "C", "F", "G", "T" };
 
 struct Tool {
 	ToolType type = ToolType::None;
@@ -158,6 +167,20 @@ bool CanUseKeyboardCamera()
 	return gbActive && !ChatFlag && !gmenu_is_active();
 }
 
+/** The engine's zoom renders a half-size view and doubles it. */
+int ZoomFactor()
+{
+	return *GetOptions().Graphics.zoom ? 2 : 1;
+}
+
+void SetZoom(bool zoomed)
+{
+	if (*GetOptions().Graphics.zoom == zoomed)
+		return;
+	GetOptions().Graphics.zoom.SetValue(zoomed);
+	CalcViewportGeometry();
+}
+
 Point FindVault(Point fallback)
 {
 	for (int i = 0; i < numtrigs; i++) {
@@ -170,27 +193,28 @@ Point FindVault(Point fallback)
 // ---- HUD layout ------------------------------------------------------------
 
 constexpr int ButtonHeight = 34;
-constexpr int PaletteLeft = 214;
-constexpr int PaletteWidth = 640 - PaletteLeft - 6;
+constexpr int LeftColumnWidth = 158;
+constexpr int PaletteLeft = LeftColumnWidth + 8;
+constexpr int PaletteWidth = 640 - PaletteLeft - 4;
 
-Rectangle LairButtonRect(size_t i)
+Rectangle BuildButtonRect(size_t i)
 {
 	const Rectangle &panel = GetMainPanel();
-	const int width = PaletteWidth / static_cast<int>(NumLairKinds);
-	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 22 }, { width - 4, ButtonHeight } };
+	const int width = PaletteWidth / static_cast<int>(NumBuildKinds);
+	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 20 }, { width - 3, ButtonHeight } };
 }
 
-Rectangle SpellButtonRect(size_t i)
+Rectangle ActionButtonRect(size_t i)
 {
 	const Rectangle &panel = GetMainPanel();
-	const int width = PaletteWidth / static_cast<int>(NumSpellKinds);
-	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 22 + ButtonHeight + 6 }, { width - 4, ButtonHeight } };
+	const int width = PaletteWidth / static_cast<int>(NumActionButtons);
+	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 20 + ButtonHeight + 4 }, { width - 3, ButtonHeight } };
 }
 
 Rectangle ReadyButtonRect()
 {
 	const Rectangle &panel = GetMainPanel();
-	return { { panel.position.x + 8, panel.position.y + panel.size.height - 26 }, { 196, 20 } };
+	return { { panel.position.x + 6, panel.position.y + panel.size.height - 24 }, { LeftColumnWidth, 20 } };
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -257,11 +281,13 @@ void DrawLine(const Surface &out, Point a, Point b, uint8_t color, int maxY)
 /** Outlines a tile's floor diamond (optionally grown by `radius` tiles). */
 void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius = 0)
 {
+	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
 	const int maxY = GetMainPanel().position.y;
-	const int hw = TILE_WIDTH / 2 * (radius * 2 + 1);
-	const int hh = TILE_HEIGHT / 2 * (radius * 2 + 1);
-	const Point center = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT / 2 };
+	const int hw = TILE_WIDTH / 2 * (radius * 2 + 1) * zoom;
+	const int hh = TILE_HEIGHT / 2 * (radius * 2 + 1) * zoom;
+	const Point halfCenter = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT / 2 };
+	const Point center { halfCenter.x * zoom, halfCenter.y * zoom };
 	const Point left = center + Displacement { -hw, 0 };
 	const Point top = center + Displacement { 0, -hh };
 	const Point right = center + Displacement { hw, 0 };
@@ -274,8 +300,10 @@ void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius =
 
 void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
 {
+	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
-	const Point at = base + Displacement { TILE_WIDTH / 2 - 60, -TILE_HEIGHT - 4 - raise };
+	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
+	const Point at { anchor.x * zoom - 60, anchor.y * zoom - 4 - raise * zoom };
 	if (at.y < 0 || at.y + 14 >= GetMainPanel().position.y)
 		return;
 	DrawString(out, text, { at, { 120, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
@@ -292,7 +320,24 @@ void DrawOverlays(const Surface &out)
 		if (!lair.active)
 			continue;
 		DrawTileDiamond(out, lair.position, PAL16_RED + 4);
-		DrawWorldLabel(out, lair.position, LairKinds[lair.kind].name, UiFlags::ColorRed);
+		DrawWorldLabel(out, lair.position, lair.summonTicks > 0 ? std::string_view("Summoning...") : BuildKinds[lair.kind].name, UiFlags::ColorRed);
+	}
+	for (const Trap &trap : State.traps) {
+		if (!trap.active)
+			continue;
+		DrawTileDiamond(out, trap.position, trap.cooldown > 0 ? PAL16_GRAY + 8 : PAL16_ORANGE + 2);
+	}
+	for (const Bait &bait : State.baits) {
+		if (!bait.active)
+			continue;
+		DrawTileDiamond(out, bait.position, PAL16_YELLOW + 6);
+		DrawWorldLabel(out, bait.position, "Fool's gold", UiFlags::ColorGold);
+	}
+	for (const DoorLock &lock : State.locks) {
+		if (!lock.active)
+			continue;
+		DrawTileDiamond(out, lock.position, PAL16_RED + 2);
+		DrawWorldLabel(out, lock.position, fmt::format("Locked ({})", lock.strength), UiFlags::ColorRed);
 	}
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
@@ -303,15 +348,27 @@ void DrawOverlays(const Surface &out)
 		DrawWorldLabel(out, monster.position.tile, fmt::format("{} {}%", HeroTitle(monster), hpPercent), UiFlags::ColorWhite, 64);
 	}
 
-	if (currentTool.type == ToolType::Lair) {
-		std::string_view reason;
-		const bool ok = CanBuildLairAt(currentTool.index, cursPosition, &reason);
-		DrawTileDiamond(out, cursPosition, ok ? PAL16_GRAY : PAL16_RED + 2);
-		if (!ok)
-			DrawWorldLabel(out, cursPosition, reason, UiFlags::ColorRed);
-	} else if (currentTool.type == ToolType::Spell) {
+	std::string_view reason;
+	bool ok = true;
+	switch (currentTool.type) {
+	case ToolType::Build:
+		ok = CanBuildAt(currentTool.index, cursPosition, &reason);
+		break;
+	case ToolType::Bait:
+		ok = CanPlaceBaitAt(cursPosition, &reason);
+		break;
+	case ToolType::LockDoor:
+		ok = CanLockDoorAt(cursPosition, &reason);
+		break;
+	case ToolType::Spell:
 		DrawTileDiamond(out, cursPosition, PAL16_BLUE + 4, 1);
+		return;
+	case ToolType::None:
+		return;
 	}
+	DrawTileDiamond(out, cursPosition, ok ? PAL16_GRAY : PAL16_RED + 2);
+	if (!ok)
+		DrawWorldLabel(out, cursPosition, reason, UiFlags::ColorRed);
 }
 
 void SelectTool(ToolType type, size_t index)
@@ -321,6 +378,16 @@ void SelectTool(ToolType type, size_t index)
 		return;
 	}
 	currentTool = { type, index };
+}
+
+void SelectActionButton(size_t i)
+{
+	if (i < NumSpellKinds)
+		SelectTool(ToolType::Spell, i);
+	else if (i == NumSpellKinds)
+		SelectTool(ToolType::LockDoor, 0);
+	else
+		SelectTool(ToolType::Bait, 0);
 }
 
 bool IsGameOver()
@@ -333,13 +400,31 @@ void UseToolAt(Point tile)
 	switch (currentTool.type) {
 	case ToolType::None:
 		return;
-	case ToolType::Lair: {
+	case ToolType::Build: {
 		std::string_view reason;
-		if (!CanBuildLairAt(currentTool.index, tile, &reason)) {
+		if (!CanBuildAt(currentTool.index, tile, &reason)) {
 			SetFeedback(std::string(reason));
 			return;
 		}
-		RequestBuildLair(currentTool.index, tile);
+		RequestBuild(currentTool.index, tile);
+		return;
+	}
+	case ToolType::Bait: {
+		std::string_view reason;
+		if (!CanPlaceBaitAt(tile, &reason)) {
+			SetFeedback(std::string(reason));
+			return;
+		}
+		RequestPlaceBait(tile);
+		return;
+	}
+	case ToolType::LockDoor: {
+		std::string_view reason;
+		if (!CanLockDoorAt(tile, &reason)) {
+			SetFeedback(std::string(reason));
+			return;
+		}
+		RequestLockDoor(FindDoorAt(tile)->position);
 		return;
 	}
 	case ToolType::Spell: {
@@ -451,8 +536,9 @@ void UpdateCamera()
 		return;
 
 	// Screen pixels -> world tiles. One world step +x is (+32, +16) px on screen, +y is (-32, +16) px.
-	const float dsx = sx * CameraSpeed * dt;
-	const float dsy = sy * CameraSpeed * dt;
+	// Zoomed in, the same screen speed covers half the ground.
+	const float dsx = sx * CameraSpeed * dt / static_cast<float>(ZoomFactor());
+	const float dsy = sy * CameraSpeed * dt / static_cast<float>(ZoomFactor());
 	cameraX += dsx / 64.F + dsy / 32.F;
 	cameraY += -dsx / 64.F + dsy / 32.F;
 	ClampCamera();
@@ -508,11 +594,15 @@ bool OnKeyDown(SDL_Keycode key)
 
 	if (key >= SDLK_1 && key <= SDLK_9) {
 		const size_t index = static_cast<size_t>(key - SDLK_1);
-		if (index < NumLairKinds)
-			SelectTool(ToolType::Lair, index);
-		else if (index - NumLairKinds < NumSpellKinds)
-			SelectTool(ToolType::Spell, index - NumLairKinds);
+		if (index < NumBuildKinds)
+			SelectTool(ToolType::Build, index);
 		return true;
+	}
+	for (size_t i = 0; i < NumActionButtons; i++) {
+		if (key == ActionKeys[i]) {
+			SelectActionButton(i);
+			return true;
+		}
 	}
 
 	switch (key) {
@@ -527,7 +617,6 @@ bool OnKeyDown(SDL_Keycode key)
 	case SDLK_RIGHT:
 	// Hero panels have no meaning for the master.
 	case SDLK_I:
-	case SDLK_C:
 	case SDLK_B:
 	case SDLK_Q:
 	case SDLK_Y:
@@ -543,6 +632,14 @@ bool OnKeyDown(SDL_Keycode key)
 		return true;
 	case SDLK_V:
 		CenterCameraOn(State.vault);
+		return true;
+	case SDLK_EQUALS:
+	case SDLK_KP_PLUS:
+		SetZoom(true);
+		return true;
+	case SDLK_MINUS:
+	case SDLK_KP_MINUS:
+		SetZoom(false);
 		return true;
 	case SDLK_ESCAPE:
 		if (currentTool.type != ToolType::None) {
@@ -562,13 +659,13 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 
 	const Rectangle &panel = GetMainPanel();
 	if (MousePosition.y >= panel.position.y) {
-		for (size_t i = 0; i < NumLairKinds; i++) {
-			if (Contains(LairButtonRect(i), MousePosition))
-				SelectTool(ToolType::Lair, i);
+		for (size_t i = 0; i < NumBuildKinds; i++) {
+			if (Contains(BuildButtonRect(i), MousePosition))
+				SelectTool(ToolType::Build, i);
 		}
-		for (size_t i = 0; i < NumSpellKinds; i++) {
-			if (Contains(SpellButtonRect(i), MousePosition))
-				SelectTool(ToolType::Spell, i);
+		for (size_t i = 0; i < NumActionButtons; i++) {
+			if (Contains(ActionButtonRect(i), MousePosition))
+				SelectActionButton(i);
 		}
 		if (Contains(ReadyButtonRect(), MousePosition) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
@@ -587,6 +684,14 @@ bool OnRightMouseDown()
 	return true;
 }
 
+bool OnMouseWheel(int deltaY)
+{
+	if (!IsActive() || deltaY == 0 || gmenu_is_active())
+		return false;
+	SetZoom(deltaY > 0);
+	return true;
+}
+
 void DrawHud(const Surface &out)
 {
 	DrawOverlays(out);
@@ -601,27 +706,23 @@ void DrawHud(const Surface &out)
 	const int left = mainPanel.position.x + 8;
 	const size_t me = MyPlayerId;
 
-	// Left column: phase, wave, vault.
+	// Left column: phase, wave, vault, mana.
 	std::string phaseLine = std::string(PhaseName(State.phase));
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
-	DrawString(out, phaseLine, { { left, top + 6 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves), NumWaves), { { left, top + 22 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 38 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	DrawString(out, phaseLine, { { left, top + 4 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves), NumWaves), { { left, top + 19 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 34 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	const int inFlight = GoldInFlight();
-	const int heroes = LivingHeroCount();
-	DrawString(out, fmt::format("Heroes: {}   Stolen: {}", heroes, inFlight), { { left, top + 54 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
+	DrawString(out, fmt::format("Heroes {}  Stolen {}", LivingHeroCount(), inFlight), { { left, top + 49 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
 
-	// Mana bar.
-	const int manaWidth = 196;
 	const int mana = State.mana[me] / ManaScale;
-	const Rectangle manaRect { { left, top + 72 }, { manaWidth, 10 } };
+	const Rectangle manaRect { { left, top + 68 }, { LeftColumnWidth - 4, 10 } };
 	FillRect(out, manaRect.position.x, manaRect.position.y, manaRect.size.width, manaRect.size.height, PAL16_GRAY + 14);
-	FillRect(out, manaRect.position.x, manaRect.position.y, manaWidth * mana / MaxMana, manaRect.size.height, PAL16_BLUE + 4);
+	FillRect(out, manaRect.position.x, manaRect.position.y, manaRect.size.width * mana / MaxMana, manaRect.size.height, PAL16_BLUE + 4);
 	DrawFrame(out, manaRect, PAL16_GRAY + 8);
-	DrawString(out, fmt::format("Mana {}", mana), { manaRect.position + Displacement { 0, 12 }, { manaWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorBlue });
+	DrawString(out, fmt::format("Mana {}", mana), { manaRect.position + Displacement { 0, 12 }, { LeftColumnWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorBlue });
 
-	// Ready button.
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
 		const Rectangle ready = ReadyButtonRect();
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
@@ -629,24 +730,46 @@ void DrawHud(const Surface &out)
 		DrawString(out, "R: Open the gates", { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
-	// Palette.
-	for (size_t i = 0; i < NumLairKinds; i++) {
-		const LairKind &kind = LairKinds[i];
-		const bool selected = currentTool.type == ToolType::Lair && currentTool.index == i;
-		DrawButton(out, LairButtonRect(i), fmt::format("{} {}", i + 1, kind.name), fmt::format("{}g x{}", kind.cost, kind.count), selected, State.vaultGold >= kind.cost);
+	// Palette: build row (1-6), action row (Z X C F G T).
+	for (size_t i = 0; i < NumBuildKinds; i++) {
+		const BuildInfo &kind = BuildKinds[i];
+		const bool selected = currentTool.type == ToolType::Build && currentTool.index == i;
+		const std::string detail = IsLairKind(i) ? fmt::format("{}g x{}", kind.cost, kind.count) : fmt::format("{}g", kind.cost);
+		DrawButton(out, BuildButtonRect(i), fmt::format("{} {}", i + 1, kind.name), detail, selected, State.vaultGold >= kind.cost);
 	}
-	for (size_t i = 0; i < NumSpellKinds; i++) {
-		const SpellKind &spell = SpellKinds[i];
-		const bool selected = currentTool.type == ToolType::Spell && currentTool.index == i;
-		const bool ready = State.mana[me] >= spell.manaCost * ManaScale && State.spellCooldown[me] == 0;
-		DrawButton(out, SpellButtonRect(i), fmt::format("{} {}", NumLairKinds + i + 1, spell.name), fmt::format("{} mana", spell.manaCost), selected, ready);
+	for (size_t i = 0; i < NumActionButtons; i++) {
+		std::string title;
+		std::string detail;
+		bool selected = false;
+		bool ready = false;
+		if (i < NumSpellKinds) {
+			const SpellKind &spell = SpellKinds[i];
+			title = fmt::format("{} {}", ActionKeyNames[i], spell.name);
+			detail = fmt::format("{} mana", spell.manaCost);
+			selected = currentTool.type == ToolType::Spell && currentTool.index == i;
+			ready = State.mana[me] >= spell.manaCost * ManaScale && State.spellCooldown[me] == 0;
+		} else if (i == NumSpellKinds) {
+			title = fmt::format("{} Lock", ActionKeyNames[i]);
+			detail = fmt::format("{}g", LockDoorCost);
+			selected = currentTool.type == ToolType::LockDoor;
+			ready = State.vaultGold >= LockDoorCost;
+		} else {
+			title = fmt::format("{} Bait", ActionKeyNames[i]);
+			detail = fmt::format("{}g", BaitCost);
+			selected = currentTool.type == ToolType::Bait;
+			ready = State.vaultGold >= BaitCost;
+		}
+		DrawButton(out, ActionButtonRect(i), title, detail, selected, ready);
 	}
 
+	const int paletteX = mainPanel.position.x + PaletteLeft;
 	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {
-		DrawString(out, feedback, { { mainPanel.position.x + PaletteLeft, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+		DrawString(out, feedback, { { paletteX, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
 	} else {
-		DrawString(out, "WASD/edge: move  Space: entrance  V: vault  RMB: cancel", { { mainPanel.position.x + PaletteLeft, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+		DrawString(out, "WASD move  Space entrance  V vault  Wheel zoom", { { paletteX, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	}
+	const std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	DrawString(out, scout, { { paletteX, top + 96 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 
 	if (IsGameOver()) {
 		const bool won = State.phase == Phase::Victory;

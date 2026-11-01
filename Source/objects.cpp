@@ -4296,6 +4296,17 @@ void RedoPlayerVision()
 	}
 }
 
+// [DARK KEEP] Door helpers for the keeper (locked doors, hero door handling).
+void KeeperOperateDoor(Object &door, bool sendflag)
+{
+	OperateDoor(door, sendflag);
+}
+
+bool KeeperIsDoorClosed(const Object &door)
+{
+	return door._oVar4 == DOOR_CLOSED;
+}
+
 void MonstCheckDoors(const Monster &monster)
 {
 	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {

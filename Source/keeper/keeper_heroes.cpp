@@ -16,6 +16,7 @@
 #include "engine/direction.hpp"
 #include "engine/load_cl2.hpp"
 #include "engine/path.h"
+#include "engine/random.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_game.hpp"
 #include "levels/gendung.h"
@@ -72,7 +73,13 @@ struct HeroState {
 	HeroClassKind cls = HeroClassKind::Warrior;
 	int carried = 0;
 	bool champion = false;
+	bool fleeing = false;
+	bool fearRolled = false;
+	uint8_t baitsVisited = 0;
+	uint16_t trapsSeen = 0;
 };
+
+constexpr int BaitSight = 8;
 
 std::array<HeroState, MaxMonsters> Heroes;
 std::array<Point, MaxMonsters> Homes;
@@ -213,9 +220,9 @@ void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
 }
 
-void Announce(std::string_view message)
+void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 {
-	EventPlrMsg(message, UiFlags::ColorRed);
+	EventPlrMsg(message, color);
 }
 
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
@@ -253,10 +260,19 @@ bool IsFreeFloor(Point tile)
 	return InDungeonBounds(tile) && IsTileWalkable(tile) && dMonster[tile.x][tile.y] == 0 && dPlayer[tile.x][tile.y] == 0 && !IsObjectAtPosition(tile);
 }
 
+std::string_view ClassName(const HeroState &hero)
+{
+	return HeroClasses[static_cast<size_t>(hero.cls)].name;
+}
+
 void HeroEscapes(Monster &monster, HeroState &hero)
 {
-	if (hero.carried > 0)
-		Announce(fmt::format("A {} escaped with {} gold!", HeroClasses[static_cast<size_t>(hero.cls)].name, hero.carried));
+	if (hero.carried > 0) {
+		State.goldLost += hero.carried;
+		Announce(fmt::format("A {} escaped with {} gold!", ClassName(hero), hero.carried));
+	} else if (hero.fleeing) {
+		Announce(fmt::format("A terrified {} fled the keep.", ClassName(hero)));
+	}
 	hero = {};
 	M_ClearSquares(monster);
 	monster.hitPoints = 0;
@@ -270,8 +286,120 @@ void HeroSteals(Monster &monster, HeroState &hero)
 		return;
 	State.vaultGold -= amount;
 	hero.carried = amount;
-	Announce(fmt::format("A {} looted {} gold from the vault!", HeroClasses[static_cast<size_t>(hero.cls)].name, amount));
+	Announce(fmt::format("A {} looted {} gold from the vault!", ClassName(hero), amount));
 	KeeperAiDelay(monster, 10);
+}
+
+/** Opens closed doors next to the hero, except the ones the masters locked. Runs on every client. */
+void HeroOpenDoors(const Monster &monster)
+{
+	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
+		Object *door = FindObjectAtPosition(monster.position.tile + dir);
+		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door) || FindLock(door->position) != nullptr)
+			continue;
+		KeeperOperateDoor(*door, false);
+	}
+}
+
+/** If a locked door blocks the way along the field, hammer at it. */
+bool TryBashLockedDoor(Monster &monster, HeroState &hero, const DistanceField &field)
+{
+	const Point position = monster.position.tile;
+	const uint16_t here = FieldAt(field, position);
+	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
+		const Point tile = position + dir;
+		if (FieldAt(field, tile) >= here)
+			continue;
+		Object *door = FindObjectAtPosition(tile);
+		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door))
+			continue;
+		DoorLock *lock = FindLock(door->position);
+		if (lock == nullptr)
+			continue;
+		monster.enemyPosition = tile;
+		monster.flags |= MFLAG_NO_ENEMY; // swing at the door, not at a monster
+		KeeperStartMeleeAttack(monster);
+		lock->strength -= hero.cls == HeroClassKind::Warrior ? 3 : 1;
+		if (lock->strength <= 0) {
+			lock->active = false;
+			KeeperOperateDoor(*door, false);
+			Announce(fmt::format("A {} smashed through a locked door!", ClassName(hero)));
+		}
+		return true;
+	}
+	return false;
+}
+
+/** Greedy heroes detour to treasure piles they can see. @return true if the hero acted. */
+bool TryGoForBait(Monster &monster, HeroState &hero)
+{
+	if (hero.carried != 0 || hero.fleeing || hero.cls == HeroClassKind::Sorcerer)
+		return false;
+	const Point position = monster.position.tile;
+	int best = -1;
+	int bestDistance = 0;
+	for (size_t i = 0; i < MaxBaits; i++) {
+		const Bait &bait = State.baits[i];
+		if (!bait.active || (hero.baitsVisited & (1U << i)) != 0)
+			continue;
+		const int distance = position.WalkingDistance(bait.position);
+		if (distance > BaitSight || !LineClearMissile(position, bait.position))
+			continue;
+		if (best == -1 || distance < bestDistance) {
+			best = static_cast<int>(i);
+			bestDistance = distance;
+		}
+	}
+	if (best == -1)
+		return false;
+	Bait &bait = State.baits[best];
+	if (bestDistance <= 1) {
+		hero.baitsVisited |= static_cast<uint8_t>(1U << best);
+		if (--bait.uses <= 0)
+			bait.active = false;
+		Announce(fmt::format("A {} wastes time on fool's gold.", ClassName(hero)), UiFlags::ColorGold);
+		KeeperAiDelay(monster, 40);
+		return true;
+	}
+	if (StepTowards(monster, GetDirection(position, bait.position)))
+		return true;
+	hero.baitsVisited |= static_cast<uint8_t>(1U << best); // can't reach it: give up on this pile
+	return false;
+}
+
+/** Badly hurt heroes may lose their nerve (once): they drop any loot and run for the exit. */
+void CheckFear(const Monster &monster, HeroState &hero)
+{
+	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * 4 >= monster.maxHitPoints)
+		return;
+	hero.fearRolled = true;
+	if (GenerateRnd(100) >= 60)
+		return;
+	hero.fleeing = true;
+	if (hero.carried > 0) {
+		AddVaultGold(hero.carried);
+		Announce(fmt::format("A {} drops {} gold and flees in terror!", ClassName(hero), hero.carried), UiFlags::ColorGold);
+		hero.carried = 0;
+	} else {
+		Announce(fmt::format("A {} flees in terror!", ClassName(hero)), UiFlags::ColorGold);
+	}
+}
+
+/** Rogues spot traps near them and may disarm them (one roll per trap). */
+void RogueCheckTraps(const Monster &monster, HeroState &hero)
+{
+	if (hero.cls != HeroClassKind::Rogue)
+		return;
+	for (size_t i = 0; i < MaxTraps; i++) {
+		Trap &trap = State.traps[i];
+		if (!trap.active || (hero.trapsSeen & (1U << i)) != 0 || monster.position.tile.WalkingDistance(trap.position) > 3)
+			continue;
+		hero.trapsSeen |= static_cast<uint16_t>(1U << i);
+		if (GenerateRnd(100) < 50) {
+			trap.active = false;
+			Announce("A Rogue disarmed one of your Fire Traps!");
+		}
+	}
 }
 
 } // namespace
@@ -359,8 +487,10 @@ bool InitHeroGFX(CMonster &monsterType)
 
 void AddHeroMonsterTypes()
 {
-	for (const LairKind &kind : LairKinds)
-		(void)AddMonsterType(kind.type, PLACE_SPECIAL);
+	for (size_t i = 0; i < NumBuildKinds; i++) {
+		if (IsLairKind(i))
+			(void)AddMonsterType(BuildKinds[i].type, PLACE_SPECIAL);
+	}
 	for (const _monster_id type : HeroMonsterIds)
 		(void)AddMonsterType(type, PLACE_SPECIAL);
 }
@@ -391,9 +521,9 @@ void OnMonsterDeath(Monster &monster)
 		return;
 	HeroState &hero = Heroes[id];
 	const int bounty = 20 + 5 * State.wave;
-	State.vaultGold += hero.carried + bounty;
+	AddVaultGold(std::max(hero.carried, 0) + bounty);
 	if (hero.carried > 0)
-		Announce(fmt::format("Recovered {} stolen gold!", hero.carried));
+		Announce(fmt::format("Recovered {} stolen gold!", hero.carried), UiFlags::ColorGold);
 	hero = {};
 }
 
@@ -442,9 +572,11 @@ void HeroAi(Monster &monster)
 	if (!hero.active)
 		return;
 
-	MonstCheckDoors(monster);
+	HeroOpenDoors(monster);
+	CheckFear(monster, hero);
+	RogueCheckTraps(monster, hero);
 
-	if ((monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
+	if (!hero.fleeing && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
 		const Monster &enemy = Monsters[monster.enemy];
 		if (IsAliveMonster(enemy)) {
 			monster.enemyPosition = enemy.position.tile;
@@ -472,7 +604,9 @@ void HeroAi(Monster &monster)
 	}
 
 	// No fight: go about the heist.
-	if (hero.carried == 0) {
+	if (hero.carried == 0 && !hero.fleeing) {
+		if (TryGoForBait(monster, hero))
+			return;
 		if (FieldAt(ToVault, monster.position.tile) <= 1) {
 			if (State.vaultGold > 0) {
 				HeroSteals(monster, hero);
@@ -482,6 +616,8 @@ void HeroAi(Monster &monster)
 			}
 			return;
 		}
+		if (TryBashLockedDoor(monster, hero, ToVault))
+			return;
 		if (!FollowField(monster, ToVault))
 			KeeperAiDelay(monster, 5);
 		return;
@@ -491,8 +627,27 @@ void HeroAi(Monster &monster)
 		HeroEscapes(monster, hero);
 		return;
 	}
+	if (TryBashLockedDoor(monster, hero, ToEntrance))
+		return;
 	if (!FollowField(monster, ToEntrance))
 		KeeperAiDelay(monster, 5);
+}
+
+std::string DescribeWave(uint8_t wave)
+{
+	const std::vector<HeroClassKind> party = PartyForWave(wave);
+	std::array<int, NumHeroClasses> counts {};
+	for (const HeroClassKind cls : party)
+		counts[static_cast<size_t>(cls)]++;
+	std::string text = wave >= NumWaves ? "Champions: " : "Next raid: ";
+	bool first = true;
+	for (size_t i = 0; i < NumHeroClasses; i++) {
+		if (counts[i] == 0)
+			continue;
+		text += fmt::format("{}{} {}{}", first ? "" : ", ", counts[i], HeroClasses[i].name, counts[i] > 1 ? "s" : "");
+		first = false;
+	}
+	return text;
 }
 
 void LeashMonsters()

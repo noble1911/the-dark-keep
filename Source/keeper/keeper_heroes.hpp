@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 #include "tables/monstdat.h"
@@ -77,6 +78,9 @@ int GoldInFlight();
 int LivingHeroCount();
 
 std::string_view HeroTitle(const Monster &monster);
+
+/** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
+std::string DescribeWave(uint8_t wave);
 
 /** Recomputes the vault/entrance distance fields (after level load, or when doors change). */
 void RebuildPaths();

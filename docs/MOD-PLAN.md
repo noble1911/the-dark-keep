@@ -145,8 +145,8 @@ Diablo click-to-move/attack controls (Mana drain per second).
 | M1 — Master view: no hero, free camera, HUD, fixed-seed Cathedral 1 | ✅ done (2026-11-01) |
 | M2 — Place lairs + cast spells at cursor, all via net commands | ✅ done (2026-11-01) |
 | M3 — Hero AI spike: one party walks to the vault, fights, loots, escapes | ✅ done (2026-11-01) — heroes are monsters wearing player-class sprites (option a) |
-| M4 — Raid loop: setup timer, scout card, waves, breathers, win/lose | ⬜ |
-| M5 — Traps, doors, bait, hero fear; mid-raid build rules | ⬜ |
+| M4 — Raid loop: setup timer, scout card, waves, breathers, win/lose | ✅ done (2026-11-01) |
+| M5 — Traps, doors, bait, hero fear; mid-raid build rules | ✅ done (2026-11-01) |
 | M6 — 2-client co-op test | ⬜ |
 | M7 — Possession | ⬜ |
 

@@ -75,6 +75,12 @@ bool OnLeftMouseDown(uint16_t modState);
 /** @return true if the click was consumed by the keeper controls. */
 bool OnRightMouseDown();
 
+/** Mouse wheel zooms the keep view in/out. @return true if consumed. */
+bool OnMouseWheel(int deltaY);
+
+/** Mouse wheel zooms the keep view in/out. @return true if consumed. */
+bool OnMouseWheel(int deltaY);
+
 /** @brief Draws the master HUD over the main panel area. */
 void DrawHud(const Surface &out);
 
