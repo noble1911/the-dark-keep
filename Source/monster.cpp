@@ -4344,7 +4344,12 @@ void ProcessMonsters()
 
 		while (true) {
 			if ((monster.flags & MFLAG_SEARCH) == 0 || !AiPlanPath(monster)) {
-				AiProc[static_cast<int8_t>(monster.ai)](monster);
+				if (keeper::IsActive() && keeper::IsPossessed(monster)) // [DARK KEEP] a master is in control
+					keeper::PossessedAi(monster);
+				else if (keeper::IsActive() && keeper::ShouldGuard(monster)) // [DARK KEEP] idle keep monsters hold their lair
+					keeper::GuardAi(monster);
+				else
+					AiProc[static_cast<int8_t>(monster.ai)](monster);
 			}
 
 			if (!UpdateModeStance(monster))

@@ -517,6 +517,10 @@ void OnMonsterInit(Monster &monster)
 void OnMonsterDeath(Monster &monster)
 {
 	const size_t id = monster.getId();
+	for (size_t pid = 0; pid < State.possessed.size(); pid++) {
+		if (State.possessed[pid] == static_cast<int16_t>(id))
+			EndPossession(pid);
+	}
 	if (id >= MaxMonsters || !Heroes[id].active)
 		return;
 	HeroState &hero = Heroes[id];
@@ -529,6 +533,8 @@ void OnMonsterDeath(Monster &monster)
 
 void UpdateEnemy(Monster &monster)
 {
+	if (IsPossessed(monster))
+		return; // the master picks its targets
 	const bool hero = IsHero(monster);
 	const Point position = monster.position.tile;
 	const Point anchor = hero ? position : Homes[monster.getId()];
@@ -633,6 +639,112 @@ void HeroAi(Monster &monster)
 		KeeperAiDelay(monster, 5);
 }
 
+namespace {
+
+struct Order {
+	bool hasDestination = false;
+	Point destination;
+	int target = -1;
+};
+std::array<Order, 4> Orders;
+std::array<DistanceField, 4> OrderFields;
+
+std::optional<size_t> PossessorOf(const Monster &monster)
+{
+	for (size_t pid = 0; pid < State.possessed.size(); pid++) {
+		if (State.possessed[pid] == static_cast<int16_t>(monster.getId()))
+			return pid;
+	}
+	return std::nullopt;
+}
+
+bool IsRangedKeepMonster(const Monster &monster)
+{
+	return monster.data().ai == MonsterAIID::SkeletonRanged;
+}
+
+} // namespace
+
+bool CanPossess(const Monster &monster)
+{
+	return IsAliveMonster(monster) && !IsHero(monster) && monster.type().type != MT_GOLEM && !IsPossessed(monster);
+}
+
+bool IsPossessed(const Monster &monster)
+{
+	return PossessorOf(monster).has_value();
+}
+
+void SetOrder(size_t playerId, Point tile, int targetMonster)
+{
+	if (playerId >= Orders.size() || State.possessed[playerId] < 0)
+		return;
+	Order &order = Orders[playerId];
+	order.target = (targetMonster >= 0 && static_cast<size_t>(targetMonster) < MaxMonsters) ? targetMonster : -1;
+	order.hasDestination = order.target < 0 && InDungeonBounds(tile);
+	order.destination = tile;
+	if (order.hasDestination)
+		BuildField(OrderFields[playerId], tile);
+}
+
+void ClearOrder(size_t playerId)
+{
+	if (playerId < Orders.size())
+		Orders[playerId] = {};
+}
+
+void EndPossession(size_t playerId)
+{
+	if (playerId >= State.possessed.size() || State.possessed[playerId] < 0)
+		return;
+	Monster &monster = Monsters[State.possessed[playerId]];
+	State.possessed[playerId] = -1;
+	ClearOrder(playerId);
+	// Back to its lair duties: forget the master's target, guard from where it stands.
+	monster.flags |= MFLAG_NO_ENEMY;
+	if (monster.getId() < MaxMonsters)
+		Homes[monster.getId()] = monster.position.tile;
+}
+
+void PossessedAi(Monster &monster)
+{
+	if (monster.mode != MonsterMode::Stand)
+		return;
+	const std::optional<size_t> pid = PossessorOf(monster);
+	if (!pid)
+		return;
+	Order &order = Orders[*pid];
+	const Point position = monster.position.tile;
+
+	if (order.target >= 0) {
+		const Monster &target = Monsters[order.target];
+		if (!IsAliveMonster(target) || !AreHostile(monster, target)) {
+			order.target = -1;
+		} else {
+			monster.enemy = static_cast<uint8_t>(order.target);
+			monster.flags &= ~MFLAG_NO_ENEMY;
+			monster.flags |= MFLAG_TARGETS_MONSTER;
+			monster.enemyPosition = target.position.tile;
+			const int distance = position.WalkingDistance(target.position.tile);
+			if (IsRangedKeepMonster(monster) && distance <= 7 && LineClearMissile(position, target.position.tile)) {
+				KeeperStartRangedAttack(monster, MissileID::Arrow, 4);
+				return;
+			}
+			if (distance < 2) {
+				KeeperStartMeleeAttack(monster);
+				return;
+			}
+			StepTowards(monster, GetDirection(position, target.position.tile));
+			return;
+		}
+	}
+
+	if (order.hasDestination) {
+		if (FieldAt(OrderFields[*pid], position) == 0 || !FollowField(monster, OrderFields[*pid]))
+			order.hasDestination = false;
+	}
+}
+
 std::string DescribeWave(uint8_t wave)
 {
 	const std::vector<HeroClassKind> party = PartyForWave(wave);
@@ -654,7 +766,7 @@ void LeashMonsters()
 {
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		Monster &monster = Monsters[ActiveMonsters[i]];
-		if (!IsAliveMonster(monster) || IsHero(monster) || monster.mode != MonsterMode::Stand)
+		if (!IsAliveMonster(monster) || IsHero(monster) || IsPossessed(monster) || monster.mode != MonsterMode::Stand)
 			continue;
 		if ((monster.flags & MFLAG_NO_ENEMY) == 0)
 			continue;
@@ -663,6 +775,20 @@ void LeashMonsters()
 			continue;
 		StepTowards(monster, GetDirection(monster.position.tile, home));
 	}
+}
+
+bool ShouldGuard(const Monster &monster)
+{
+	return !IsHero(monster) && (monster.flags & MFLAG_NO_ENEMY) != 0 && monster.type().type != MT_GOLEM;
+}
+
+void GuardAi(Monster &monster)
+{
+	if (monster.mode != MonsterMode::Stand)
+		return;
+	const Point home = Homes[monster.getId()];
+	if (monster.position.tile.WalkingDistance(home) > 1)
+		StepTowards(monster, GetDirection(monster.position.tile, home));
 }
 
 void ResetHeroes()

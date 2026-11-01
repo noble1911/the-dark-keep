@@ -148,7 +148,7 @@ Diablo click-to-move/attack controls (Mana drain per second).
 | M4 — Raid loop: setup timer, scout card, waves, breathers, win/lose | ✅ done (2026-11-01) |
 | M5 — Traps, doors, bait, hero fear; mid-raid build rules | ✅ done (2026-11-01) |
 | M6 — 2-client co-op test | ✅ done (2026-11-01) — host + client over TCP on one machine: builds from either master, raids, theft, tribute and phases stay in step |
-| M7 — Possession | ⬜ |
+| M7 — Possession | ✅ done (2026-11-01) — E over a keep monster: click to move/attack heroes, 10 mana + 2/s, E/Esc releases (it then guards where it stands) |
 
 ## Co-op notes (M6, 2026-11-01)
 

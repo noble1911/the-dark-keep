@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 
+#include "engine/point.hpp"
 #include "tables/monstdat.h"
 
 namespace devilution {
@@ -56,6 +57,10 @@ void HeroAi(Monster &monster);
 /** Keep monsters that lost their target drift back towards their lair. */
 void LeashMonsters();
 
+/** A keep monster with nothing to fight: it guards its lair instead of running its stock AI. */
+bool ShouldGuard(const Monster &monster);
+void GuardAi(Monster &monster);
+
 void ResetHeroes();
 
 /** Host: queues the party for a wave. */
@@ -84,6 +89,17 @@ std::string DescribeWave(uint8_t wave);
 
 /** Recomputes the vault/entrance distance fields (after level load, or when doors change). */
 void RebuildPaths();
+
+// ---- possession -----------------------------------------------------------
+
+/** One of the keep's own monsters, alive, not already possessed. */
+bool CanPossess(const Monster &monster);
+bool IsPossessed(const Monster &monster);
+/** Replaces the monster's own AI while a master is in control. */
+void PossessedAi(Monster &monster);
+void SetOrder(size_t playerId, Point tile, int targetMonster);
+void ClearOrder(size_t playerId);
+void EndPossession(size_t playerId);
 
 } // namespace keeper
 } // namespace devilution

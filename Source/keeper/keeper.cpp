@@ -81,6 +81,8 @@ struct Tool {
 
 Tool currentTool;
 
+const Monster *MyPossessed();
+
 /** Feedback line shown above the palette (e.g. why a placement failed). */
 std::string feedback;
 uint32_t feedbackUntil = 0;
@@ -350,6 +352,13 @@ void DrawOverlays(const Surface &out)
 		DrawWorldLabel(out, monster.position.tile, fmt::format("{} {}%", HeroTitle(monster), hpPercent), UiFlags::ColorWhite, 64);
 	}
 
+	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
+		DrawTileDiamond(out, possessed->position.tile, PAL16_ORANGE + 4);
+		if (pcursmonst >= 0 && IsHero(Monsters[pcursmonst]))
+			DrawTileDiamond(out, Monsters[pcursmonst].position.tile, PAL16_RED + 2);
+		return;
+	}
+
 	std::string_view reason;
 	bool ok = true;
 	switch (currentTool.type) {
@@ -395,6 +404,30 @@ void SelectActionButton(size_t i)
 bool IsGameOver()
 {
 	return State.phase == Phase::Victory || State.phase == Phase::Defeat;
+}
+
+const Monster *MyPossessed()
+{
+	const int16_t id = State.possessed[MyPlayerId];
+	return id >= 0 ? &Monsters[id] : nullptr;
+}
+
+void TogglePossession()
+{
+	if (MyPossessed() != nullptr) {
+		RequestRelease();
+		return;
+	}
+	if (pcursmonst < 0 || !CanPossess(Monsters[pcursmonst])) {
+		SetFeedback("Point at one of your monsters to possess it");
+		return;
+	}
+	if (State.mana[MyPlayerId] < PossessManaCost * ManaScale) {
+		SetFeedback("Not enough mana");
+		return;
+	}
+	currentTool = {};
+	RequestPossess(static_cast<size_t>(pcursmonst));
 }
 
 void UseToolAt(Point tile)
@@ -520,6 +553,16 @@ void UpdateCamera()
 	const float dt = std::min<uint32_t>(now - lastCameraTicks, 50) / 1000.F;
 	lastCameraTicks = now;
 
+	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
+		// Ride along with the possessed monster.
+		const float follow = std::min(1.F, dt * 8.F);
+		cameraX += (static_cast<float>(possessed->position.tile.x) - cameraX) * follow;
+		cameraY += (static_cast<float>(possessed->position.tile.y) - cameraY) * follow;
+		ClampCamera();
+		ViewPosition = { static_cast<int>(std::lround(cameraX)), static_cast<int>(std::lround(cameraY)) };
+		return;
+	}
+
 	float sx = 0;
 	float sy = 0;
 	if (CanUseKeyboardCamera()) {
@@ -643,7 +686,14 @@ bool OnKeyDown(SDL_Keycode key)
 	case SDLK_KP_MINUS:
 		SetZoom(false);
 		return true;
+	case SDLK_E:
+		TogglePossession();
+		return true;
 	case SDLK_ESCAPE:
+		if (MyPossessed() != nullptr) {
+			RequestRelease();
+			return true;
+		}
 		if (currentTool.type != ToolType::None) {
 			currentTool = {};
 			return true;
@@ -674,6 +724,11 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		return true;
 	}
 
+	if (MyPossessed() != nullptr) {
+		const bool attack = pcursmonst >= 0 && IsHero(Monsters[pcursmonst]);
+		RequestOrder(cursPosition, attack ? pcursmonst : -1);
+		return true;
+	}
 	UseToolAt(cursPosition);
 	return true;
 }
@@ -770,7 +825,11 @@ void DrawHud(const Surface &out)
 	} else {
 		DrawString(out, "WASD move  Space entrance  V vault  Wheel zoom", { { paletteX, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	}
-	const std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress  -  E: possess a monster", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
+		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
+		scout = fmt::format("Possessing {} ({}%)  click: move/attack  E: release", possessed->name(), hp);
+	}
 	DrawString(out, scout, { { paletteX, top + 96 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 
 	if (IsGameOver()) {

@@ -141,6 +141,8 @@ struct KeepState {
 	std::array<Trap, MaxTraps> traps {};
 	std::array<DoorLock, MaxLocks> locks {};
 	std::array<Bait, MaxBaits> baits {};
+	/** Monster id each master is possessing (-1 = none). */
+	std::array<int16_t, 4> possessed { -1, -1, -1, -1 };
 	/** Where heroes arrive (up-stairs) and where the treasure vault stands (down-stairs). */
 	Point entrance;
 	Point vault;
@@ -172,6 +174,12 @@ void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
 void RequestCastSpell(size_t spell, Point tile);
 void RequestStartRaid();
+void RequestPossess(size_t monsterId);
+void RequestRelease();
+/** Possessed monster: walk to `tile`, or attack `targetMonster` (-1 = just walk). */
+void RequestOrder(Point tile, int targetMonster);
+
+constexpr int PossessManaCost = 10;
 
 /** Handles CMD_KEEPER / CMD_KEEPER_STATE. @return bytes consumed */
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);

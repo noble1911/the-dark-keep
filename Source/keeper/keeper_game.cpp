@@ -64,6 +64,8 @@ constexpr int TrapRearmTicks = 8 * TicksPerSecond;
 constexpr int LockStrength = 12;
 constexpr int BaitUses = 3;
 constexpr int StateBroadcastInterval = TicksPerSecond;
+/** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
+constexpr int PossessDrainPerTick = 10;
 
 enum class Action : uint8_t {
 	RequestBuild = 1,
@@ -74,6 +76,9 @@ enum class Action : uint8_t {
 	DoorLocked,
 	RequestBait,
 	BaitPlaced,
+	Possess,
+	Release,
+	Order,
 };
 
 #pragma pack(push, 1)
@@ -483,6 +488,17 @@ void GameTick()
 	if (State.phaseTicks > 0)
 		State.phaseTicks--;
 
+	// Possession drains mana (2/s net); an empty pool breaks the link. Every client runs this.
+	for (size_t i = 0; i < State.possessed.size(); i++) {
+		if (State.possessed[i] < 0)
+			continue;
+		State.mana[i] -= ManaRegenPerTick + PossessDrainPerTick;
+		if (State.mana[i] <= 0) {
+			State.mana[i] = 0;
+			EndPossession(i);
+		}
+	}
+
 	if (IsSiegeOver())
 		return;
 
@@ -635,6 +651,21 @@ void RequestStartRaid()
 	Send(Action::RequestStartRaid);
 }
 
+void RequestPossess(size_t monsterId)
+{
+	Send(Action::Possess, 0, 0, {}, static_cast<uint16_t>(monsterId));
+}
+
+void RequestRelease()
+{
+	Send(Action::Release);
+}
+
+void RequestOrder(Point tile, int targetMonster)
+{
+	Send(Action::Order, 0, 0, tile, static_cast<uint16_t>(targetMonster + 1));
+}
+
 void AddVaultGold(int amount)
 {
 	State.vaultGold += amount;
@@ -695,6 +726,23 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::BaitPlaced:
 		ApplyBaitPlaced(message.a, tile);
+		break;
+	case Action::Possess: {
+		const size_t pid = player.getId();
+		const size_t monsterId = Swap16LE(message.w);
+		if (monsterId < MaxMonsters && CanPossess(Monsters[monsterId]) && State.mana[pid] >= PossessManaCost * ManaScale) {
+			EndPossession(pid);
+			State.mana[pid] -= PossessManaCost * ManaScale;
+			State.possessed[pid] = static_cast<int16_t>(monsterId);
+			ClearOrder(pid);
+		}
+		break;
+	}
+	case Action::Release:
+		EndPossession(player.getId());
+		break;
+	case Action::Order:
+		SetOrder(player.getId(), tile, static_cast<int>(Swap16LE(message.w)) - 1);
 		break;
 	}
 	return sizeof(message);
