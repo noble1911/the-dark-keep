@@ -147,7 +147,7 @@ bool mainmenu_select_hero_dialog(GameData *gameData)
 	if (demo::IsRunning()) {
 		pfile_ui_set_hero_infos(DummyGetHeroInfo);
 		gbLoadGame = true;
-	} else if (keeper::AutoStart && !gbIsMultiplayer) {
+	} else if ((keeper::AutoStart && !gbIsMultiplayer) || (keeper::AutoNet != keeper::AutoNetMode::None && gbIsMultiplayer)) {
 		SelectAutoStartHero();
 		gameData->nDifficulty = DIFF_NORMAL;
 		gbLoadGame = false;
@@ -203,6 +203,8 @@ void mainmenu_loop()
 		_mainmenu_selections menu = MAINMENU_NONE;
 		if (demo::IsRunning() || keeper::AutoStart)
 			menu = MAINMENU_SINGLE_PLAYER;
+		else if (keeper::AutoNet != keeper::AutoNetMode::None)
+			menu = MAINMENU_MULTIPLAYER;
 		else if (!UiMainMenuDialog(gszProductName, &menu, 30))
 			app_fatal(_("Unable to display mainmenu"));
 
@@ -214,7 +216,7 @@ void mainmenu_loop()
 				done = true;
 			break;
 		case MAINMENU_MULTIPLAYER:
-			if (!InitMultiPlayerMenu())
+			if (!InitMultiPlayerMenu() || keeper::AutoNet != keeper::AutoNetMode::None)
 				done = true;
 			break;
 		case MAINMENU_ATTRACT_MODE:

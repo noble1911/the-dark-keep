@@ -1161,6 +1161,14 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-autostart") { // [DARK KEEP] dev/test: straight into a single-player keep
 			keeper::AutoStart = true;
 			gbShowIntro = false;
+		} else if (arg == "--keeper-host") { // [DARK KEEP] dev/test: host a co-op keep over TCP
+			keeper::AutoNet = keeper::AutoNetMode::Host;
+			gbShowIntro = false;
+		} else if (arg == "--keeper-join") { // [DARK KEEP] dev/test: join a co-op keep over TCP
+			keeper::AutoNet = keeper::AutoNetMode::Join;
+			gbShowIntro = false;
+			if (i + 1 < argc)
+				CopyUtf8(keeper::AutoJoinAddress, argv[++i], sizeof(keeper::AutoJoinAddress));
 		} else if (arg == "-n") {
 			gbShowIntro = false;
 		} else if (arg == "-f") {

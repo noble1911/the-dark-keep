@@ -181,8 +181,38 @@ bool IsPlacementCrowded(Point tile)
 	return false;
 }
 
+int TributeFor(uint8_t wave)
+{
+	return 100 + 25 * wave;
+}
+
+/** Runs on every client when the phase changes (locally on the host, from the snapshot elsewhere). */
+void AnnouncePhase(Phase from, Phase to)
+{
+	if (from == to)
+		return;
+	switch (to) {
+	case Phase::Raid:
+		Announce(State.wave >= NumWaves ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
+		break;
+	case Phase::Breather:
+		if (State.wave > 1)
+			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
+		break;
+	case Phase::Victory:
+		Announce("The keep stands! Every raid has been repelled.");
+		break;
+	case Phase::Defeat:
+		Announce("The vault is empty. The heroes have won.", UiFlags::ColorRed);
+		break;
+	case Phase::Setup:
+		break;
+	}
+}
+
 void SetPhase(Phase phase)
 {
+	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
 	switch (phase) {
 	case Phase::Setup:
@@ -245,13 +275,12 @@ void StartRaid()
 
 void EndRaid()
 {
-	const int tribute = 100 + 25 * State.wave;
+	const int tribute = TributeFor(State.wave);
 	if (State.wave >= NumWaves) {
 		SetPhase(Phase::Victory);
 		return;
 	}
 	State.vaultGold += tribute;
-	Announce(fmt::format("Raid {} repelled! The dark lands pay {} gold in tribute.", State.wave, tribute));
 	State.wave++;
 	for (Trap &trap : State.traps)
 		trap.cooldown = 0;
@@ -618,8 +647,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			return maxCmdSize;
 		const auto &message = *reinterpret_cast<const TCmdKeeperState *>(cmd);
 		if (&player != MyPlayer && !IsHost()) {
-			State.phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
+			const Phase phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
 			State.wave = message.wave;
+			AnnouncePhase(State.phase, phase);
+			State.phase = phase;
 			State.phaseTicks = static_cast<int>(Swap32LE(message.phaseTicks));
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));

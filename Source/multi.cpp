@@ -554,6 +554,29 @@ bool InitMulti(GameData *gameData)
 
 	int playerId;
 
+	// [DARK KEEP] Dev/test co-op: host or join a TCP game without the menus.
+	if (keeper::AutoNet != keeper::AutoNetMode::None) {
+		if (!SNetInitializeProvider(SELCONN_TCP, gameData))
+			return false;
+		RegisterNetEventHandlers();
+		char password[] = "";
+		bool connected = false;
+		if (keeper::AutoNet == keeper::AutoNetMode::Host) {
+			gameData->nDifficulty = DIFF_NORMAL;
+			gameData->nTickRate = 20;
+			GameData gameInitInfo = *gameData;
+			gameInitInfo.swapLE();
+			connected = SNetCreateGame(nullptr, password, reinterpret_cast<char *>(&gameInitInfo), sizeof(gameInitInfo), &playerId);
+		} else {
+			for (int attempt = 0; attempt < 20 && !connected; attempt++) {
+				connected = SNetJoinGame(keeper::AutoJoinAddress, password, &playerId);
+				if (!connected)
+					SDL_Delay(500);
+			}
+		}
+		if (!connected)
+			app_fatal(StrCat("Dark Keep auto-net failed: ", SDL_GetError()));
+	} else {
 	while (true) {
 		if (gbSelectProvider && !UiSelectProvider(gameData)) {
 			return false;
@@ -564,6 +587,7 @@ bool InitMulti(GameData *gameData)
 			break;
 
 		gbSelectProvider = true;
+	}
 	}
 
 	if (static_cast<size_t>(playerId) >= Players.size()) {

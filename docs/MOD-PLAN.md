@@ -147,8 +147,20 @@ Diablo click-to-move/attack controls (Mana drain per second).
 | M3 — Hero AI spike: one party walks to the vault, fights, loots, escapes | ✅ done (2026-11-01) — heroes are monsters wearing player-class sprites (option a) |
 | M4 — Raid loop: setup timer, scout card, waves, breathers, win/lose | ✅ done (2026-11-01) |
 | M5 — Traps, doors, bait, hero fear; mid-raid build rules | ✅ done (2026-11-01) |
-| M6 — 2-client co-op test | ⬜ |
+| M6 — 2-client co-op test | ✅ done (2026-11-01) — host + client over TCP on one machine: builds from either master, raids, theft, tribute and phases stay in step |
 | M7 — Possession | ⬜ |
+
+## Co-op notes (M6, 2026-11-01)
+
+- Dev flags: `--keeper-autostart` (single player), `--keeper-host`, `--keeper-join <ip>`
+  (TCP, skips all menus with a throwaway "Keeper" hero). Two local instances need
+  separate `--config-dir`/`--save-dir`.
+- Windows shows a firewall prompt the first time the exe opens a TCP port; localhost
+  works without allowing it, LAN play needs it allowed.
+- Known gaps: a master joining mid-game does not receive existing lairs/traps/locks/bait
+  (they are event messages, not part of the snapshot); hero AI state (carried gold,
+  fear) is simulated per client and only the vault/phase are authoritative, so rare
+  cosmetic disagreements (e.g. message order) are possible.
 
 ## Research notes (2026-11-01)
 

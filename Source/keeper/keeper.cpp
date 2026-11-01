@@ -41,6 +41,8 @@
 namespace devilution::keeper {
 
 bool AutoStart = false;
+AutoNetMode AutoNet = AutoNetMode::None;
+char AutoJoinAddress[128] = "127.0.0.1";
 
 namespace {
 
@@ -714,7 +716,7 @@ void DrawHud(const Surface &out)
 	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves), NumWaves), { { left, top + 19 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 34 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	const int inFlight = GoldInFlight();
-	DrawString(out, fmt::format("Heroes {}  Stolen {}", LivingHeroCount(), inFlight), { { left, top + 49 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
+	DrawString(out, fmt::format("Heroes {}  Loot {}", LivingHeroCount(), inFlight), { { left, top + 49 }, { LeftColumnWidth, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
 
 	const int mana = State.mana[me] / ManaScale;
 	const Rectangle manaRect { { left, top + 68 }, { LeftColumnWidth - 4, 10 } };

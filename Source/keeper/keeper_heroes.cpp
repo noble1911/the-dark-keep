@@ -683,7 +683,6 @@ void StartWave(uint8_t wave)
 {
 	pendingParty = PartyForWave(wave);
 	spawnCooldown = 0;
-	Announce(wave >= NumWaves ? std::string_view("The champions have come for your gold!") : std::string_view("Heroes approach the keep!"));
 }
 
 RaidStatus UpdateRaid()
