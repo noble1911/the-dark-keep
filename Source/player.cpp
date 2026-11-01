@@ -38,6 +38,8 @@
 #include "headless_mode.hpp"
 #include "help.h"
 #include "inv_iterators.hpp"
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_bots.hpp" // [DARK KEEP]
 #include "levels/tile_properties.hpp"
 #include "levels/trigs.h"
 #include "lighting.h"
@@ -66,6 +68,7 @@ namespace devilution {
 uint8_t MyPlayerId;
 Player *MyPlayer;
 std::vector<Player> Players;
+size_t NetPlayerSlots = 1; // [DARK KEEP]
 Player *InspectPlayer;
 bool MyPlayerIsDead;
 
@@ -533,6 +536,8 @@ bool PlrHitMonst(Player &player, Monster &monster, bool adjacentDamage = false)
 
 	if (!monster.isPossibleToHit())
 		return false;
+	if (keeper::IsActive() && !keeper::PlayerCanHitMonster(player, monster)) // [DARK KEEP] factions
+		return false;
 
 	if (adjacentDamage) {
 		if (player.getCharacterLevel() > 20)
@@ -628,7 +633,7 @@ bool PlrHitMonst(Player &player, Monster &monster, bool adjacentDamage = false)
 	if (adjacentDamage)
 		dam >>= 2;
 
-	if (&player == MyPlayer) {
+	if (keeper::SimulatesLocally(player)) { // [DARK KEEP] bots are simulated on every client
 		if (HasAnyOf(player.pDamAcFlags, ItemSpecialEffectHf::Peril)) {
 			dam2 += player._pIGetHit << 6;
 			if (dam2 >= 0) {
@@ -1141,7 +1146,7 @@ void CheckNewPath(Player &player, bool pmWillBeCalled)
 	Direction d;
 	if (player.walkpath[0] != WALK_NONE) {
 		if (player._pmode == PM_STAND) {
-			if (&player == MyPlayer) {
+			if (keeper::SimulatesLocally(player)) { // [DARK KEEP] bots stop next to their target too
 				if (player.destAction == ACTION_ATTACKMON || player.destAction == ACTION_ATTACKPLR) {
 					if (player.destAction == ACTION_ATTACKMON) {
 						x = std::abs(player.position.future.x - monster->position.future.x);

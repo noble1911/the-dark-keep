@@ -180,7 +180,7 @@ void DrawPartyMemberInfoPanel(const Surface &out)
 
 	for (Player &player : Players) {
 
-		if (!player.plractive || !player.friendlyMode)
+		if (!player.plractive || !player.friendlyMode || player.getId() >= MAX_PLRS) // [DARK KEEP] bots have no portrait
 			continue;
 
 #ifndef _DEBUG

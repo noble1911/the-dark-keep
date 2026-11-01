@@ -915,6 +915,9 @@ public:
 extern DVL_API_FOR_TEST uint8_t MyPlayerId;
 extern DVL_API_FOR_TEST Player *MyPlayer;
 extern DVL_API_FOR_TEST std::vector<Player> Players;
+/** [DARK KEEP] Player slots used by the network (1 in single player, MAX_PLRS in multiplayer).
+ *  Players beyond this are local-simulated bots (see keeper/keeper_bots.hpp). */
+extern DVL_API_FOR_TEST size_t NetPlayerSlots;
 /** @brief What Player items and stats should be displayed? Normally this is identical to MyPlayer but can differ when /inspect was used. */
 extern Player *InspectPlayer;
 /** @brief Do we currently inspect a remote player (/inspect was used)? In this case the (remote) players items and stats can't be modified. */

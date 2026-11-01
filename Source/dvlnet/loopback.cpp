@@ -44,7 +44,7 @@ bool loopback::SNetSendMessage(uint8_t dest, void *data, size_t size)
 
 bool loopback::SNetReceiveTurns(char **data, size_t *size, uint32_t * /*status*/)
 {
-	for (size_t i = 0; i < Players.size(); ++i) {
+	for (size_t i = 0; i < NetPlayerSlots; ++i) {
 		size[i] = 0;
 		data[i] = nullptr;
 	}

@@ -18,12 +18,14 @@
 #include "engine/path.h"
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "missiles.h"
 #include "monster.h"
 #include "objects.h"
+#include "player.h"
 #include "plrmsg.h"
 #include "tables/playerdat.hpp"
 #include "utils/str_cat.hpp"
@@ -66,8 +68,14 @@ constexpr _monster_id BossBaseType = MT_NBLACK;
 
 /** The heroes' way out once the Lord is down. Simulated on every client, like the hero AI. */
 struct PortalState {
+	/** Monster id of a hero monster channelling the portal (-1 = none). */
 	int caster = -1;
+	/** Player id of a bot channelling the portal (-1 = none). */
+	int botCaster = -1;
 	int channel = 0;
+	/** A bot finished channelling and is casting the real Town Portal spell. */
+	bool awaitingBotCast = false;
+	int castTimeout = 0;
 	bool open = false;
 	Point position;
 };
@@ -239,6 +247,8 @@ void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 	EventPlrMsg(message, color);
 }
 
+} // namespace
+
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
 	using enum HeroClassKind;
@@ -259,6 +269,8 @@ std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 		return { Warrior, Warrior, Rogue, Rogue, Sorcerer, Sorcerer };
 	}
 }
+
+namespace {
 
 std::optional<size_t> FindLevelMonsterType(_monster_id type)
 {
@@ -596,6 +608,29 @@ void UpdateEnemy(Monster &monster)
 		}
 	}
 
+	if (!hero) {
+		int bestBot = -1;
+		int bestBotDistance = 0;
+		for (size_t i = 0; i < MaxBots; i++) {
+			const Player &bot = Players[FirstBotId + i];
+			if (!IsLivingBot(bot) || bot.position.tile.WalkingDistance(anchor) > range)
+				continue;
+			const int distance = bot.position.tile.WalkingDistance(position);
+			if (bestBot == -1 || distance < bestBotDistance) {
+				bestBot = static_cast<int>(FirstBotId + i);
+				bestBotDistance = distance;
+			}
+		}
+		if (bestBot != -1 && (best == -1 || bestBotDistance < bestDistance)) {
+			const Player &bot = Players[bestBot];
+			monster.flags &= ~(MFLAG_NO_ENEMY | MFLAG_TARGETS_MONSTER);
+			monster.enemy = static_cast<uint8_t>(bestBot);
+			monster.enemyPosition = bot.position.future;
+			monster.position.last = monster.enemyPosition;
+			return;
+		}
+	}
+
 	if (best == -1) {
 		monster.flags |= MFLAG_NO_ENEMY;
 		return;
@@ -673,8 +708,9 @@ void HeroAi(Monster &monster)
 
 	// No fight while the portal is being opened: guard the caster.
 	if (State.bossDown) {
-		if (Portal.caster >= 0 && monster.position.tile.WalkingDistance(Monsters[Portal.caster].position.tile) > 2)
-			StepTowards(monster, GetDirection(monster.position.tile, Monsters[Portal.caster].position.tile));
+		const std::optional<Point> caster = PortalCasterPosition();
+		if (caster && monster.position.tile.WalkingDistance(*caster) > 2)
+			StepTowards(monster, GetDirection(monster.position.tile, *caster));
 		else
 			KeeperAiDelay(monster, 5);
 		return;
@@ -866,6 +902,7 @@ void ResetHeroes()
 {
 	Heroes.fill({});
 	Portal = {};
+	RemoveAllBots();
 	pendingParty.clear();
 	spawnCooldown = 0;
 	RebuildPaths();
@@ -892,9 +929,14 @@ RaidStatus UpdateRaid()
 			const HeroClassKind cls = pendingParty.front();
 			const std::optional<size_t> typeIndex = FindLevelMonsterType(HeroMonsterIds[static_cast<size_t>(cls)]);
 			const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.entrance, 0, 6);
-			if (typeIndex && tile) {
-				SpawnMonster(*tile, Direction::SouthEast, *typeIndex);
-				pendingParty.erase(pendingParty.begin());
+			if (tile) {
+				if (const std::optional<size_t> slot = FreeBotSlot(); slot) {
+					RequestSpawnBot(*slot, cls, *tile);
+					pendingParty.erase(pendingParty.begin());
+				} else if (typeIndex) {
+					SpawnMonster(*tile, Direction::SouthEast, *typeIndex);
+					pendingParty.erase(pendingParty.begin());
+				}
 			}
 			spawnCooldown = SpawnIntervalTicks;
 		}
@@ -916,7 +958,7 @@ int GoldInFlight()
 		if (Heroes[id].active && Heroes[id].carried > 0 && IsAliveMonster(Monsters[id]))
 			total += Heroes[id].carried;
 	}
-	return total;
+	return total + BotGoldInFlight();
 }
 
 int LivingHeroCount()
@@ -927,7 +969,7 @@ int LivingHeroCount()
 		if (IsHero(monster) && IsAliveMonster(monster))
 			count++;
 	}
-	return count;
+	return count + LivingBotCount();
 }
 
 bool IsBoss(const Monster &monster)
@@ -963,58 +1005,229 @@ void UpdateBoss()
 	SpawnMonster(*tile, Direction::South, *typeIndex);
 }
 
+namespace {
+
+void OpenPortalAt(Point position)
+{
+	Portal.position = position;
+	Portal.open = true;
+	Portal.caster = -1;
+	Portal.botCaster = -1;
+	Portal.awaitingBotCast = false;
+	BuildField(ToPortal, Portal.position);
+	Announce("The heroes opened a portal out of the keep!");
+}
+
+bool IsCasterAlive()
+{
+	if (Portal.botCaster >= 0)
+		return IsLivingBot(Players[Portal.botCaster]);
+	if (Portal.caster >= 0) {
+		const Monster &caster = Monsters[Portal.caster];
+		return IsAliveMonster(caster) && IsHero(caster);
+	}
+	return false;
+}
+
+/** Picks who opens the portal: a real (bot) hero if any is alive, else the hero monster nearest the vault. */
+bool PickPortalCaster()
+{
+	for (size_t i = 0; i < MaxBots; i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (IsLivingBot(bot)) {
+			Portal.botCaster = static_cast<int>(FirstBotId + i);
+			Portal.channel = PortalChannelTicks;
+			Announce(fmt::format("{} begins to open a Town Portal! Kill them!", bot._pName));
+			return true;
+		}
+	}
+	int best = -1;
+	uint16_t bestDistance = Unreachable;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		const Monster &monster = Monsters[id];
+		if (!IsHero(monster) || !IsAliveMonster(monster) || !Heroes[id].active)
+			continue;
+		const uint16_t distance = FieldAt(ToVault, monster.position.tile);
+		if (best == -1 || distance < bestDistance) {
+			best = static_cast<int>(id);
+			bestDistance = distance;
+		}
+	}
+	if (best < 0)
+		return false;
+	Portal.caster = best;
+	Portal.channel = PortalChannelTicks;
+	Announce(fmt::format("A {} begins to open a Town Portal! Kill them!", ClassName(Heroes[best])));
+	return true;
+}
+
+} // namespace
+
 void UpdatePortal()
 {
 	if (!State.bossDown || State.phase != Phase::Raid || Portal.open)
 		return;
-	if (Portal.caster >= 0) {
-		const Monster &caster = Monsters[Portal.caster];
-		if (!IsAliveMonster(caster) || !IsHero(caster)) {
-			Announce("The portal spell was interrupted!", UiFlags::ColorGold);
-			Portal.caster = -1;
-		}
+	if ((Portal.caster >= 0 || Portal.botCaster >= 0) && !IsCasterAlive()) {
+		Announce("The portal spell was interrupted!", UiFlags::ColorGold);
+		Portal.caster = -1;
+		Portal.botCaster = -1;
+		Portal.awaitingBotCast = false;
 	}
-	if (Portal.caster < 0) {
-		// The hero nearest the vault takes up the spell.
-		int best = -1;
-		uint16_t bestDistance = Unreachable;
-		for (size_t i = 0; i < ActiveMonsterCount; i++) {
-			const unsigned id = ActiveMonsters[i];
-			const Monster &monster = Monsters[id];
-			if (!IsHero(monster) || !IsAliveMonster(monster) || !Heroes[id].active)
-				continue;
-			const uint16_t distance = FieldAt(ToVault, monster.position.tile);
-			if (best == -1 || distance < bestDistance) {
-				best = static_cast<int>(id);
-				bestDistance = distance;
-			}
-		}
-		if (best < 0)
-			return;
-		Portal.caster = best;
-		Portal.channel = PortalChannelTicks;
-		Announce(fmt::format("A {} begins to open a Town Portal! Kill them!", ClassName(Heroes[best])));
+	if (Portal.caster < 0 && Portal.botCaster < 0) {
+		PickPortalCaster();
 		return;
 	}
+
+	if (Portal.awaitingBotCast) {
+		// The bot is mid-cast: the portal opens where the real Town Portal missile lands.
+		for (const Missile &missile : Missiles) {
+			if (missile._mitype == MissileID::TownPortal && missile._misource == Portal.botCaster && !missile._miDelFlag) {
+				OpenPortalAt(missile.position.tile);
+				return;
+			}
+		}
+		if (--Portal.castTimeout > 0)
+			return;
+		// The cast fizzled (blocked, interrupted by a hit...): open it by hand.
+		const Point at = Players[Portal.botCaster].position.tile;
+		Missile *missile = AddMissile(at, at, Direction::South, MissileID::TownPortal, TARGET_MONSTERS, -1, 0, 0);
+		OpenPortalAt((missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : at);
+		return;
+	}
+
 	if (--Portal.channel > 0)
 		return;
 
+	if (Portal.botCaster >= 0) {
+		BotCastTownPortal(Players[Portal.botCaster]);
+		Portal.awaitingBotCast = true;
+		Portal.castTimeout = 3 * 20;
+		return;
+	}
 	const Point at = Monsters[Portal.caster].position.tile;
 	Missile *missile = AddMissile(at, at, Direction::South, MissileID::TownPortal, TARGET_MONSTERS, -1, 0, 0);
-	Portal.position = (missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : at;
-	Portal.open = true;
-	Portal.caster = -1;
-	BuildField(ToPortal, Portal.position);
-	Announce("The heroes opened a portal out of the keep!");
+	OpenPortalAt((missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : at);
 }
 
 void ClosePortal()
 {
 	for (Missile &missile : Missiles) {
-		if (missile._mitype == MissileID::TownPortal && missile._misource == -1)
+		if (missile._mitype == MissileID::TownPortal && (missile._misource == -1 || static_cast<size_t>(missile._misource) >= FirstBotId))
 			missile.duration = 0;
 	}
 	Portal = {};
+}
+
+std::optional<Point> PortalCasterPosition()
+{
+	if (Portal.botCaster >= 0)
+		return Players[Portal.botCaster].position.tile;
+	if (Portal.caster >= 0)
+		return Monsters[Portal.caster].position.tile;
+	return std::nullopt;
+}
+
+bool IsPortalCaster(const Player &player)
+{
+	return Portal.botCaster >= 0 && static_cast<size_t>(Portal.botCaster) == player.getId();
+}
+
+uint16_t GoalDistance(HeroGoal goal, Point tile)
+{
+	switch (goal) {
+	case HeroGoal::Vault:
+		return FieldAt(ToVault, tile);
+	case HeroGoal::Entrance:
+		return FieldAt(ToEntrance, tile);
+	case HeroGoal::Portal:
+		return Portal.open ? FieldAt(ToPortal, tile) : Unreachable;
+	}
+	return Unreachable;
+}
+
+std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps)
+{
+	Point at = from;
+	for (int i = 0; i < steps; i++) {
+		const uint16_t here = GoalDistance(goal, at);
+		if (here == 0 || here == Unreachable)
+			break;
+		std::optional<Point> next;
+		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+			const Point candidate = at + dir;
+			if (GoalDistance(goal, candidate) < here && CanStepDiagonal(at, Displacement(dir))) {
+				next = candidate;
+				break;
+			}
+		}
+		if (!next)
+			break;
+		at = *next;
+	}
+	if (at == from)
+		return std::nullopt;
+	return at;
+}
+
+void OpenDoorsAround(Point tile)
+{
+	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
+		Object *door = FindObjectAtPosition(tile + dir);
+		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door) || FindLock(door->position) != nullptr)
+			continue;
+		KeeperOperateDoor(*door, false);
+	}
+}
+
+std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from)
+{
+	const uint16_t here = GoalDistance(goal, from);
+	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
+		const Point tile = from + dir;
+		if (GoalDistance(goal, tile) >= here)
+			continue;
+		Object *door = FindObjectAtPosition(tile);
+		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door) || FindLock(door->position) == nullptr)
+			continue;
+		return tile;
+	}
+	return std::nullopt;
+}
+
+void StrikeLockedDoor(Point tile, int blows, std::string_view who)
+{
+	Object *door = FindObjectAtPosition(tile);
+	if (door == nullptr || !door->isDoor())
+		return;
+	DoorLock *lock = FindLock(door->position);
+	if (lock == nullptr)
+		return;
+	lock->strength -= blows;
+	if (lock->strength <= 0) {
+		lock->active = false;
+		KeeperOperateDoor(*door, false);
+		Announce(fmt::format("{} smashed through a locked door!", who));
+	}
+}
+
+int TakeFromVault(int carryCap)
+{
+	const int amount = std::min(carryCap, State.vaultGold);
+	if (amount <= 0)
+		return 0;
+	State.vaultGold -= amount;
+	return amount;
+}
+
+int CarryCapacity(HeroClassKind cls)
+{
+	return HeroClasses[static_cast<size_t>(cls)].carryCap;
+}
+
+bool IsKeepTarget(const Monster &monster)
+{
+	return IsAliveMonster(monster) && !IsHero(monster) && monster.type().type != MT_GOLEM;
 }
 
 std::optional<Point> PortalPosition()
@@ -1026,8 +1239,10 @@ std::optional<Point> PortalPosition()
 
 int PortalChannelPercent()
 {
-	if (Portal.open || Portal.caster < 0)
+	if (Portal.open || (Portal.caster < 0 && Portal.botCaster < 0))
 		return -1;
+	if (Portal.awaitingBotCast)
+		return 100;
 	return 100 * (PortalChannelTicks - Portal.channel) / PortalChannelTicks;
 }
 

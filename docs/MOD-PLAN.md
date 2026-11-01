@@ -153,7 +153,7 @@ Diablo click-to-move/attack controls (Mana drain per second).
 | M6 — 2-client co-op test | ✅ done (2026-11-01) — host + client over TCP on one machine: builds from either master, raids, theft, tribute and phases stay in step |
 | M7 — Possession | ✅ done (2026-11-01) — E over a keep monster: click to move/attack heroes, 10 mana + 2/s, E/Esc releases (it then guards where it stands) |
 | M8 — Keep Lord + Town Portal win condition | ✅ done (2026-11-01) — boss guards the vault; heroes channel a portal after killing it; escape = defeat |
-| M9 — Real player bots as heroes (4 bot slots after the 4 network slots) | 🚧 in progress |
+| M9 — Real player bots as heroes | ✅ done (2026-11-01) — up to 4 per raid are real Player structs (class sprites, starting gear, melee/bow/Firebolt, potions, real Town Portal) in slots 4–7 after the 4 network slots; extra party members are monster heroes |
 
 ## Co-op notes (M6, 2026-11-01)
 
@@ -166,6 +166,24 @@ Diablo click-to-move/attack controls (Mana drain per second).
   (they are event messages, not part of the snapshot); hero AI state (carried gold,
   fear) is simulated per client and only the vault/phase are authoritative, so rare
   cosmetic disagreements (e.g. message order) are possible.
+
+## Bot heroes (M9, 2026-11-01)
+
+- `Players` holds `MAX_PLRS` network slots plus `keeper::MaxBots` (4) bot slots; the
+  network layer uses `NetPlayerSlots` (1 in single player, 4 in multiplayer) instead of
+  `Players.size()`. `MAXVISION` is 8. So 2 co-op masters + 4 bot heroes fit at once.
+- No client owns a bot: the host sends `SpawnBot`, every client creates it and runs the
+  same AI. Engine "only the owning client applies this" checks use
+  `keeper::SimulatesLocally` (local master or any bot) for melee/missile/monster damage.
+- Factions: bot attacks hit keep monsters (incl. the Lord), not hero monsters; masters'
+  spells hit hero monsters and bots; hero monsters never hurt bots; traps hit bots.
+- Bot AI: fight what they see (Warrior melee, Rogue bow, Sorcerer Firebolt), drink
+  potions under 35% HP, may flee when out of potions, Rogues loot the vault and disarm
+  traps, bash locked doors, and the first living bot channels the real Town Portal.
+- Known gaps: bot fights are simulated per client in co-op (the host snapshot keeps the
+  Lord's HP, phase and boss-down state in step, but a bot could die on one screen a
+  moment before another); bots use class starting gear only (no per-wave equipment yet).
+- Dev flags: `--keeper-start-wave <n>`, `--keeper-lord-hp <n>`.
 
 ## Research notes (2026-11-01)
 

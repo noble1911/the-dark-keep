@@ -26,6 +26,7 @@
 #include "game_mode.hpp"
 #include "gmenu.h"
 #include "init.hpp"
+#include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "levels/dun_tile.hpp"
@@ -42,6 +43,7 @@ namespace devilution::keeper {
 
 bool AutoStart = false;
 int TestLordHitPoints = 0;
+int TestStartWave = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -505,7 +507,7 @@ void OnLevelLoaded()
 	const Point entrance = ViewPosition;
 
 	for (Player &player : Players) {
-		if (player.plractive && player.isOnActiveLevel())
+		if (player.plractive && player.isOnActiveLevel() && !IsBot(player))
 			ParkPlayer(player);
 	}
 
@@ -530,7 +532,7 @@ void Tick()
 
 	// Remote masters arrive later than us; park every body on the keep level, every tick (cheap, idempotent).
 	for (Player &player : Players) {
-		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging)
+		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && !IsBot(player))
 			ParkPlayer(player);
 	}
 	RevealKeep();
@@ -627,9 +629,9 @@ void GrowViewRange(int &rows, int &columns)
 	columns += 2;
 }
 
-bool ShouldDrawPlayer(const Player & /*player*/)
+bool ShouldDrawPlayer(const Player &player)
 {
-	return !IsActive();
+	return !IsActive() || IsBot(player); // masters have no body; bot heroes do
 }
 
 bool CanMonstersTargetPlayers()

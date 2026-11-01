@@ -20,6 +20,7 @@
 
 #include "engine/point.hpp"
 #include "tables/monstdat.h"
+#include "keeper/keeper_heroes.hpp"
 #include "tables/spelldat.h"
 
 namespace devilution {
@@ -182,6 +183,8 @@ void RequestPossess(size_t monsterId);
 void RequestRelease();
 /** Possessed monster: walk to `tile`, or attack `targetMonster` (-1 = just walk). */
 void RequestOrder(Point tile, int targetMonster);
+/** Host: every client brings bot hero `slot` into the keep. */
+void RequestSpawnBot(size_t slot, HeroClassKind cls, Point tile);
 
 constexpr int PossessManaCost = 10;
 

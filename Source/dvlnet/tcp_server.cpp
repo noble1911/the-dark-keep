@@ -46,7 +46,7 @@ tcp_server::scc tcp_server::MakeConnection()
 
 plr_t tcp_server::NextFree()
 {
-	for (plr_t i = 0; i < Players.size(); ++i)
+	for (plr_t i = 0; i < NetPlayerSlots; ++i)
 		if (!connections[i])
 			return i;
 	return PLR_BROADCAST;
@@ -54,7 +54,7 @@ plr_t tcp_server::NextFree()
 
 bool tcp_server::Empty()
 {
-	for (plr_t i = 0; i < Players.size(); ++i)
+	for (plr_t i = 0; i < NetPlayerSlots; ++i)
 		if (connections[i])
 			return false;
 	return true;
@@ -133,7 +133,7 @@ tl::expected<void, PacketError> tcp_server::HandleReceiveNewPlayer(const scc &co
 		game_init_info = **pktInfo;
 	}
 
-	for (plr_t player = 0; player < Players.size(); player++) {
+	for (plr_t player = 0; player < NetPlayerSlots; player++) {
 		if (connections[player]) {
 			tl::expected<void, PacketError> result
 			    = pktfty.make_packet<PT_CONNECT>(PLR_MASTER, PLR_BROADCAST, newplr)
@@ -165,7 +165,7 @@ tl::expected<void, PacketError> tcp_server::HandleReceivePacket(packet &pkt)
 tl::expected<void, PacketError> tcp_server::SendPacket(packet &pkt)
 {
 	if (pkt.Destination() == PLR_BROADCAST) {
-		for (size_t i = 0; i < Players.size(); ++i) {
+		for (size_t i = 0; i < NetPlayerSlots; ++i) {
 			if (i == pkt.Source() || !connections[i])
 				continue;
 			tl::expected<void, PacketError> result = StartSend(connections[i], pkt);

@@ -48,6 +48,7 @@
 #include "utils/log.hpp"
 #include "utils/str_cat.hpp"
 #include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_bots.hpp" // [DARK KEEP]
 
 namespace devilution {
 
@@ -187,7 +188,7 @@ void NetReceivePlayerData(TPkt *pkt)
 
 void CheckPlayerInfoTimeouts()
 {
-	for (uint8_t i = 0; i < Players.size(); i++) {
+	for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 		Player &player = Players[i];
 		if (&player == MyPlayer) {
 			continue;
@@ -240,7 +241,7 @@ void HandleTurnUpperBit(uint8_t pnum)
 {
 	uint8_t i;
 
-	for (i = 0; i < Players.size(); i++) {
+	for (i = 0; i < NetPlayerSlots; i++) {
 		if ((player_state[i] & PS_CONNECTED) != 0 && i != pnum)
 			break;
 	}
@@ -313,7 +314,7 @@ void PlayerLeftMsg(Player &player, bool left)
 
 void ClearPlayerLeftState()
 {
-	for (uint8_t i = 0; i < Players.size(); i++) {
+	for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 		if (sgbPlayerLeftGameTbl[i]) {
 			if (gbBufferMsgs == 1)
 				msg_send_drop_pkt(i, sgdwPlayerLeftReasonTbl[i]);
@@ -328,7 +329,7 @@ void ClearPlayerLeftState()
 
 void CheckDropPlayer()
 {
-	for (uint8_t i = 0; i < Players.size(); i++) {
+	for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 		if ((player_state[i] & PS_ACTIVE) == 0 && (player_state[i] & PS_CONNECTED) != 0) {
 			SNetDropPlayer(i, leaveinfo_t::LEAVE_DROP);
 		}
@@ -525,7 +526,8 @@ void UnregisterNetEventHandlers()
 
 bool InitSingle(GameData *gameData)
 {
-	Players.resize(1);
+	NetPlayerSlots = 1;
+	Players.resize(MAX_PLRS + keeper::MaxBots); // [DARK KEEP] bots live after the network slots
 
 	if (!SNetInitializeProvider(SELCONN_LOOPBACK, gameData)) {
 		return false;
@@ -550,7 +552,8 @@ bool InitSingle(GameData *gameData)
 
 bool InitMulti(GameData *gameData)
 {
-	Players.resize(MAX_PLRS);
+	NetPlayerSlots = MAX_PLRS;
+	Players.resize(MAX_PLRS + keeper::MaxBots); // [DARK KEEP] bots live after the network slots
 
 	int playerId;
 
@@ -590,7 +593,7 @@ bool InitMulti(GameData *gameData)
 	}
 	}
 
-	if (static_cast<size_t>(playerId) >= Players.size()) {
+	if (static_cast<size_t>(playerId) >= NetPlayerSlots) {
 		return false;
 	}
 	MyPlayerId = playerId;
@@ -682,7 +685,7 @@ void multi_send_msg_packet(uint32_t pmask, const std::byte *data, size_t size)
 	pkt.hdr.wLen = Swap16LE(static_cast<uint16_t>(len));
 	memcpy(pkt.body, data, size);
 	uint8_t playerID = 0;
-	for (uint32_t v = 1; playerID < Players.size(); playerID++, v <<= 1) {
+	for (uint32_t v = 1; playerID < NetPlayerSlots; playerID++, v <<= 1) {
 		if ((v & pmask) != 0) {
 			if (!SNetSendMessage(playerID, &pkt.hdr, len)) {
 				nthread_terminate_game("SNetSendMessage");
@@ -694,7 +697,7 @@ void multi_send_msg_packet(uint32_t pmask, const std::byte *data, size_t size)
 
 void multi_msg_countdown()
 {
-	for (uint8_t i = 0; i < Players.size(); i++) {
+	for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 		if ((player_state[i] & PS_TURN_ARRIVED) != 0) {
 			if (gdwMsgLenTbl[i] == sizeof(int32_t))
 				ParseTurn(i, *(int32_t *)glpMsgTbl[i]);
@@ -722,7 +725,7 @@ bool multi_handle_delta()
 		return false;
 	}
 
-	for (uint8_t i = 0; i < Players.size(); i++) {
+	for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 		if (sgbSendDeltaTbl[i]) {
 			sgbSendDeltaTbl[i] = false;
 			DeltaExportData(i);
@@ -769,7 +772,7 @@ void ProcessGameMessagePackets()
 		ClearPlayerLeftState();
 		if (totalPacketSize < sizeof(TPktHdr))
 			continue;
-		if (playerId >= Players.size())
+		if (playerId >= NetPlayerSlots)
 			continue;
 		if (pkt->wCheck != HeaderCheckVal)
 			continue;

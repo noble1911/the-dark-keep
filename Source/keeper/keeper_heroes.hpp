@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "engine/point.hpp"
 #include "tables/monstdat.h"
@@ -18,6 +19,7 @@
 namespace devilution {
 
 struct CMonster;
+struct Player;
 struct Monster;
 
 namespace keeper {
@@ -106,6 +108,31 @@ void ClosePortal();
 std::optional<Point> PortalPosition();
 /** Percent of the portal channel completed (-1 = nobody channelling). */
 int PortalChannelPercent();
+/** Where whoever is channelling the portal stands. */
+std::optional<Point> PortalCasterPosition();
+bool IsPortalCaster(const Player &player);
+
+// ---- shared hero helpers (used by the bot heroes) -------------------------
+enum class HeroGoal : uint8_t {
+	Vault,
+	Entrance,
+	Portal,
+};
+/** Steps to the goal along the hero paths (0xFFFF = unreachable). */
+uint16_t GoalDistance(HeroGoal goal, Point tile);
+/** A tile up to `steps` steps closer to the goal along the hero paths. */
+std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps);
+/** Opens the unlocked closed doors next to a hero. */
+void OpenDoorsAround(Point tile);
+/** A locked, closed door next to `from` on the way to the goal. */
+std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from);
+void StrikeLockedDoor(Point doorTile, int blows, std::string_view who);
+/** Takes up to `carryCap` gold out of the vault. @return the amount taken */
+int TakeFromVault(int carryCap);
+int CarryCapacity(HeroClassKind cls);
+/** A living monster of the keep's side (heroes attack these). */
+bool IsKeepTarget(const Monster &monster);
+std::vector<HeroClassKind> PartyForWave(uint8_t wave);
 
 // ---- possession -----------------------------------------------------------
 

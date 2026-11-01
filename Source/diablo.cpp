@@ -1161,6 +1161,9 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-autostart") { // [DARK KEEP] dev/test: straight into a single-player keep
 			keeper::AutoStart = true;
 			gbShowIntro = false;
+		} else if (arg == "--keeper-start-wave") { // [DARK KEEP] dev/test: begin at a later raid
+			if (i + 1 < argc)
+				keeper::TestStartWave = std::atoi(argv[++i]);
 		} else if (arg == "--keeper-lord-hp") { // [DARK KEEP] dev/test: override the Keep Lord's hit points
 			if (i + 1 < argc)
 				keeper::TestLordHitPoints = std::atoi(argv[++i]);
@@ -1612,7 +1615,7 @@ void TimeoutCursor(bool bTimeout)
 			InfoString = StringOrView {};
 			AddInfoBoxString(_("-- Network timeout --"));
 			AddInfoBoxString(_("-- Waiting for players --"));
-			for (uint8_t i = 0; i < Players.size(); i++) {
+			for (uint8_t i = 0; i < NetPlayerSlots; i++) {
 				bool isConnected = (player_state[i] & PS_CONNECTED) != 0;
 				bool isActive = (player_state[i] & PS_ACTIVE) != 0;
 				if (!isConnected || isActive) continue;

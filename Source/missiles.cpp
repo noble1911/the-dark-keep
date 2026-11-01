@@ -5,6 +5,7 @@
  */
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_game.hpp" // [DARK KEEP]
+#include "keeper/keeper_bots.hpp" // [DARK KEEP]
 #include "missiles.h"
 
 #include <algorithm>
@@ -329,7 +330,7 @@ bool MonsterMHit(const Player &player, Monster &monster, int mindam, int maxdam,
 	if (resist)
 		dam >>= 2;
 
-	if (&player == MyPlayer)
+	if (keeper::SimulatesLocally(player)) // [DARK KEEP] bots are simulated on every client
 		ApplyMonsterDamage(damageType, monster, dam);
 
 	if (monster.hasNoLife()) {
@@ -503,7 +504,7 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 			            ))) {
 				// then the missile can potentially hit this target
 				isMonsterHit = MonsterTrapHit(monster, minDamage, maxDamage, missile._midist, missile._mitype, damageType, isDamageShifted);
-			} else if (IsAnyOf(missile._micaster, TARGET_BOTH, TARGET_MONSTERS) && (!keeper::IsActive() || keeper::IsHero(monster))) { // [DARK KEEP] masters' spells spare their monsters
+			} else if (IsAnyOf(missile._micaster, TARGET_BOTH, TARGET_MONSTERS) && (!keeper::IsActive() || (missile.sourcePlayer() != nullptr && keeper::PlayerCanHitMonster(*missile.sourcePlayer(), monster)))) { // [DARK KEEP] factions
 				isMonsterHit = MonsterMHit(*missile.sourcePlayer(), monster, minDamage, maxDamage, missile._midist, missile._mitype, missile.position.start, damageType, isDamageShifted);
 			}
 		}
@@ -520,12 +521,17 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 	Player *player = PlayerAtPosition(position, !onlyHitWalking.has_value());
 	if (player != nullptr && (onlyHitWalking.has_value() ? (player->isWalking() && CheckCanHitOnlyWalking(missile, player->position, *onlyHitWalking)) : true)) {
 		if (missile._micaster != TARGET_BOTH && !missile.IsTrap()) {
-			if (missile._micaster == TARGET_MONSTERS) {
+			if (missile._micaster == TARGET_MONSTERS && keeper::IsActive()) {
+				// [DARK KEEP] masters' spells hurt bot heroes; bots never hurt each other or the masters.
+				if (keeper::PlayerCanHitPlayer(Players[missile._misource], *player))
+					isPlayerHit = PlayerMHit(*player, nullptr, missile._midist, minDamage, maxDamage, missile._mitype, damageType, isDamageShifted, DeathReason::MonsterOrTrap, &blocked);
+			} else if (missile._micaster == TARGET_MONSTERS) {
 				if (player->getId() != missile._misource)
 					isPlayerHit = Plr2PlrMHit(Players[missile._misource], *player, minDamage, maxDamage, missile._midist, missile._mitype, damageType, isDamageShifted, &blocked);
 			} else {
 				Monster &monster = Monsters[missile._misource];
-				isPlayerHit = PlayerMHit(*player, &monster, missile._midist, minDamage, maxDamage, missile._mitype, damageType, isDamageShifted, DeathReason::MonsterOrTrap, &blocked);
+				if (!keeper::IsActive() || keeper::MonsterCanHitPlayer(monster, *player)) // [DARK KEEP] hero arrows spare bots
+					isPlayerHit = PlayerMHit(*player, &monster, missile._midist, minDamage, maxDamage, missile._mitype, damageType, isDamageShifted, DeathReason::MonsterOrTrap, &blocked);
 			}
 		} else {
 			const DeathReason deathReason = missile.sourceType() == MissileSource::Player ? DeathReason::Player : DeathReason::MonsterOrTrap;
@@ -1189,7 +1195,7 @@ bool PlayerMHit(Player &player, Monster *monster, int dist, int mind, int maxd, 
 
 	if (resper > 0) {
 		dam -= dam * resper / 100;
-		if (&player == MyPlayer) {
+		if (keeper::SimulatesLocally(player)) { // [DARK KEEP]
 			ApplyPlrDamage(damageType, player, 0, 0, dam, deathReason);
 		}
 
@@ -1199,7 +1205,7 @@ bool PlayerMHit(Player &player, Monster *monster, int dist, int mind, int maxd, 
 		return true;
 	}
 
-	if (&player == MyPlayer) {
+	if (keeper::SimulatesLocally(player)) { // [DARK KEEP]
 		ApplyPlrDamage(damageType, player, 0, 0, dam, deathReason);
 	}
 

@@ -107,6 +107,7 @@
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_heroes.hpp" // [DARK KEEP]
 #include "keeper/keeper_game.hpp" // [DARK KEEP]
+#include "keeper/keeper_bots.hpp" // [DARK KEEP]
 #ifdef _DEBUG
 #include "debug.h"
 #endif
@@ -1188,6 +1189,8 @@ void MonsterAttackPlayer(Monster &monster, Player &player, int hit, int minDam, 
 {
 	if (player.hasNoLife() || player._pInvincible || HasAnyOf(player._pSpellFlags, SpellFlag::Etherealize))
 		return;
+	if (keeper::IsActive() && !keeper::MonsterCanHitPlayer(monster, player)) // [DARK KEEP] factions
+		return;
 	if (monster.position.tile.WalkingDistance(player.position.tile) >= 2)
 		return;
 
@@ -1230,7 +1233,7 @@ void MonsterAttackPlayer(Monster &monster, Player &player, int hit, int minDam, 
 	// New method fixes a bug which caused the maximum possible damage value to be 63/64ths too low.
 	int dam = RandomIntBetween(minDam << 6, maxDam << 6);
 	dam = std::max(dam + (player._pIGetHit << 6), 64);
-	if (&player == MyPlayer) {
+	if (keeper::SimulatesLocally(player)) { // [DARK KEEP] bots are simulated on every client
 		if (player.wReflections > 0) {
 			const int reflectedDamage = CheckReflect(monster, player, dam);
 			dam = std::max(dam - reflectedDamage, 0);

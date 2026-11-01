@@ -40,7 +40,7 @@ void ResetChatMessage()
 
 	uint32_t pmask = 0;
 
-	for (size_t i = 0; i < Players.size(); i++) {
+	for (size_t i = 0; i < NetPlayerSlots; i++) {
 		if (WhisperList[i])
 			pmask |= 1 << i;
 	}
@@ -121,7 +121,7 @@ void DrawChatBox(const Surface &out)
 
 	x += 46;
 	int talkBtn = 0;
-	for (size_t i = 0; i < Players.size(); i++) {
+	for (size_t i = 0; i < NetPlayerSlots; i++) {
 		Player &player = Players[i];
 		if (&player == MyPlayer)
 			continue;
@@ -201,11 +201,11 @@ void CheckMuteButtonUp()
 	int off = (MousePosition.y - buttons.position.y) / (MuteButtonRect.size.height + MuteButtonPadding);
 
 	size_t playerId = 0;
-	for (; playerId < Players.size() && off != -1; ++playerId) {
+	for (; playerId < NetPlayerSlots && off != -1; ++playerId) {
 		if (playerId != MyPlayerId)
 			off--;
 	}
-	if (playerId > 0 && playerId <= Players.size())
+	if (playerId > 0 && playerId <= NetPlayerSlots)
 		WhisperList[playerId - 1] = !WhisperList[playerId - 1];
 }
 

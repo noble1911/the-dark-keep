@@ -27,6 +27,9 @@ of your monsters and fight them yourself — before they get away with your gold
   Kill a thief and the gold comes back (plus a bounty); let one escape and it's gone, which
   leaves you less to build with.
 - **Raids pay tribute.** Each raid you outlast earns gold for the next.
+- **Real heroes.** Up to four heroes per raid are real Diablo characters — Warriors with
+  swords, Rogues with bows, Sorcerers casting Firebolt — who drink potions, flee when
+  beaten and cast a real Town Portal. Bigger parties are filled out with lesser heroes.
 - **Heroes are people too.** Rogues may spot and disarm traps, greedy heroes detour to
   fool's gold they can see, Warriors bash through locked doors fastest, and badly hurt
   heroes may lose their nerve, drop their loot and flee.

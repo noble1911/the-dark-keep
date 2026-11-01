@@ -242,7 +242,7 @@ bool base::SNetReceiveMessage(uint8_t *sender, void **data, size_t *size)
 	uint32_t now = SDL_GetTicks();
 	if (now == 0) now++;
 	if (lastEchoTime == 0 || now - lastEchoTime > 5000) {
-		for (plr_t i = 0; i < Players.size(); i++)
+		for (plr_t i = 0; i < NetPlayerSlots; i++)
 			SendEchoRequest(i);
 		lastEchoTime = now;
 	}
@@ -288,7 +288,7 @@ bool base::SNetSendMessage(uint8_t playerId, void *data, size_t size)
 
 bool base::AllTurnsArrived()
 {
-	for (size_t i = 0; i < Players.size(); ++i) {
+	for (size_t i = 0; i < NetPlayerSlots; ++i) {
 		const PlayerState &playerState = playerStateTable_[i];
 		if (!playerState.isConnected)
 			continue;
@@ -305,7 +305,7 @@ bool base::SNetReceiveTurns(char **data, size_t *size, uint32_t *status)
 {
 	process_network_packets();
 
-	for (size_t i = 0; i < Players.size(); ++i) {
+	for (size_t i = 0; i < NetPlayerSlots; ++i) {
 		status[i] = 0;
 
 		PlayerState &playerState = playerStateTable_[i];
@@ -325,7 +325,7 @@ bool base::SNetReceiveTurns(char **data, size_t *size, uint32_t *status)
 	}
 
 	if (AllTurnsArrived()) {
-		for (size_t i = 0; i < Players.size(); ++i) {
+		for (size_t i = 0; i < NetPlayerSlots; ++i) {
 			PlayerState &playerState = playerStateTable_[i];
 			if (!playerState.isConnected)
 				continue;
@@ -352,7 +352,7 @@ bool base::SNetReceiveTurns(char **data, size_t *size, uint32_t *status)
 		return true;
 	}
 
-	for (size_t i = 0; i < Players.size(); ++i) {
+	for (size_t i = 0; i < NetPlayerSlots; ++i) {
 		const PlayerState &playerState = playerStateTable_[i];
 		if (!playerState.isConnected)
 			continue;
@@ -529,7 +529,7 @@ bool base::SNetDropPlayer(int playerid, net::leaveinfo_t flags)
 
 plr_t base::GetOwner()
 {
-	for (plr_t i = 0; i < Players.size(); ++i) {
+	for (plr_t i = 0; i < NetPlayerSlots; ++i) {
 		if (IsConnected(i)) {
 			return i;
 		}

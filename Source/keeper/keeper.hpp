@@ -89,6 +89,8 @@ extern bool AutoStart;
 
 /** @brief Dev/test flag (--keeper-lord-hp <n>): the Keep Lord's hit points (0 = normal). */
 extern int TestLordHitPoints;
+/** @brief Dev/test flag (--keeper-start-wave <n>): the first raid (0 = normal). */
+extern int TestStartWave;
 
 /** @brief Dev/test flags for co-op (--keeper-host / --keeper-join <ip>): skip menus, TCP game. */
 enum class AutoNetMode : uint8_t {

@@ -13,6 +13,7 @@
 #include "engine/direction.hpp"
 #include "engine/path.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -79,6 +80,7 @@ enum class Action : uint8_t {
 	Possess,
 	Release,
 	Order,
+	SpawnBot,
 };
 
 #pragma pack(push, 1)
@@ -101,6 +103,8 @@ struct TCmdKeeperState {
 	int32_t vaultGold;
 	int32_t goldLost;
 	uint16_t mana[4];
+	/** The Keep Lord's hit points (host authoritative; -1 = no Lord). */
+	int32_t bossHitPoints;
 };
 #pragma pack(pop)
 
@@ -131,6 +135,8 @@ void BroadcastState()
 	cmd.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.goldLost)));
 	for (size_t i = 0; i < 4; i++)
 		cmd.mana[i] = Swap16LE(static_cast<uint16_t>(State.mana[i] / ManaScale));
+	const Monster *boss = FindBoss();
+	cmd.bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(boss != nullptr ? boss->hitPoints : -1)));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -166,7 +172,7 @@ bool IsHeroNear(Point tile, int distance)
 		if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(tile) < distance)
 			return true;
 	}
-	return false;
+	return IsBotNear(tile, distance);
 }
 
 bool IsPlacementCrowded(Point tile)
@@ -196,8 +202,10 @@ void AnnouncePhase(Phase from, Phase to)
 {
 	if (from == to)
 		return;
-	if (from == Phase::Raid)
+	if (from == Phase::Raid) {
 		ClosePortal();
+		RemoveAllBots();
+	}
 	switch (to) {
 	case Phase::Raid:
 		Announce(State.wave >= NumWaves ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
@@ -430,15 +438,22 @@ void UpdateTraps()
 			trap.cooldown--;
 			continue;
 		}
-		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		std::optional<Point> victim;
+		for (size_t i = 0; i < ActiveMonsterCount && !victim; i++) {
 			const Monster &monster = Monsters[ActiveMonsters[i]];
-			if (!IsHero(monster) || monster.hitPoints <= 0 || monster.position.tile.WalkingDistance(trap.position) > 1)
-				continue;
-			const Direction dir = GetDirection(trap.position, monster.position.tile);
+			if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(trap.position) <= 1)
+				victim = monster.position.tile;
+		}
+		for (size_t i = 0; i < MaxBots && !victim; i++) {
+			const Player &bot = Players[FirstBotId + i];
+			if (IsLivingBot(bot) && bot.position.tile.WalkingDistance(trap.position) <= 1)
+				victim = bot.position.tile;
+		}
+		if (victim) {
+			const Direction dir = GetDirection(trap.position, *victim);
 			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
-			AddMissile(trap.position, monster.position.tile, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, 20 + 5 * State.wave, 0);
+			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, 20 + 5 * State.wave, 0);
 			trap.cooldown = TrapRearmTicks;
-			break;
 		}
 	}
 }
@@ -473,7 +488,7 @@ void ResetGame(Point entrance, Point vault)
 	State.entrance = entrance;
 	State.vault = vault;
 	State.vaultGold = StartingVaultGold;
-	State.wave = 1;
+	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, static_cast<int>(NumWaves)));
 	State.phase = Phase::Setup;
 	State.phaseTicks = SetupTicks;
 	for (int &mana : State.mana)
@@ -511,6 +526,8 @@ void GameTick()
 		return;
 
 	UpdateTraps();
+	if (State.phase == Phase::Raid)
+		UpdateBots();
 	UpdatePortal();
 
 	for (Lair &lair : State.lairs) {
@@ -672,6 +689,11 @@ void RequestRelease()
 	Send(Action::Release);
 }
 
+void RequestSpawnBot(size_t slot, HeroClassKind cls, Point tile)
+{
+	Send(Action::SpawnBot, static_cast<uint8_t>(slot), static_cast<uint8_t>(cls), tile);
+}
+
 void RequestOrder(Point tile, int targetMonster)
 {
 	Send(Action::Order, 0, 0, tile, static_cast<uint16_t>(targetMonster + 1));
@@ -703,6 +725,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
 			for (size_t i = 0; i < 4; i++)
 				State.mana[i] = Swap16LE(message.mana[i]) * ManaScale;
+			// Fights with bots are simulated on every client; keep the Lord's health in step with the host.
+			const int bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.bossHitPoints)));
+			if (const Monster *boss = FindBoss(); boss != nullptr && bossHitPoints > 0)
+				const_cast<Monster *>(boss)->hitPoints = std::min(bossHitPoints, boss->maxHitPoints);
 		}
 		return sizeof(message);
 	}
@@ -759,6 +785,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::Order:
 		SetOrder(player.getId(), tile, static_cast<int>(Swap16LE(message.w)) - 1);
+		break;
+	case Action::SpawnBot:
+		if (message.a < MaxBots && message.b < NumHeroClasses && InDungeonBounds(tile))
+			SpawnBot(message.a, static_cast<HeroClassKind>(message.b), tile);
 		break;
 	}
 	return sizeof(message);
