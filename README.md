@@ -11,7 +11,7 @@ bait, then rain spells on the intruders before they get away with your gold.
 > contains no Blizzard assets.
 
 - Design & roadmap: [docs/MOD-PLAN.md](docs/MOD-PLAN.md)
-- Building on Windows: `pwsh -File scripts\build-desktop.ps1`, then
-  `pwsh -File scripts\run-desktop.ps1 <folder-with-DIABDAT.MPQ>`
+- Building on Windows: `powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1`, then
+  `powershell -ExecutionPolicy Bypass -File scripts\run-desktop.ps1 <folder-with-DIABDAT.MPQ>`
 
 Based on DevilutionX — see [LICENSE.md](LICENSE.md).

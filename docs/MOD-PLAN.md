@@ -141,7 +141,7 @@ Diablo click-to-move/attack controls (Mana drain per second).
 
 | Milestone | Status |
 |---|---|
-| M0 — fork, repo, Windows build, run against game data | 🔶 in progress |
+| M0 — fork, repo, Windows build, run against game data | ✅ done (2026-11-01) |
 | M1 — Master view: no hero, free camera, Gold/Mana HUD, fixed-seed Cathedral 1 | ⬜ |
 | M2 — Place lairs + cast spells at cursor, all via net commands | ⬜ |
 | M3 — Hero AI spike: one party walks to the vault, fights, loots, escapes | ⬜ |

@@ -5,7 +5,7 @@
 #   - CMake + Ninja (e.g. `scoop install cmake ninja`)
 #   - vcpkg cloned & bootstrapped (default expected at C:\Users\<you>\vcpkg)
 #
-# Usage:  pwsh -File scripts\build-desktop.ps1
+# Usage:  powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1
 $ErrorActionPreference = "Stop"
 
 $root   = (Resolve-Path "$PSScriptRoot\..").Path

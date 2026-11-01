@@ -1,6 +1,6 @@
 # Launch the desktop build against retail Diablo data for play-testing.
 #
-# Usage:  pwsh -File scripts\run-desktop.ps1 [path-to-folder-with-DIABDAT.MPQ]
+# Usage:  powershell -ExecutionPolicy Bypass -File scripts\run-desktop.ps1 [path-to-folder-with-DIABDAT.MPQ]
 # Default data dir: E:\Games\Diablo
 param(
     [string]$DataDir = "E:\Games\Diablo"
