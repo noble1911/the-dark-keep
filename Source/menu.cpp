@@ -82,7 +82,10 @@ bool InitSinglePlayerMenu()
 bool InitMultiPlayerMenu()
 {
 #ifndef _DEBUG
-	if (IsAssetIntegrityViolated) {
+	// [DARK KEEP] Upstream blocks multiplayer when *.lua/*.tsv/*.sol are loaded loose
+	// (anti-cheat for vanilla games). This mod only plays against itself, ships its own
+	// rule data, and local builds have no smpq to pack mods into MPQs -- so the check is off.
+	if (false && IsAssetIntegrityViolated) {
 		UiSelOkDialog(_("Multi Player Game").data(), _("Cannot play Multiplayer with overridden *.lua, *.tsv, or *.sol assets.").data(), false);
 		return true;
 	}

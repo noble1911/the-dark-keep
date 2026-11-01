@@ -903,7 +903,8 @@ void RunGameLoop(interface_mode uMsg)
 			DebugCmdsFromCommandLine.clear();
 		}
 #else
-		if (gbIsMultiplayer && IsAssetIntegrityViolated) {
+		// [DARK KEEP] Integrity check disabled -- see InitMultiPlayerMenu() in menu.cpp.
+		if (false && gbIsMultiplayer && IsAssetIntegrityViolated) {
 			app_fatal(_("Cannot play Multiplayer with overridden *.lua, *.tsv, or *.sol assets."));
 		}
 #endif
