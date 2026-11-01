@@ -111,7 +111,10 @@ const std::string &PrefPath()
 #elif defined(NXDK)
 		prefPath = NxdkGetPrefPath();
 #else
-		prefPath = FromSDL(SDL_GetPrefPath("diasurgical", "devilution"));
+		// [DARK KEEP] Own save/config namespace (upstream: "devilution") so this mod never
+		// loads heroes/stashes written by vanilla DevilutionX or other mods, and never
+		// writes into theirs.
+		prefPath = FromSDL(SDL_GetPrefPath("diasurgical", "the-dark-keep"));
 #if !defined(__amigaos__) && !defined(__DJGPP__)
 		if (FileExistsAndIsWriteable("diablo.ini")) {
 			prefPath = std::string();
@@ -132,7 +135,8 @@ const std::string &ConfigPath()
 #elif defined(NXDK)
 		configPath = NxdkGetPrefPath();
 #else
-		configPath = FromSDL(SDL_GetPrefPath("diasurgical", "devilution"));
+		// [DARK KEEP] Same namespace split as PrefPath above.
+		configPath = FromSDL(SDL_GetPrefPath("diasurgical", "the-dark-keep"));
 #if !defined(__amigaos__) && !defined(__DJGPP__)
 		if (FileExistsAndIsWriteable("diablo.ini")) {
 			configPath = std::string();
