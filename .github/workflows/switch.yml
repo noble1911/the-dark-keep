@@ -2,21 +2,16 @@
 name: Nintendo Switch
 
 on:  # yamllint disable-line rule:truthy
+  # [DARK KEEP] Only Windows and Switch are built: on pushes to master, releases,
+  # and manual runs. The rest of upstream's platform matrix is removed.
   push:
-    branches:
-      - master
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-  pull_request:
-    types: [opened, synchronize]
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
+    branches: [master]
   release:
     types: [published]
   workflow_dispatch:
-
+# [DARK KEEP] Allow the release-upload step to attach the .nro to the release.
+permissions:
+  contents: write
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -42,18 +37,36 @@ jobs:
       - name: Build DevilutionX
         run: cmake --build build -j$(nproc)
 
+      # [DARK KEEP] The Hellfire expansion is a data mod, not a build flag: the engine looks
+      # for <BasePath>/mods/Hellfire/, and on Switch BasePath is the folder holding the
+      # .nro. That data is built to build/mods but is NOT inside the .nro romfs, so the
+      # .nro alone can never enable Hellfire no matter which MPQs the user copies over.
+      # Ship it beside the .nro instead.
+      - name: Stage release package
+        run: |
+          mkdir -p package
+          # [DARK KEEP] Ship the binary under the mod's own name; the build tree keeps
+          # upstream's target names so merges stay clean.
+          cp ./build/devilutionx.nro package/the-dark-keep.nro
+          cp ./Packaging/switch/README.txt package/README.txt
+          cp -r ./build/mods package/mods
+          cd package && zip -r ../the-dark-keep-switch.zip .
+
+      # [DARK KEEP] Non-fatal: the release asset below is what matters; a full Actions
+      # artifact-storage quota must not abort the job before it is attached.
       - name: Upload Package
         if: ${{ !env.ACT }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: devilutionx.nro
-          path: ./build/devilutionx.nro
+          name: the-dark-keep-switch
+          path: ./the-dark-keep-switch.zip
 
       - name: Update Release
         if: ${{ github.event_name == 'release' && !env.ACT }}
         uses: svenstaro/upload-release-action@v2
         with:
-          asset_name: devilutionx-switch.nro
-          file: ./build/devilutionx.nro
+          asset_name: the-dark-keep-switch.zip
+          file: ./the-dark-keep-switch.zip
           overwrite: true
 ...
