@@ -219,7 +219,7 @@ bool nthread_has_500ms_passed(bool *drawGame /*= nullptr*/)
 	if (ticksElapsed > gnTickDelay * 10) {
 		bool resetLastTick = true;
 		if (gbIsMultiplayer) {
-			for (size_t i = 0; i < Players.size(); i++) {
+			for (size_t i = 0; i < NetPlayerSlots; i++) {
 				if ((player_state[i] & PS_CONNECTED) != 0 && i != MyPlayerId) {
 					// Reset last tick is not allowed when other players are connected, because the elapsed time is needed to sync the game ticks between the clients
 					resetLastTick = false;

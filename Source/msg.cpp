@@ -451,7 +451,7 @@ void PrePacket()
 				continue;
 			}
 
-			if (playerId >= Players.size()) {
+			if (playerId >= NetPlayerSlots) {
 				Log("Missing source of network message");
 				return;
 			}
@@ -527,7 +527,7 @@ int WaitForTurns()
 
 	if (gbGameDestroyed)
 		return 100;
-	if (gbDeltaSender >= Players.size()) {
+	if (gbDeltaSender >= NetPlayerSlots) {
 		sgbDeltaChunks = 0;
 		sgbRecvCmd = CMD_DLEVEL_END;
 		gbDeltaSender = MyPlayerId;

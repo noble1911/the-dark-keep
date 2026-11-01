@@ -67,5 +67,6 @@ Developer shortcuts: `--keeper-autostart` (straight into a single-player keep),
 `--keeper-host` / `--keeper-join <ip>` (co-op over TCP without menus); see `scripts/dev/`.
 
 - Design & roadmap: [docs/MOD-PLAN.md](docs/MOD-PLAN.md)
+- Game plan / todo: [docs/TODO.md](docs/TODO.md)
 
 Based on DevilutionX — see [LICENSE.md](LICENSE.md).
