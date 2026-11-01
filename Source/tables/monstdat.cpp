@@ -3,6 +3,7 @@
  *
  * Implementation of all monster data.
  */
+#include "keeper/keeper_heroes.hpp" // [DARK KEEP]
 #include "tables/monstdat.h"
 
 #include <algorithm>
@@ -416,6 +417,8 @@ void LoadMonstDat()
 
 	lua::MonsterDataLoaded();
 
+	keeper::RegisterHeroMonsterData(); // [DARK KEEP]
+
 	MonstersData.shrink_to_fit();
 }
 
@@ -479,6 +482,19 @@ void LoadMonsterData()
 size_t GetNumMonsterSprites()
 {
 	return MonsterSpritePaths.size();
+}
+
+_monster_id AddCustomMonsterData(MonsterData &&data, std::string_view spritePath)
+{
+	const auto findIt = std::find(MonsterSpritePaths.begin(), MonsterSpritePaths.end(), spritePath);
+	if (findIt != MonsterSpritePaths.end()) {
+		data.spriteId = static_cast<uint16_t>(findIt - MonsterSpritePaths.begin());
+	} else {
+		data.spriteId = static_cast<uint16_t>(MonsterSpritePaths.size());
+		MonsterSpritePaths.emplace_back(spritePath);
+	}
+	MonstersData.push_back(std::move(data));
+	return static_cast<_monster_id>(MonstersData.size() - 1);
 }
 
 } // namespace devilution

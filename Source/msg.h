@@ -416,6 +416,14 @@ enum _cmd_id : uint8_t {
 	//
 	// body (TCmdSpawnMonster)
 	CMD_SPAWNMONSTER,
+	// [DARK KEEP] Master request/event (build, cast, ready...).
+	//
+	// body (keeper::TCmdKeeper)
+	CMD_KEEPER,
+	// [DARK KEEP] Keep state snapshot from the keep host.
+	//
+	// body (keeper::TCmdKeeperState)
+	CMD_KEEPER_STATE,
 	// Fake command; set current player for succeeding mega pkt buffer messages.
 	//
 	// body (TFakeCmdPlr)

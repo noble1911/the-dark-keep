@@ -60,6 +60,7 @@ enum class MonsterAIID : int8_t {
 	Psychorb,
 	Necromorb,
 	BoneDemon,
+	KeeperHero, // [DARK KEEP] AI raiding heroes
 	Invalid = -1,
 };
 
@@ -361,6 +362,9 @@ void LoadMonsterData();
  * Different monsters can use the same sprite with different TRNs, these count as 1.
  */
 size_t GetNumMonsterSprites();
+
+/** [DARK KEEP] Appends a monster type defined in code (not in monstdat.tsv). @return its id */
+_monster_id AddCustomMonsterData(MonsterData &&data, std::string_view spritePath);
 
 } // namespace devilution
 

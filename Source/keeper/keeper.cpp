@@ -1,12 +1,13 @@
 /**
  * @file keeper/keeper.cpp
  *
- * The Dark Keep: bodyless master, free camera, master HUD.
+ * The Dark Keep: bodyless master, free camera, master HUD and controls.
  */
 #include "keeper/keeper.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 
 #ifdef USE_SDL3
@@ -16,15 +17,21 @@
 #include <fmt/format.h>
 
 #include "control/control.hpp"
+#include "cursor.h"
 #include "diablo.h"
 #include "engine/render/primitive_render.hpp"
+#include "engine/render/scrollrt.h"
 #include "engine/render/text_render.hpp"
 #include "game_mode.hpp"
 #include "gmenu.h"
 #include "init.hpp"
+#include "keeper/keeper_game.hpp"
+#include "keeper/keeper_heroes.hpp"
 #include "levels/dun_tile.hpp"
 #include "levels/gendung.h"
+#include "levels/trigs.h"
 #include "lighting.h"
+#include "monster.h"
 #include "player.h"
 #include "utils/sdl_compat.h"
 #include "utils/ui_fwd.h"
@@ -43,20 +50,41 @@ constexpr float CameraSpeed = 720.F;
 constexpr int EdgeScrollMargin = 6;
 
 bool active = false;
+uint32_t tickCounter = 0;
 
 /** Free camera position in world tile coordinates (fractional). */
 float cameraX = 0.F;
 float cameraY = 0.F;
 uint32_t lastCameraTicks = 0;
 
-/** Where the heroes enter (the level's up-stairs arrival point). */
-Point keepEntrance;
+enum class ToolType : uint8_t {
+	None,
+	Lair,
+	Spell,
+};
+
+struct Tool {
+	ToolType type = ToolType::None;
+	size_t index = 0;
+};
+
+Tool currentTool;
+
+/** Feedback line shown above the palette (e.g. why a placement failed). */
+std::string feedback;
+uint32_t feedbackUntil = 0;
+
+void SetFeedback(std::string text)
+{
+	feedback = std::move(text);
+	feedbackUntil = SDL_GetTicks() + 2500;
+}
 
 Point ParkingTile(const Player &player)
 {
 	// Top-left corner of the map is always solid rock: nothing walks there and it is never drawn
 	// in view of the playable area.
-	return { 1 + static_cast<int>(player.getId()), 1 };
+	return { 2 + static_cast<int>(player.getId()), 1 };
 }
 
 void ClearPlayerFromMap(const Player &player)
@@ -130,6 +158,211 @@ bool CanUseKeyboardCamera()
 	return gbActive && !ChatFlag && !gmenu_is_active();
 }
 
+Point FindVault(Point fallback)
+{
+	for (int i = 0; i < numtrigs; i++) {
+		if (trigs[i]._tmsg == WM_DIABNEXTLVL)
+			return trigs[i].position;
+	}
+	return fallback;
+}
+
+// ---- HUD layout ------------------------------------------------------------
+
+constexpr int ButtonHeight = 34;
+constexpr int PaletteLeft = 214;
+constexpr int PaletteWidth = 640 - PaletteLeft - 6;
+
+Rectangle LairButtonRect(size_t i)
+{
+	const Rectangle &panel = GetMainPanel();
+	const int width = PaletteWidth / static_cast<int>(NumLairKinds);
+	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 22 }, { width - 4, ButtonHeight } };
+}
+
+Rectangle SpellButtonRect(size_t i)
+{
+	const Rectangle &panel = GetMainPanel();
+	const int width = PaletteWidth / static_cast<int>(NumSpellKinds);
+	return { { panel.position.x + PaletteLeft + static_cast<int>(i) * width, panel.position.y + 22 + ButtonHeight + 6 }, { width - 4, ButtonHeight } };
+}
+
+Rectangle ReadyButtonRect()
+{
+	const Rectangle &panel = GetMainPanel();
+	return { { panel.position.x + 8, panel.position.y + panel.size.height - 26 }, { 196, 20 } };
+}
+
+bool Contains(const Rectangle &rect, Point p)
+{
+	return p.x >= rect.position.x && p.y >= rect.position.y && p.x < rect.position.x + rect.size.width && p.y < rect.position.y + rect.size.height;
+}
+
+std::string FormatTicks(int ticks)
+{
+	const int seconds = (ticks + 19) / 20;
+	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
+}
+
+void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
+{
+	DrawHorizontalLine(out, rect.position, rect.size.width, color);
+	DrawHorizontalLine(out, rect.position + Displacement { 0, rect.size.height - 1 }, rect.size.width, color);
+	DrawVerticalLine(out, rect.position, rect.size.height, color);
+	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
+}
+
+void DrawButton(const Surface &out, const Rectangle &rect, std::string_view title, std::string_view detail, bool selected, bool affordable)
+{
+	FillRect(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
+	DrawFrame(out, rect, selected ? PAL16_YELLOW + 2 : PAL16_GRAY + 8);
+	const UiFlags color = affordable ? UiFlags::ColorWhite : UiFlags::ColorBlack;
+	DrawString(out, title, { rect.position + Displacement { 4, 3 }, { rect.size.width - 8, 14 } }, { .flags = UiFlags::FontSize12 | color });
+	DrawString(out, detail, { rect.position + Displacement { 4, 18 }, { rect.size.width - 8, 14 } }, { .flags = UiFlags::FontSize12 | (affordable ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+}
+
+// ---- world overlays ----------------------------------------------------------
+
+void PutPixel(const Surface &out, int x, int y, uint8_t color, int maxY)
+{
+	if (x < 0 || y < 0 || x >= out.w() || y >= maxY)
+		return;
+	out.SetPixel({ x, y }, color);
+}
+
+void DrawLine(const Surface &out, Point a, Point b, uint8_t color, int maxY)
+{
+	int dx = std::abs(b.x - a.x);
+	int dy = -std::abs(b.y - a.y);
+	const int sx = a.x < b.x ? 1 : -1;
+	const int sy = a.y < b.y ? 1 : -1;
+	int err = dx + dy;
+	Point p = a;
+	while (true) {
+		PutPixel(out, p.x, p.y, color, maxY);
+		if (p == b)
+			break;
+		const int e2 = 2 * err;
+		if (e2 >= dy) {
+			err += dy;
+			p.x += sx;
+		}
+		if (e2 <= dx) {
+			err += dx;
+			p.y += sy;
+		}
+	}
+}
+
+/** Outlines a tile's floor diamond (optionally grown by `radius` tiles). */
+void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius = 0)
+{
+	const Point base = GetScreenPosition(tile);
+	const int maxY = GetMainPanel().position.y;
+	const int hw = TILE_WIDTH / 2 * (radius * 2 + 1);
+	const int hh = TILE_HEIGHT / 2 * (radius * 2 + 1);
+	const Point center = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT / 2 };
+	const Point left = center + Displacement { -hw, 0 };
+	const Point top = center + Displacement { 0, -hh };
+	const Point right = center + Displacement { hw, 0 };
+	const Point bottom = center + Displacement { 0, hh };
+	DrawLine(out, left, top, color, maxY);
+	DrawLine(out, top, right, color, maxY);
+	DrawLine(out, right, bottom, color, maxY);
+	DrawLine(out, bottom, left, color, maxY);
+}
+
+void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
+{
+	const Point base = GetScreenPosition(tile);
+	const Point at = base + Displacement { TILE_WIDTH / 2 - 60, -TILE_HEIGHT - 4 - raise };
+	if (at.y < 0 || at.y + 14 >= GetMainPanel().position.y)
+		return;
+	DrawString(out, text, { at, { 120, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
+}
+
+void DrawOverlays(const Surface &out)
+{
+	DrawTileDiamond(out, State.vault, PAL16_YELLOW + 2, 1);
+	DrawWorldLabel(out, State.vault, fmt::format("Vault: {} gold", State.vaultGold), UiFlags::ColorGold);
+	DrawTileDiamond(out, State.entrance, PAL16_BLUE + 2, 1);
+	DrawWorldLabel(out, State.entrance, "Entrance", UiFlags::ColorBlue);
+
+	for (const Lair &lair : State.lairs) {
+		if (!lair.active)
+			continue;
+		DrawTileDiamond(out, lair.position, PAL16_RED + 4);
+		DrawWorldLabel(out, lair.position, LairKinds[lair.kind].name, UiFlags::ColorRed);
+	}
+
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (!IsHero(monster) || monster.hitPoints <= 0)
+			continue;
+		const int hpPercent = monster.maxHitPoints > 0 ? 100 * monster.hitPoints / monster.maxHitPoints : 0;
+		DrawWorldLabel(out, monster.position.tile, fmt::format("{} {}%", HeroTitle(monster), hpPercent), UiFlags::ColorWhite, 64);
+	}
+
+	if (currentTool.type == ToolType::Lair) {
+		std::string_view reason;
+		const bool ok = CanBuildLairAt(currentTool.index, cursPosition, &reason);
+		DrawTileDiamond(out, cursPosition, ok ? PAL16_GRAY : PAL16_RED + 2);
+		if (!ok)
+			DrawWorldLabel(out, cursPosition, reason, UiFlags::ColorRed);
+	} else if (currentTool.type == ToolType::Spell) {
+		DrawTileDiamond(out, cursPosition, PAL16_BLUE + 4, 1);
+	}
+}
+
+void SelectTool(ToolType type, size_t index)
+{
+	if (currentTool.type == type && currentTool.index == index) {
+		currentTool = {};
+		return;
+	}
+	currentTool = { type, index };
+}
+
+bool IsGameOver()
+{
+	return State.phase == Phase::Victory || State.phase == Phase::Defeat;
+}
+
+void UseToolAt(Point tile)
+{
+	switch (currentTool.type) {
+	case ToolType::None:
+		return;
+	case ToolType::Lair: {
+		std::string_view reason;
+		if (!CanBuildLairAt(currentTool.index, tile, &reason)) {
+			SetFeedback(std::string(reason));
+			return;
+		}
+		RequestBuildLair(currentTool.index, tile);
+		return;
+	}
+	case ToolType::Spell: {
+		const SpellKind &spell = SpellKinds[currentTool.index];
+		const size_t me = MyPlayerId;
+		if (IsGameOver()) {
+			SetFeedback("The siege is over");
+			return;
+		}
+		if (State.spellCooldown[me] > 0) {
+			SetFeedback(fmt::format("Gathering power... {}", FormatTicks(State.spellCooldown[me])));
+			return;
+		}
+		if (State.mana[me] < spell.manaCost * ManaScale) {
+			SetFeedback("Not enough mana");
+			return;
+		}
+		RequestCastSpell(currentTool.index, tile);
+		return;
+	}
+	}
+}
+
 } // namespace
 
 bool IsActive()
@@ -144,7 +377,7 @@ void OnLevelLoaded()
 		return;
 
 	// ViewPosition was set by the level generator to the up-stairs arrival point.
-	keepEntrance = ViewPosition;
+	const Point entrance = ViewPosition;
 
 	for (Player &player : Players) {
 		if (player.plractive && player.isOnActiveLevel())
@@ -153,7 +386,10 @@ void OnLevelLoaded()
 
 	RevealKeep();
 	ApplyAmbientLight();
-	CenterCameraOn(keepEntrance);
+	ResetGame(entrance, FindVault(entrance));
+	CenterCameraOn(entrance);
+	currentTool = {};
+	tickCounter = 0;
 	lastCameraTicks = SDL_GetTicks();
 }
 
@@ -173,6 +409,19 @@ void Tick()
 			ParkPlayer(player);
 	}
 	RevealKeep();
+
+	GameTick();
+
+	tickCounter++;
+	if (tickCounter % 4 == 0) {
+		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+			Monster &monster = Monsters[ActiveMonsters[i]];
+			if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death)
+				UpdateEnemy(monster);
+		}
+	}
+	if (tickCounter % 10 == 0)
+		LeashMonsters();
 }
 
 void UpdateCamera()
@@ -257,6 +506,15 @@ bool OnKeyDown(SDL_Keycode key)
 	if (!IsActive())
 		return false;
 
+	if (key >= SDLK_1 && key <= SDLK_9) {
+		const size_t index = static_cast<size_t>(key - SDLK_1);
+		if (index < NumLairKinds)
+			SelectTool(ToolType::Lair, index);
+		else if (index - NumLairKinds < NumSpellKinds)
+			SelectTool(ToolType::Spell, index - NumLairKinds);
+		return true;
+	}
+
 	switch (key) {
 	// Camera keys are polled every frame; swallow them so they don't trigger hero hotkeys.
 	case SDLK_W:
@@ -273,11 +531,25 @@ bool OnKeyDown(SDL_Keycode key)
 	case SDLK_B:
 	case SDLK_Q:
 	case SDLK_Y:
+	case SDLK_0:
+		return true;
+	case SDLK_R:
+		if (State.phase == Phase::Setup || State.phase == Phase::Breather)
+			RequestStartRaid();
 		return true;
 	case SDLK_SPACE:
 	case SDLK_HOME:
-		CenterCameraOn(keepEntrance);
+		CenterCameraOn(State.entrance);
 		return true;
+	case SDLK_V:
+		CenterCameraOn(State.vault);
+		return true;
+	case SDLK_ESCAPE:
+		if (currentTool.type != ToolType::None) {
+			currentTool = {};
+			return true;
+		}
+		return false;
 	default:
 		return false;
 	}
@@ -285,16 +557,40 @@ bool OnKeyDown(SDL_Keycode key)
 
 bool OnLeftMouseDown(uint16_t /*modState*/)
 {
-	return IsActive();
+	if (!IsActive())
+		return false;
+
+	const Rectangle &panel = GetMainPanel();
+	if (MousePosition.y >= panel.position.y) {
+		for (size_t i = 0; i < NumLairKinds; i++) {
+			if (Contains(LairButtonRect(i), MousePosition))
+				SelectTool(ToolType::Lair, i);
+		}
+		for (size_t i = 0; i < NumSpellKinds; i++) {
+			if (Contains(SpellButtonRect(i), MousePosition))
+				SelectTool(ToolType::Spell, i);
+		}
+		if (Contains(ReadyButtonRect(), MousePosition) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
+			RequestStartRaid();
+		return true;
+	}
+
+	UseToolAt(cursPosition);
+	return true;
 }
 
 bool OnRightMouseDown()
 {
-	return IsActive();
+	if (!IsActive())
+		return false;
+	currentTool = {};
+	return true;
 }
 
 void DrawHud(const Surface &out)
 {
+	DrawOverlays(out);
+
 	const Rectangle &mainPanel = GetMainPanel();
 	const int top = mainPanel.position.y;
 	const int height = gnScreenHeight - top;
@@ -302,11 +598,65 @@ void DrawHud(const Surface &out)
 	FillRect(out, 0, top, gnScreenWidth, height, 0);
 	DrawHorizontalLine(out, { 0, top }, gnScreenWidth, PAL16_RED + 8);
 
-	const int left = mainPanel.position.x + 12;
-	DrawString(out, "THE DARK KEEP", { { left, top + 8 }, { 300, 30 } }, { .flags = UiFlags::FontSize24 | UiFlags::ColorRed });
-	DrawString(out, "Setup phase", { { left, top + 44 }, { 300, 20 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	DrawString(out, "WASD / arrows / screen edge: move    Space: return to entrance",
-	    { { left, top + height - 22 }, { mainPanel.size.width - 24, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	const int left = mainPanel.position.x + 8;
+	const size_t me = MyPlayerId;
+
+	// Left column: phase, wave, vault.
+	std::string phaseLine = std::string(PhaseName(State.phase));
+	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
+		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
+	DrawString(out, phaseLine, { { left, top + 6 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves), NumWaves), { { left, top + 22 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 38 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	const int inFlight = GoldInFlight();
+	const int heroes = LivingHeroCount();
+	DrawString(out, fmt::format("Heroes: {}   Stolen: {}", heroes, inFlight), { { left, top + 54 }, { 200, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
+
+	// Mana bar.
+	const int manaWidth = 196;
+	const int mana = State.mana[me] / ManaScale;
+	const Rectangle manaRect { { left, top + 72 }, { manaWidth, 10 } };
+	FillRect(out, manaRect.position.x, manaRect.position.y, manaRect.size.width, manaRect.size.height, PAL16_GRAY + 14);
+	FillRect(out, manaRect.position.x, manaRect.position.y, manaWidth * mana / MaxMana, manaRect.size.height, PAL16_BLUE + 4);
+	DrawFrame(out, manaRect, PAL16_GRAY + 8);
+	DrawString(out, fmt::format("Mana {}", mana), { manaRect.position + Displacement { 0, 12 }, { manaWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorBlue });
+
+	// Ready button.
+	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
+		const Rectangle ready = ReadyButtonRect();
+		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
+		DrawFrame(out, ready, PAL16_YELLOW + 4);
+		DrawString(out, "R: Open the gates", { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+	}
+
+	// Palette.
+	for (size_t i = 0; i < NumLairKinds; i++) {
+		const LairKind &kind = LairKinds[i];
+		const bool selected = currentTool.type == ToolType::Lair && currentTool.index == i;
+		DrawButton(out, LairButtonRect(i), fmt::format("{} {}", i + 1, kind.name), fmt::format("{}g x{}", kind.cost, kind.count), selected, State.vaultGold >= kind.cost);
+	}
+	for (size_t i = 0; i < NumSpellKinds; i++) {
+		const SpellKind &spell = SpellKinds[i];
+		const bool selected = currentTool.type == ToolType::Spell && currentTool.index == i;
+		const bool ready = State.mana[me] >= spell.manaCost * ManaScale && State.spellCooldown[me] == 0;
+		DrawButton(out, SpellButtonRect(i), fmt::format("{} {}", NumLairKinds + i + 1, spell.name), fmt::format("{} mana", spell.manaCost), selected, ready);
+	}
+
+	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {
+		DrawString(out, feedback, { { mainPanel.position.x + PaletteLeft, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+	} else {
+		DrawString(out, "WASD/edge: move  Space: entrance  V: vault  RMB: cancel", { { mainPanel.position.x + PaletteLeft, top + 4 }, { PaletteWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	}
+
+	if (IsGameOver()) {
+		const bool won = State.phase == Phase::Victory;
+		const Rectangle banner { { 0, top / 2 - 40 }, { gnScreenWidth, 80 } };
+		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
+		DrawString(out, won ? "THE KEEP STANDS" : "THE VAULT IS EMPTY", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
+		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
+		DrawString(out, won ? fmt::format("All {} raids repelled with {} gold left. Esc for the menu.", NumWaves, State.vaultGold) : std::string("The heroes made off with your treasure. Esc for the menu."),
+		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+	}
 }
 
 } // namespace devilution::keeper

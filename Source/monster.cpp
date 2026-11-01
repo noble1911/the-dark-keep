@@ -105,6 +105,8 @@
 #include "utils/str_cat.hpp"
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_heroes.hpp" // [DARK KEEP]
+#include "keeper/keeper_game.hpp" // [DARK KEEP]
 #ifdef _DEBUG
 #include "debug.h"
 #endif
@@ -280,6 +282,8 @@ void InitMonster(Monster &monster, Direction rd, size_t typeIndex, Point positio
 		monster.armorClass += HellAcBonus;
 		monster.resistance = monster.data().resistanceHell;
 	}
+
+	keeper::OnMonsterInit(monster); // [DARK KEEP] hero stats, lair homes
 }
 
 bool CanPlaceMonster(Point position)
@@ -681,6 +685,10 @@ DVL_ALWAYS_INLINE bool IsRanged(Monster &monster)
 
 void UpdateEnemy(Monster &monster)
 {
+	if (keeper::IsActive()) { // [DARK KEEP] heroes vs. the keep's monsters
+		keeper::UpdateEnemy(monster);
+		return;
+	}
 	WorldTilePosition target;
 	int menemy = -1;
 	int bestDist = -1;
@@ -916,6 +924,8 @@ void SpawnLoot(Monster &monster, bool sendmsg)
 	if (monster.type().type == MT_HORKSPWN) {
 		return;
 	}
+	if (keeper::IsActive()) // [DARK KEEP] no loot: hero kills pay the vault instead
+		return;
 
 	if (Quests[Q_GARBUD].IsAvailable() && monster.uniqueType == UniqueMonsterType::Garbud) {
 		CreateTypeItem(monster.position.tile + Displacement { 1, 1 }, true, ItemType::Mace, IMISC_NONE, sendmsg, false);
@@ -3130,7 +3140,8 @@ void (*AiProc[])(Monster &monster) = {
 	/*MonsterAIID::ArchLich       */ &AiRanged,
 	/*MonsterAIID::Psychorb       */ &AiRanged,
 	/*MonsterAIID::Necromorb      */ &AiRanged,
-	/*MonsterAIID::BoneDemon      */ &AiRangedAvoidance
+	/*MonsterAIID::BoneDemon      */ &AiRangedAvoidance,
+	/*MonsterAIID::KeeperHero     */ &keeper::HeroAi, // [DARK KEEP]
 };
 
 bool IsRelativeMoveOK(const Monster &monster, Point position, Direction mdir)
@@ -3435,6 +3446,10 @@ void InitLevelMonsters()
 tl::expected<void, std::string> GetLevelMTypes()
 {
 	RETURN_IF_ERROR(AddMonsterType(MT_GOLEM, PLACE_SPECIAL));
+	if (currlevel == keeper::KeepLevel && !setlevel) { // [DARK KEEP] lair roster + heroes only
+		keeper::AddHeroMonsterTypes();
+		return {};
+	}
 	if (currlevel == 16) {
 		RETURN_IF_ERROR(AddMonsterType(MT_ADVOCATE, PLACE_SCATTER));
 		RETURN_IF_ERROR(AddMonsterType(MT_RBLACK, PLACE_SCATTER));
@@ -3552,6 +3567,8 @@ tl::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSpr
 	if (HeadlessMode)
 		return {};
 
+	if (keeper::InitHeroGFX(monsterType)) // [DARK KEEP] heroes wear the player class sprites
+		return {};
 	const _monster_id mtype = monsterType.type;
 	const MonsterData &monsterData = MonstersData[mtype];
 	if (spritesData.data == nullptr)
@@ -3639,6 +3656,8 @@ tl::expected<void, std::string> InitAllMonsterGFX()
 		CMonster &firstMonster = LevelMonsterTypes[monsterTypes[0]];
 		if (firstMonster.animData != nullptr)
 			continue;
+		if (keeper::InitHeroGFX(firstMonster)) // [DARK KEEP]
+			continue;
 		MonsterSpritesData spritesData = LoadMonsterSpritesData(firstMonster.data());
 		const size_t spritesDataSize = spritesData.offsets[GetNumAnimsWithGraphics(firstMonster.data())];
 		for (size_t i = 1; i < monsterTypes.size(); ++i) {
@@ -3688,6 +3707,8 @@ void InitGolems()
 
 tl::expected<void, std::string> InitMonsters()
 {
+	if (currlevel == keeper::KeepLevel && !setlevel) // [DARK KEEP] the keep starts empty
+		return InitAllMonsterGFX();
 	if (!gbIsSpawn && !setlevel && currlevel == 16)
 		LoadDiabMonsts();
 
@@ -3997,6 +4018,7 @@ void M_StartHit(Monster &monster, const Player &player, int dam)
 
 void MonsterDeath(Monster &monster, Direction md, bool sendmsg)
 {
+	keeper::OnMonsterDeath(monster); // [DARK KEEP]
 	if (!monster.isPlayerMinion())
 		AddPlrMonstExper(monster.level(sgGameInitInfo.nDifficulty), monster.exp(sgGameInitInfo.nDifficulty), monster.whoHit);
 
@@ -5038,6 +5060,22 @@ void Monster::occupyTile(Point tile, bool isMoving) const
 {
 	const auto id = static_cast<int16_t>(this->getId() + 1);
 	dMonster[tile.x][tile.y] = isMoving ? -id : id;
+}
+
+// [DARK KEEP] Thin exports of private monster actions for the keeper hero AI.
+void KeeperStartMeleeAttack(Monster &monster)
+{
+	StartAttack(monster);
+}
+
+void KeeperStartRangedAttack(Monster &monster, MissileID missileType, int dam)
+{
+	StartRangedAttack(monster, missileType, dam);
+}
+
+void KeeperAiDelay(Monster &monster, int len)
+{
+	AiDelay(monster, len);
 }
 
 } // namespace devilution

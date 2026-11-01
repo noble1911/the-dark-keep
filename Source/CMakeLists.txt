@@ -139,6 +139,8 @@ set(libdevilutionx_SRCS
   portals/validation.cpp
 
   keeper/keeper.cpp
+  keeper/keeper_game.cpp
+  keeper/keeper_heroes.cpp
 
   qol/autopickup.cpp
   qol/chatlog.cpp

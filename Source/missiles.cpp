@@ -3,6 +3,8 @@
  *
  * Implementation of missile functionality.
  */
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_game.hpp" // [DARK KEEP]
 #include "missiles.h"
 
 #include <algorithm>
@@ -493,6 +495,7 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 		Monster &monster = Monsters[std::abs(mid) - 1];
 		if (onlyHitWalking.has_value() ? (monster.isWalking() && CheckCanHitOnlyWalking(missile, monster.position, *onlyHitWalking)) : (mid > 0 || monster.mode == MonsterMode::Petrified)) {
 			if (missile.IsTrap()
+			    || (missile._micaster == TARGET_PLAYERS && keeper::IsActive() && keeper::AreHostile(monster, Monsters[missile._misource])) // [DARK KEEP]
 			    || (missile._micaster == TARGET_PLAYERS && (                                     // or was fired by a monster and
 			            monster.isPlayerMinion() != Monsters[missile._misource].isPlayerMinion() //  the monsters are on opposing factions
 			            || (Monsters[missile._misource].flags & MFLAG_BERSERK) != 0              //  or the attacker is berserked
@@ -500,7 +503,7 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 			            ))) {
 				// then the missile can potentially hit this target
 				isMonsterHit = MonsterTrapHit(monster, minDamage, maxDamage, missile._midist, missile._mitype, damageType, isDamageShifted);
-			} else if (IsAnyOf(missile._micaster, TARGET_BOTH, TARGET_MONSTERS)) {
+			} else if (IsAnyOf(missile._micaster, TARGET_BOTH, TARGET_MONSTERS) && (!keeper::IsActive() || keeper::IsHero(monster))) { // [DARK KEEP] masters' spells spare their monsters
 				isMonsterHit = MonsterMHit(*missile.sourcePlayer(), monster, minDamage, maxDamage, missile._midist, missile._mitype, missile.position.start, damageType, isDamageShifted);
 			}
 		}
@@ -722,6 +725,8 @@ bool GuardianTryFireAt(Missile &missile, Point target)
 		return false;
 	const Monster &monster = Monsters[mid];
 	if (monster.isPlayerMinion())
+		return false;
+	if (keeper::IsActive() && !keeper::IsHero(monster)) // [DARK KEEP] guardians only shoot heroes
 		return false;
 	if (monster.hasNoLife())
 		return false;
