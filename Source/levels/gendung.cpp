@@ -12,6 +12,7 @@
 #include <expected.hpp>
 #include <magic_enum/magic_enum.hpp>
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #include "engine/clx_sprite.hpp"
 #include "engine/load_file.hpp"
 #include "engine/random.hpp"
@@ -812,8 +813,9 @@ bool IsNearThemeRoom(WorldTilePosition testPosition)
 
 void InitLevels()
 {
-	currlevel = 0;
-	leveltype = DTYPE_TOWN;
+	// [DARK KEEP] No town: a new game starts in the keep (see also SetupLocalPositions).
+	currlevel = keeper::KeepLevel;
+	leveltype = GetLevelType(currlevel);
 	setlevel = false;
 }
 

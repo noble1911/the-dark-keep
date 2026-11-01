@@ -5,6 +5,7 @@
  */
 
 #include <cstdint>
+#include <string_view>
 
 #ifdef USE_SDL3
 #include <SDL3/SDL_surface.h>
@@ -25,6 +26,9 @@
 #include "pfile.h"
 #include "storm/storm_net.hpp"
 #include "utils/language.h"
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "levels/gendung.h"
+#include "utils/utf8.hpp"
 
 namespace devilution {
 
@@ -109,6 +113,31 @@ bool DummyGetHeroInfo(_uiheroinfo * /*pInfo*/)
 	return true;
 }
 
+// [DARK KEEP] --keeper-autostart: find (or create) a throwaway "Keeper" hero, no UI.
+uint32_t AutoStartSaveNumber = UINT32_MAX;
+
+bool FindAutoStartHero(_uiheroinfo *pInfo)
+{
+	if (std::string_view(pInfo->name) == "Keeper")
+		AutoStartSaveNumber = pInfo->saveNumber;
+	return true;
+}
+
+void SelectAutoStartHero()
+{
+	AutoStartSaveNumber = UINT32_MAX;
+	pfile_ui_set_hero_infos(FindAutoStartHero);
+	if (AutoStartSaveNumber == UINT32_MAX) {
+		_uiheroinfo info {};
+		info.saveNumber = pfile_ui_get_first_unused_save_num();
+		CopyUtf8(info.name, "Keeper", sizeof(info.name));
+		info.heroclass = HeroClass::Warrior;
+		pfile_ui_save_create(&info);
+		AutoStartSaveNumber = info.saveNumber;
+	}
+	gSaveNumber = AutoStartSaveNumber;
+}
+
 } // namespace
 
 bool mainmenu_select_hero_dialog(GameData *gameData)
@@ -118,6 +147,10 @@ bool mainmenu_select_hero_dialog(GameData *gameData)
 	if (demo::IsRunning()) {
 		pfile_ui_set_hero_infos(DummyGetHeroInfo);
 		gbLoadGame = true;
+	} else if (keeper::AutoStart && !gbIsMultiplayer) {
+		SelectAutoStartHero();
+		gameData->nDifficulty = DIFF_NORMAL;
+		gbLoadGame = false;
 	} else if (!gbIsMultiplayer) {
 		pSaveNumberFromOptions = gbIsHellfire ? &GetOptions().Hellfire.lastSinglePlayerHero : &GetOptions().Diablo.lastSinglePlayerHero;
 		gSaveNumber = **pSaveNumberFromOptions;
@@ -168,7 +201,7 @@ void mainmenu_loop()
 
 	do {
 		_mainmenu_selections menu = MAINMENU_NONE;
-		if (demo::IsRunning())
+		if (demo::IsRunning() || keeper::AutoStart)
 			menu = MAINMENU_SINGLE_PLAYER;
 		else if (!UiMainMenuDialog(gszProductName, &menu, 30))
 			app_fatal(_("Unable to display mainmenu"));
@@ -177,7 +210,7 @@ void mainmenu_loop()
 		case MAINMENU_NONE:
 			break;
 		case MAINMENU_SINGLE_PLAYER:
-			if (!InitSinglePlayerMenu())
+			if (!InitSinglePlayerMenu() || keeper::AutoStart)
 				done = true;
 			break;
 		case MAINMENU_MULTIPLAYER:

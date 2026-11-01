@@ -61,6 +61,7 @@
 #include "hwcursor.hpp"
 #include "init.hpp"
 #include "inv.h"
+#include "keeper/keeper.hpp"
 #include "levels/drlg_l1.h"
 #include "levels/drlg_l2.h"
 #include "levels/drlg_l3.h"
@@ -339,6 +340,9 @@ void LeftMouseDown(uint16_t modState)
 	if (gmenu_left_mouse(true))
 		return;
 
+	if (keeper::OnLeftMouseDown(modState)) // [DARK KEEP]
+		return;
+
 	if (CheckMuteButton())
 		return;
 
@@ -447,6 +451,9 @@ void RightMouseDown(bool isShiftHeld)
 		return;
 	}
 
+	if (keeper::OnRightMouseDown()) // [DARK KEEP]
+		return;
+
 	if (qtextflag) {
 		qtextflag = false;
 		stream_stop();
@@ -514,6 +521,9 @@ void PressKey(SDL_Keycode vkey, uint16_t modState)
 	if (gmenu_presskeys(vkey) || CheckKeypress(vkey)) {
 		return;
 	}
+
+	if (!ChatFlag && !gmenu_is_active() && keeper::OnKeyDown(vkey)) // [DARK KEEP]
+		return;
 
 	if (MyPlayerIsDead) {
 		if (vkey == SDLK_ESCAPE) {
@@ -1146,6 +1156,9 @@ void DiabloParseFlags(int argc, char **argv)
 			printNewlineInConsole();
 			diablo_quit(1);
 #endif
+		} else if (arg == "--keeper-autostart") { // [DARK KEEP] dev/test: straight into a single-player keep
+			keeper::AutoStart = true;
+			gbShowIntro = false;
 		} else if (arg == "-n") {
 			gbShowIntro = false;
 		} else if (arg == "-f") {
@@ -1546,6 +1559,7 @@ void GameLogic()
 		ProcessItems();
 		ProcessLightList();
 		ProcessVisionList();
+		keeper::Tick(); // [DARK KEEP]
 	} else {
 		gGameLogicStep = GameLogicStep::ProcessTowners;
 		ProcessTowners();
@@ -2695,6 +2709,7 @@ bool StartGame(bool bNewGame, bool bSinglePlayer)
 			uMsg = WM_DIABLOADGAME;
 		}
 		RunGameLoop(uMsg);
+		keeper::OnGameEnded(); // [DARK KEEP]
 		NetClose();
 		UnloadFonts();
 
@@ -3458,6 +3473,7 @@ tl::expected<void, std::string> LoadGameLevel(bool firstflag, lvl_entry lvldir)
 	CompleteProgress();
 
 	LoadGameLevelCalculateCursor();
+	keeper::OnLevelLoaded(); // [DARK KEEP]
 	return {};
 }
 

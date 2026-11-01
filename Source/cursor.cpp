@@ -51,6 +51,7 @@
 #include "utils/surface_to_clx.hpp"
 #include "utils/utf8.hpp"
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #ifdef UNPACKED_MPQS
 #include "engine/load_clx.hpp"
 #else
@@ -701,6 +702,11 @@ void AlterMousePositionViaPlayer(Point &screenPosition, const Player &myPlayer)
 	CalcTileOffset(&xo, &yo);
 	screenPosition.x += xo;
 	screenPosition.y += yo;
+
+	// [DARK KEEP] Free camera sub-tile scroll (drawing is shifted by the same amount).
+	const Displacement keeperScroll = keeper::CameraScrollOffset();
+	screenPosition.x -= keeperScroll.deltaX;
+	screenPosition.y -= keeperScroll.deltaY;
 
 	// Adjust for player walking
 	if (myPlayer.isWalking()) {

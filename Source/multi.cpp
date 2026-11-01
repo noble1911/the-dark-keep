@@ -47,6 +47,7 @@
 #include "utils/language.h"
 #include "utils/log.hpp"
 #include "utils/str_cat.hpp"
+#include "keeper/keeper.hpp" // [DARK KEEP]
 
 namespace devilution {
 
@@ -444,8 +445,9 @@ void SendPlayerInfo(uint8_t pnum, _cmd_id cmd)
 
 void SetupLocalPositions()
 {
-	currlevel = 0;
-	leveltype = DTYPE_TOWN;
+	// [DARK KEEP] There is no town: every master starts directly in the keep.
+	currlevel = keeper::KeepLevel;
+	leveltype = GetLevelType(currlevel);
 	setlevel = false;
 
 	const WorldTilePosition spawns[9] = { { 75, 68 }, { 77, 70 }, { 75, 70 }, { 77, 68 }, { 76, 69 }, { 75, 69 }, { 76, 68 }, { 77, 69 }, { 76, 70 } };
@@ -888,6 +890,8 @@ bool NetInit(bool bSinglePlayer)
 	}
 	// explicitly randomize the town seed to divorce shops from the game seed
 	DungeonSeeds[0] = GenerateSeed();
+	// [DARK KEEP] The keep's layout is fixed: same map every game, on every client.
+	DungeonSeeds[keeper::KeepLevel] = keeper::KeepLevelSeed;
 	PublicGame = DvlNet_IsPublicGame();
 
 	Player &myPlayer = *MyPlayer;

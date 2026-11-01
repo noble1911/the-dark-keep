@@ -104,6 +104,7 @@
 #include "utils/status_macros.hpp"
 #include "utils/str_cat.hpp"
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #ifdef _DEBUG
 #include "debug.h"
 #endif
@@ -686,7 +687,7 @@ void UpdateEnemy(Monster &monster)
 	bool bestsameroom = false;
 	const WorldTilePosition position = monster.position.tile;
 	const bool isPlayerMinion = monster.isPlayerMinion();
-	if (!isPlayerMinion) {
+	if (!isPlayerMinion && keeper::CanMonstersTargetPlayers()) { // [DARK KEEP] masters are untargetable
 		for (size_t pnum = 0; pnum < Players.size(); pnum++) {
 			const Player &player = Players[pnum];
 			if (!player.plractive || !player.isOnActiveLevel() || player._pLvlChanging

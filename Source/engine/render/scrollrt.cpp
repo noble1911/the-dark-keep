@@ -82,6 +82,7 @@
 #include "debug.h"
 #endif
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
 #endif
@@ -465,6 +466,8 @@ uint8_t GetPlayerOutlineColor(int id)
  */
 void DrawPlayer(const Surface &out, const Player &player, Point tilePosition, Point targetBufferPosition, int lightTableIndex)
 {
+	if (!keeper::ShouldDrawPlayer(player)) // [DARK KEEP] the master has no body
+		return;
 	if (!IsTileLit(tilePosition) && !MyPlayer->_pInfraFlag && !MyPlayer->isOnArenaLevel() && leveltype != DTYPE_TOWN) {
 		return;
 	}
@@ -1216,6 +1219,8 @@ void CalcFirstTilePosition(Point &position, Displacement &offset)
 			break;
 		}
 	}
+
+	keeper::ApplyViewShift(position, offset); // [DARK KEEP] free camera
 }
 
 /**
@@ -1266,6 +1271,8 @@ void DrawGame(const Surface &fullOut, Point position, Displacement offset)
 			break;
 		}
 	}
+
+	keeper::GrowViewRange(rows, columns); // [DARK KEEP] free camera margin
 
 #ifdef DUN_RENDER_STATS
 	DunRenderStats.clear();
@@ -1446,6 +1453,8 @@ void DrawView(const Surface &out, Point startPosition)
 	DrawPlrMsg(out);
 	gmenu_draw(out);
 	doom_draw(out);
+	if (keeper::IsActive()) // [DARK KEEP] no hero panel, no flasks
+		return;
 	DrawInfoBox(out);
 	UpdateLifeManaPercent(); // Update life/mana totals before rendering any portion of the flask.
 	DrawLifeFlaskUpper(out);
@@ -1864,6 +1873,29 @@ void DrawAndBlit()
 	UndrawCursor(out);
 
 	nthread_UpdateProgressToNextGameTick();
+
+	// [DARK KEEP] The master HUD replaces the hero's control panel entirely.
+	if (keeper::IsActive()) {
+		keeper::UpdateCamera();
+		DrawView(out, ViewPosition);
+		keeper::DrawHud(out);
+		if (drawChatInput)
+			DrawChatBox(out);
+		DrawCursor(out);
+		DrawFPS(out);
+		lua::GameDrawComplete();
+		DrawMain(gnScreenHeight, false, false, false, false, false);
+#ifdef _DEBUG
+		DrawConsole(out);
+#endif
+		RedrawComplete();
+		for (const PanelDrawComponent component : enum_values<PanelDrawComponent>()) {
+			if (IsRedrawComponent(component))
+				RedrawComponentComplete(component);
+		}
+		RenderPresent();
+		return;
+	}
 
 	DrawView(out, ViewPosition);
 	if (drawCtrlPan) {

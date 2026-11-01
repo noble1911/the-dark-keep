@@ -10,7 +10,9 @@
 # refreshed from the build tree on every launch. Saves live in
 # %AppData%\diasurgical\the-dark-keep\ (see Source/utils/paths.cpp).
 param(
-    [string]$DataDir = "E:\Games\Diablo"
+    [string]$DataDir = "E:\Games\Diablo",
+    # Extra arguments for the game, e.g. --keeper-autostart (skip menus, straight into the keep).
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$GameArgs
 )
 $ErrorActionPreference = "Stop"
 $root    = (Resolve-Path "$PSScriptRoot\..").Path
@@ -41,4 +43,8 @@ Get-ChildItem -Path $DataDir -Filter *.mpq | ForEach-Object {
 }
 
 Write-Host "==> Launching The Dark Keep" -ForegroundColor Green
-Start-Process -FilePath $exe -WorkingDirectory $exeDir
+if ($GameArgs) {
+    Start-Process -FilePath $exe -WorkingDirectory $exeDir -ArgumentList $GameArgs
+} else {
+    Start-Process -FilePath $exe -WorkingDirectory $exeDir
+}
