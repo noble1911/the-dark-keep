@@ -358,6 +358,11 @@ void PlaceThemeMonsts(int t, int f)
 			numscattypes++;
 		}
 	}
+	// [DARK KEEP] The keep has no scatter monsters (its roster is lairs + heroes). Upstream would
+	// pick uninitialised scattertypes[0] -- in practice the golem slot -- and fill theme rooms with
+	// invisible golems that crash the renderer once they scroll into view.
+	if (numscattypes == 0)
+		return;
 	const size_t mtype = scattertypes[GenerateRnd(numscattypes)];
 	for (int yp = 0; yp < MAXDUNY; yp++) {
 		for (int xp = 0; xp < MAXDUNX; xp++) {

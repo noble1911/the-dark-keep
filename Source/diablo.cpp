@@ -1291,6 +1291,11 @@ void DiabloInit()
 		GetOptions().GameMode.gameMode.SetValue(StartUpGameMode::Diablo);
 		enableHellfire = true;
 	}
+	// [DARK KEEP] The Dark Keep always plays as Hellfire when its data is present; never ask.
+	if (!forceDiablo && HaveHellfire()) {
+		enableHellfire = true;
+		wasHellfireDiscovered = false;
+	}
 	if (forceDiablo || enableHellfire) {
 		GetOptions().Mods.SetHellfireEnabled(enableHellfire);
 	}

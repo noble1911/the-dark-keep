@@ -761,6 +761,9 @@ void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBuffe
 	if ((monster.flags & MFLAG_HIDDEN) != 0) {
 		return;
 	}
+	// [DARK KEEP] Never dereference a monster with no animation loaded.
+	if (!monster.animInfo.sprites)
+		return;
 
 	const ClxSprite sprite = monster.animInfo.currentSprite();
 	const Displacement offset = monster.getRenderingOffset(sprite);
