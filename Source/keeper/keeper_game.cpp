@@ -16,6 +16,7 @@
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "missiles.h"
@@ -90,6 +91,8 @@ enum class Action : uint8_t {
 	RequestRally,
 	Rallied,
 	LairMember,
+	RequestUpgrade,
+	UpgradeBought,
 };
 
 #pragma pack(push, 1)
@@ -114,6 +117,8 @@ struct TCmdKeeperState {
 	uint16_t mana[4];
 	/** The Keep Lord's hit points (host authoritative; -1 = no Lord). */
 	int32_t bossHitPoints;
+	/** Every upgrade's tier, so a client that joined late still gets them. */
+	std::array<uint8_t, NumUpgrades> upgradeTiers;
 };
 #pragma pack(pop)
 
@@ -146,6 +151,7 @@ void BroadcastState()
 		cmd.mana[i] = Swap16LE(static_cast<uint16_t>(State.mana[i] / ManaScale));
 	const Monster *boss = FindBoss();
 	cmd.bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(boss != nullptr ? boss->hitPoints : -1)));
+	cmd.upgradeTiers = UpgradeTiers();
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -531,6 +537,23 @@ void ApplyLairMember(uint8_t slot, uint8_t index, int monsterId)
 		SetMonsterHome(static_cast<size_t>(monsterId), lair.rally);
 }
 
+void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
+{
+	if (id >= NumUpgrades)
+		return;
+	const auto upgrade = static_cast<UpgradeId>(id);
+	// A second click, or another master, got there first: don't charge for a tier they didn't see.
+	if (UpgradeTier(upgrade) != tierSeenByBuyer || !CanBuyUpgrade(upgrade))
+		return;
+	State.vaultGold -= UpgradeNextCost(upgrade);
+	// Applied here at once: the host's own copy of the message arrives later, and a request handled
+	// before then must see the new tier and price.
+	const int tier = UpgradeTier(upgrade) + 1;
+	ApplyUpgradeTier(upgrade, tier);
+	Send(Action::UpgradeBought, id, static_cast<uint8_t>(tier));
+	BroadcastState();
+}
+
 void ApplyCast(Player &caster, size_t spell, Point tile)
 {
 	if (spell >= SpellKinds.size() || !InDungeonBounds(tile))
@@ -547,7 +570,7 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		dir = Direction::SouthEast;
 		src = tile + Displacement(Direction::NorthWest);
 	}
-	AddMissile(src, tile, dir, kind.missile, TARGET_MONSTERS, caster, 0, kind.spellLevel);
+	AddMissile(src, tile, dir, kind.missile, TARGET_MONSTERS, caster, 0, UpgradedSpellLevel(kind.spellLevel));
 }
 
 /** Traps fire on every client: their missiles are local effects, like any other trap in the game. */
@@ -574,8 +597,8 @@ void UpdateTraps()
 		if (victim) {
 			const Direction dir = GetDirection(trap.position, *victim);
 			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
-			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, 20 + 5 * State.wave, 0);
-			trap.cooldown = TrapRearmTicks;
+			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, UpgradedTrapDamage(20 + 5 * State.wave), 0);
+			trap.cooldown = UpgradedTrapRearmTicks(TrapRearmTicks);
 			NoteTrapFired(static_cast<size_t>(&trap - State.traps.data()));
 		}
 	}
@@ -619,6 +642,7 @@ void ResetGame(Point entrance, Point vault)
 	for (Lair &lair : State.lairs)
 		lair.members.fill(-1);
 	ticksUntilBroadcast = 0;
+	ResetUpgrades();
 	ResetHeroes();
 	ResetRaidStats();
 }
@@ -626,8 +650,9 @@ void ResetGame(Point entrance, Point vault)
 void GameTick()
 {
 	// Mana regenerates for every master, on every client (snapshots correct any drift).
+	const int manaRegen = UpgradedManaRegen(ManaRegenPerTick);
 	for (size_t i = 0; i < State.mana.size(); i++) {
-		State.mana[i] = std::min(State.mana[i] + ManaRegenPerTick, MaxMana * ManaScale);
+		State.mana[i] = std::min(State.mana[i] + manaRegen, MaxMana * ManaScale);
 		if (State.spellCooldown[i] > 0)
 			State.spellCooldown[i]--;
 	}
@@ -639,7 +664,7 @@ void GameTick()
 	for (size_t i = 0; i < State.possessed.size(); i++) {
 		if (State.possessed[i] < 0)
 			continue;
-		State.mana[i] -= ManaRegenPerTick + PossessDrainPerTick;
+		State.mana[i] -= manaRegen + PossessDrainPerTick;
 		if (State.mana[i] <= 0) {
 			State.mana[i] = 0;
 			EndPossession(i);
@@ -868,6 +893,11 @@ bool CanRallyTo(size_t lair, Point tile, std::string_view *reason)
 	return true;
 }
 
+void RequestBuyUpgrade(UpgradeId id)
+{
+	Send(Action::RequestUpgrade, static_cast<uint8_t>(id), static_cast<uint8_t>(UpgradeTier(id)));
+}
+
 void RequestSell(StructureRef ref)
 {
 	Send(Action::RequestSell, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
@@ -1013,6 +1043,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
 			for (size_t i = 0; i < 4; i++)
 				State.mana[i] = Swap16LE(message.mana[i]) * ManaScale;
+			// Before the Lord's health below, which is capped by a maximum these can raise.
+			SyncUpgradeTiers(message.upgradeTiers);
 			// Fights with bots are simulated on every client; keep the Lord's health in step with the host.
 			const int bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.bossHitPoints)));
 			if (const Monster *boss = FindBoss(); boss != nullptr && bossHitPoints > 0)
@@ -1094,6 +1126,14 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::LairMember:
 		ApplyLairMember(message.a, message.b, static_cast<int>(Swap16LE(message.w)) - 1);
+		break;
+	case Action::RequestUpgrade:
+		if (IsHost())
+			HostBuyUpgrade(message.a, message.b);
+		break;
+	case Action::UpgradeBought:
+		if (message.a < NumUpgrades)
+			ApplyUpgradeTier(static_cast<UpgradeId>(message.a), message.b);
 		break;
 	}
 	return sizeof(message);

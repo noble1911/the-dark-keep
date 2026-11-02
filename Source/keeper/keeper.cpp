@@ -36,6 +36,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_units.hpp"
+#include "keeper/keeper_upgrades.hpp"
 #include "levels/dun_tile.hpp"
 #include "levels/gendung.h"
 #include "levels/trigs.h"
@@ -80,6 +81,8 @@ enum class ToolType : uint8_t {
 	Spell,
 	LockDoor,
 	Bait,
+	/** Upgrade cards are bought on click; this is never the armed tool. */
+	Upgrade,
 };
 
 /** Second palette row: four spells, then the door lock and the bait pile. */
@@ -234,9 +237,10 @@ constexpr int ArrowWidth = 12;
 enum class BarTab : uint8_t {
 	Lairs,
 	Traps,
+	Upgrades,
 };
-constexpr size_t NumBarTabs = 2;
-constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks" };
+constexpr size_t NumBarTabs = 3;
+constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades" };
 
 BarTab currentTab = BarTab::Lairs;
 /** First visible card of each tab. */
@@ -261,6 +265,10 @@ std::vector<Tool> TabCards(BarTab tab)
 		cards.push_back({ ToolType::LockDoor, 0 });
 		cards.push_back({ ToolType::Bait, 0 });
 		break;
+	case BarTab::Upgrades:
+		for (size_t i = 0; i < NumUpgrades; i++)
+			cards.push_back({ ToolType::Upgrade, i });
+		break;
 	}
 	return cards;
 }
@@ -270,6 +278,8 @@ BarTab TabOf(const Tool &tool)
 	switch (tool.type) {
 	case ToolType::Build:
 		return IsLairKind(tool.index) ? BarTab::Lairs : BarTab::Traps;
+	case ToolType::Upgrade:
+		return BarTab::Upgrades;
 	default:
 		return BarTab::Traps;
 	}
@@ -545,6 +555,18 @@ CardText DescribeCard(const Tool &tool)
 		text.ready = State.vaultGold >= BaitCost;
 		text.description = "A pile of fool's gold. Greedy heroes who see it detour to grab it.";
 		break;
+	case ToolType::Upgrade: {
+		const auto upgrade = static_cast<UpgradeId>(tool.index);
+		const UpgradeInfo &info = GetUpgradeInfo(upgrade);
+		const int cost = UpgradeNextCost(upgrade);
+		text.name = std::string(info.cardName);
+		// The corner of the card shows the tier, where other cards show their hotkey.
+		text.hotkey = fmt::format("{}/{}", UpgradeTier(upgrade), info.maxTier);
+		text.cost = cost > 0 ? fmt::format("{}g", cost) : std::string("MAX");
+		text.ready = CanBuyUpgrade(upgrade);
+		text.description = UpgradeDescription(upgrade);
+		break;
+	}
 	case ToolType::None:
 		break;
 	}
@@ -599,6 +621,9 @@ void DrawPortrait(const Surface &area, const Tool &tool)
 		return;
 	case ToolType::Bait:
 		DrawCentred(area, GetInvItemSprite(CURSOR_FIRSTITEM + ICURS_GOLD_LARGE));
+		return;
+	case ToolType::Upgrade:
+		DrawSpellPortrait(area, GetUpgradeInfo(static_cast<UpgradeId>(tool.index)).icon);
 		return;
 	case ToolType::None:
 		return;
@@ -999,6 +1024,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		}
+	case ToolType::Upgrade:
 	case ToolType::None:
 		return;
 	}
@@ -1131,6 +1157,17 @@ bool SetRallyPoint(Point tile)
 	return true;
 }
 
+void BuyUpgradeCard(size_t index)
+{
+	const auto upgrade = static_cast<UpgradeId>(index);
+	std::string_view reason;
+	if (!CanBuyUpgrade(upgrade, &reason)) {
+		SetFeedback(std::string(reason));
+		return;
+	}
+	RequestBuyUpgrade(upgrade);
+}
+
 void SelectActionButton(size_t i)
 {
 	if (i < NumSpellKinds)
@@ -1241,6 +1278,8 @@ void UseToolAt(Point tile)
 		// One cast per arming, like a C&C support power.
 		if (TryCastSpell(currentTool.index, tile))
 			currentTool = {};
+		return;
+	case ToolType::Upgrade:
 		return;
 	}
 }
@@ -1529,8 +1568,12 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			ScrollOf(currentTab)--;
 		if (Contains(RightArrowRect(), UiMouse()))
 			ScrollOf(currentTab)++;
-		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
-			SelectTool(card->type, card->index);
+		if (const std::optional<Tool> card = CardAt(UiMouse()); card) {
+			if (card->type == ToolType::Upgrade)
+				BuyUpgradeCard(card->index);
+			else
+				SelectTool(card->type, card->index);
+		}
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
 		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && SelectedStructure())
