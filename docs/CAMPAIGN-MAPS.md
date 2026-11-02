@@ -896,56 +896,56 @@ A wide cloister with a rock island in the middle, and the vault below it on the 
 
 ## Level 18: Chains of Night
 
-**Hell.** Route 184 tiles, 1052 floor cells, 4340 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16).
+**Hell.** Route 184 tiles, 1012 floor cells, 4202 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 16 of them.
 
-Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. A long, plain, brutal route, and each turn is a place to bar.
+Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. Each turn is a place to bar, and shoulders of rock narrow every hall to one more.
 
 ```
 
-  ####################################
+  #############   ####################
+  #.EEEE......#   #..................#
+  #.EEEE......#####...............b..#
   #.EEEE.............................#
-  #.EEEE..........................b..#
+  #.EEEE.............................#
   #.EEEE+............................#
-  #.EEEE++...........................#
-  #.EEEE.++..........................#
-  #.......++.........................#
-  #........++++++++++++++............#
+  #......+...........................#
+  #.......+++++++++++++++............#
   #######################+...####....#
-  #######################+...####....#
-  #...................++.............#
+  #########   ###########+...####....#
+  #.......#   #........++............#
+  #.......#####.......++.............#
   #..................++..............#
   #.................++...............#
   #................++................#
-  #...............++.................#
-  #..b...........++..................#
+  #..b...........+++.................#
   #...++++++++++++...................#
   #...+###############################
-  #...+###############################
-  #....+++...........................#
-  #.....+++..........................#
+  #...+############   ################
+  #....+..........#   #..............#
+  #.....+.........#####..............#
+  #......+...........................#
+  #.......+..........................#
   #........+.........................#
-  #.........+........................#
-  #..........+.......................#
-  #...........+...........++.......b.#
-  #............++++++++++++++++++....#
+  #.........+..........++..........b.#
+  #..........++++++++++++++++++++....#
   ###############################+...#
-  ###############################+...#
-  #............................++....#
-  #...........................++.....#
+  ###################   #########+...#
+  #.................#   #......++....#
+  #.................#####.....++.....#
   #..VVVVV...................++......#
   #..VVVVV..................++.......#
   #..VVVVV.................++........#
-  #..VVVVV+++.............+..........#
-  #..VVVVV..++...........+...........#
-  #..........++++.......+............#
-  #...........++.+++++++.............#
+  #..VVVVV................++.........#
+  #..VVVVV+..............++..........#
+  #.......++..++........++...........#
+  #........++++.+++++++++............#
   ####################################
 
 ```
 
 ## Level 19: Burning Sepulcre
 
-**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11).
+**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 23 of them.
 
 A burial hall ringed by a broad ambulatory, with the vault below and behind it. The hall has two necks in, and the ring is cut on the east, so the party crosses the hall or walks the whole ring, and the only way down is at the far corner, with the vault back at the other end. Traps herd rather than block: there is always another way on, and lairs hold the ring.
 
@@ -994,7 +994,7 @@ A burial hall ringed by a broad ambulatory, with the vault below and behind it. 
 
 ## Level 20: Throne of Ash
 
-**Hell.** Route 205 tiles, 1102 floor cells, 4594 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 33 points along the route, 0 leave no way on; 7 have a real way round (+10 tiles or more, longest +28).
+**Hell.** Route 204 tiles, 1082 floor cells, 4557 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 28 of them.
 
 The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big enough for a last stand.
 
@@ -1002,10 +1002,10 @@ The last keep: the longest route in the campaign, five halls in a switchback wit
  ######################################
  #.EEEE...............................#
  #.EEEE.............................b.#
- #.EEEE...............................#
- #.EEEE...............................#
  #.EEEE+..............................#
- #......++++++++++++++++++............#
+ #.EEEE++.............................#
+ #.EEEE.++............................#
+ #.......+++++++++++++++++............#
  #########################+..####.....#
  #########################+..####.....#
  #......................++............#
@@ -1016,27 +1016,27 @@ The last keep: the longest route in the campaign, five halls in a switchback wit
  #.....##..+###########################
  #.....##..+###########################
  #..........+.........................#
- #...........++++.....................#
- #............++.+..................b.#
- #................+...................#
- #.................+++++++............#
- #########################...####.....#
- #########################...####.....#
- #......................++............#
+ #...........++.......................#
+ #............++....................b.#
+ #..............++....................#
+ #...............+++++++++............#
+ #########################+..####.....#
+ #########################+..####.....#
  #.....................++.............#
- #.b..................++..............#
- #...................++...............#
- #....++++++++++++++++................#
+ #....................++..............#
+ #.b.................++...............#
+ #..................+.................#
+ #....++++++++++++++..................#
  #....+################################
  #....+################################
  #.....+..............................#
- #......+.............................#
- #.......+....................VVVVV...#
- #........+...................VVVVV...#
- #.........++.................VVVVV...#
- #..........+++...............VVVVV...#
- #.b...........+..............VVVVV.b.#
- #..............++++++++++++++++......#
+ #......+..........##.....##..........#
+ #.......+.........##.....##..VVVVV...#
+ #........+...++..............VVVVV...#
+ #.........++++++.............VVVVV...#
+ #..........##...+.##.....##..VVVVV...#
+ #.b........##....+##.....##..VVVVV.b.#
+ #.................+++++++++++++......#
  ######################################
 
 ```

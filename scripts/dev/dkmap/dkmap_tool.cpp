@@ -41,6 +41,7 @@
 #include "engine/path.h"
 #include "headless_mode.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
@@ -88,6 +89,8 @@ struct Report {
 	int routePoints = 0;
 	int necks = 0;
 	std::vector<int> waysRound;
+	/** Route points where a Barricade would fit, in a tileset that uses them. */
+	int barrable = 0;
 	int arches = 0;
 	std::array<std::array<bool, DMAXY>, DMAXX> routeCells {};
 	std::string preview;
@@ -265,6 +268,8 @@ void Analyse(const KeepMap &map, Report &report)
 		const Point middle = route[i];
 		BuildFieldAvoiding(withoutSquare, *vault, [middle](Point tile) { return std::abs(tile.x - middle.x) <= 4 && std::abs(tile.y - middle.y) <= 4; });
 		report.routePoints++;
+		if (UsesBarricades() && !BarricadeLine(route[i]).empty())
+			report.barrable++;
 		const uint16_t length = withoutSquare[arrival->x][arrival->y];
 		if (length == Unreachable)
 			report.necks++;
@@ -513,6 +518,8 @@ std::string RouteSummary(const Report &report)
 	}
 	if (seriousWays > 0)
 		text += fmt::format("; {} have a real way round (+10 tiles or more, longest +{})", seriousWays, ways.back());
+	if (report.barrable > 0)
+		text += fmt::format("; a Barricade fits at {} of them", report.barrable);
 	return text;
 }
 

@@ -440,7 +440,7 @@ l.put('b', (21, 3), (36, 7), (37, 29))
 l = level(18, 'Chains of Night', 'Hell', 0x4012,
           'Long chained halls in a switchback, with a broad neck at each turn and one bypass through the '
           'middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. '
-          'A long, plain, brutal route, and each turn is a place to bar.')
+          'Each turn is a place to bar, and shoulders of rock narrow every hall to one more.')
 l.room(3, 2, 34, 7).entrance(4, 2)
 l.room(33, 9, 4, 2)
 l.room(3, 11, 34, 7)
@@ -449,6 +449,8 @@ l.room(25, 9, 4, 2)
 l.room(3, 20, 34, 7)
 l.room(33, 27, 4, 2)
 l.room(3, 29, 34, 9).vault(5, 31)
+# The halls are too wide to bar: these shoulders narrow each one to a neck that can be, off the party's line.
+l.rock(14, 2, 5, 2).rock(10, 11, 5, 2).rock(18, 20, 5, 2).rock(20, 29, 5, 2)
 l.put('b', (34, 3), (5, 16), (35, 25))
 
 l = level(19, 'Burning Sepulcre', 'Hell', 0x4013,
@@ -487,6 +489,8 @@ l.room(2, 23, 36, 5)
 l.room(26, 21, 3, 2)
 l.room(2, 28, 5, 2)
 l.room(2, 30, 36, 8).vault(30, 32)
+# Pillars in the throne room: cover for a last stand, none of them on the way to the throne.
+l.rock(12, 35, 2, 2).rock(19, 35, 2, 2).rock(26, 35, 2, 2).rock(19, 31, 2, 2).rock(26, 31, 2, 2)
 l.put('b', (36, 2), (3, 12), (36, 18), (3, 25), (36, 36), (3, 36))
 
 

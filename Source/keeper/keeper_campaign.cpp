@@ -163,8 +163,8 @@ void SaveProgress()
 bool AppendMapFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
 {
 	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
-	if (!bytes.has_value() || bytes->size() > maxBytes)
-		return false;
+	if (!bytes.has_value() || bytes->size() > maxBytes || !CheckMapBytes(bytes->data(), bytes->size()).has_value())
+		return false; // a joiner would refuse it, and be thrown out of the game
 	const size_t start = out.size();
 	out.resize(start + bytes->size());
 	if (!bytes->empty())
@@ -393,7 +393,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	std::vector<char> blob(sizeof(wire));
 	std::memcpy(blob.data(), &wire, sizeof(wire));
 	if (!currentSetup.mapFile.empty() && !AppendMapFile(currentSetup.mapFile, blob, MaxMapBytes)) {
-		SDL_SetError("Cannot send this map: it is unreadable or larger than %d bytes.", static_cast<int>(MaxMapBytes));
+		SDL_SetError("Cannot send this map: it is unreadable, unfinished or larger than %d bytes.", static_cast<int>(MaxMapBytes));
 		return false;
 	}
 	return SNetCreateGame(gameName, password, blob.data(), static_cast<int>(blob.size()), playerId);

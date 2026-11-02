@@ -30,6 +30,7 @@
 #include "engine/point.hpp"
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -162,10 +163,30 @@ void DescribeCampaignLevel(int level)
 	SetDescription(fmt::format("{}\n\nRaids: {}\nStarting gold: {}\nHero strength: {}%\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, status));
 }
 
-void DescribeCustomMap(int /*value*/)
+/** The files on the Custom Map screen. */
+std::vector<std::string> customMaps;
+
+/** Empty if it can be played; otherwise what's wrong with it, for the player. */
+std::string CustomMapProblem(const std::string &path)
+{
+	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
+	if (!bytes.has_value())
+		return bytes.error();
+	const tl::expected<void, std::string> usable = CheckMapBytes(bytes->data(), bytes->size());
+	return usable.has_value() ? std::string() : usable.error();
+}
+
+void DescribeCustomMap(int value)
 {
 	SetLabel("Custom Map");
-	SetDescription(fmt::format("Raids: {}\nStarting gold: {}", CustomMapRules().raids, CustomMapRules().startingGold));
+	const std::string path = MapsFolder() + customMaps[static_cast<size_t>(value)];
+	std::string about;
+	if (const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path); bytes.has_value()) {
+		if (const tl::expected<KeepMap, std::string> map = ParseMap(bytes->data(), bytes->size()); map.has_value())
+			about = fmt::format("{}{}\n", MapTilesetName(map->tileset), map->author.empty() ? std::string() : fmt::format("\nBy {}", map->author));
+	}
+	const std::string problem = CustomMapProblem(path);
+	SetDescription(fmt::format("{}Raids: {}\nStarting gold: {}{}", about, CustomMapRules().raids, CustomMapRules().startingGold, problem.empty() ? std::string() : fmt::format("\n\nCan't be played: {}", problem)));
 }
 
 void DescribeGameKind(int kind)
@@ -212,7 +233,8 @@ bool UiCampaignLevelSelect()
 bool UiCustomMapSelect()
 {
 	const std::string folder = MapsFolder();
-	const std::vector<std::string> maps = ListMapFiles(/*includeScratch=*/false);
+	customMaps = ListMapFiles(/*includeScratch=*/false);
+	const std::vector<std::string> &maps = customMaps;
 	if (maps.empty()) {
 		const std::string message = fmt::format("No maps found. Put .dkmap files in {}", folder);
 		UiSelOkDialog("Custom Map", message.c_str(), false);
@@ -223,11 +245,22 @@ bool UiCustomMapSelect()
 		const std::string_view file = maps[i];
 		items.push_back({ std::string(file.substr(0, file.rfind('.'))), static_cast<int>(i), UiFlags::ColorUiGold });
 	}
-	const int index = RunListScreen("Custom Map", "Select Map", items, 0, DescribeCustomMap);
-	if (index == NothingChosen)
-		return false;
-	SetCurrentSetup(SetupForCustomMap(folder + maps[static_cast<size_t>(index)]));
-	return true;
+	size_t initial = 0;
+	while (true) {
+		const int index = RunListScreen("Custom Map", "Select Map", items, initial, DescribeCustomMap);
+		if (index == NothingChosen)
+			return false;
+		initial = static_cast<size_t>(index);
+		const std::string path = folder + maps[initial];
+		// Rather than quietly playing a random keep, or sending a joiner something they would refuse.
+		if (const std::string problem = CustomMapProblem(path); !problem.empty()) {
+			const std::string message = fmt::format("This map can't be played: {}.", problem);
+			UiSelOkDialog("Custom Map", message.c_str(), false);
+			continue;
+		}
+		SetCurrentSetup(SetupForCustomMap(path));
+		return true;
+	}
 }
 
 bool UiHostGameSelect()
