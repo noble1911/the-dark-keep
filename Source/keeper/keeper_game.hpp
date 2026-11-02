@@ -276,6 +276,9 @@ void RequestSpawnBot(size_t slot, HeroClassKind cls, Point tile);
 
 constexpr int PossessManaCost = 10;
 
+/** Dev/test (--keeper-devctl): sets off a trap at a tile, whoever stands there. */
+void DevFireTrap(size_t slot, Point victim);
+
 /** Handles CMD_KEEPER / CMD_KEEPER_STATE. @return bytes consumed */
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);
 

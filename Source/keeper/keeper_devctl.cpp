@@ -23,6 +23,7 @@
 #include "engine/dx.h"
 #include "engine/surface.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
@@ -116,6 +117,7 @@ void WriteState()
 	for (const Trap &trap : State.traps)
 		traps += trap.active ? 1 : 0;
 	const Monster *boss = inKeep ? FindBoss() : nullptr;
+	heroes = inKeep ? LivingHeroCount() : 0;
 	std::string line = fmt::format("state t={} inKeep={} phase={} phaseTicks={} wave={}/{} gold={} lost={} mana={} cd={} lairs={} traps={} pop={}/{}",
 	    SDL_GetTicks(), inKeep, PhaseName(State.phase), State.phaseTicks, State.wave, NumWaves(), State.vaultGold, State.goldLost, State.mana[MyPlayerId] / ManaScale, State.spellCooldown[MyPlayerId], lairs, traps,
 	    inKeep ? SupplyUsed() : 0, inKeep ? SupplyCap() : 0);
@@ -139,6 +141,11 @@ void WriteMonsters()
 		Output(fmt::format("mon {} {} hero={} lair={} at={},{} hp={}/{} mode={} home={},{}", id, monster.name(), IsHero(monster), lair ? static_cast<int>(*lair) : -1,
 		    monster.position.tile.x, monster.position.tile.y, monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode),
 		    lair ? State.lairs[*lair].position.x : -1, lair ? State.lairs[*lair].position.y : -1));
+	}
+	for (size_t i = 0; i < MaxBots; i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (IsLivingBot(bot))
+			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode)));
 	}
 	for (size_t i = 0; i < State.traps.size(); i++) {
 		if (State.traps[i].active)
@@ -173,11 +180,17 @@ void Execute(const std::string &line)
 		PushMotion(a, b);
 	} else if (command == "click" || command == "down" || command == "up") {
 		in >> a >> b >> word;
-		const bool right = word == "right";
+		// The game reads the tile under the cursor once a frame: the mouse gets there first, as a person's would.
 		PushMotion(a, b);
-		if (command != "up")
+		pending.push_front(fmt::format("press {} {}", command, word));
+		waitUntil = SDL_GetTicks() + 80;
+	} else if (command == "press") {
+		std::string which;
+		in >> which >> word;
+		const bool right = word == "right";
+		if (which != "up")
 			PushButton(true, right);
-		if (command != "down")
+		if (which != "down")
 			PushButton(false, right);
 	} else if (command == "key") {
 		in >> word;
@@ -246,6 +259,28 @@ void Execute(const std::string &line)
 	} else if (command == "cast") {
 		in >> a >> b >> c;
 		RequestCastSpell(static_cast<size_t>(a), { b, c });
+	} else if (command == "casthero") {
+		// At the living hero nearest the entrance.
+		in >> a;
+		std::optional<Point> target;
+		for (size_t i = 0; i < ActiveMonsterCount && !target; i++) {
+			const Monster &monster = Monsters[ActiveMonsters[i]];
+			if (IsHero(monster) && monster.hitPoints > 0)
+				target = monster.position.tile;
+		}
+		for (size_t i = 0; i < MaxBots && !target; i++) {
+			if (IsLivingBot(Players[FirstBotId + i]))
+				target = Players[FirstBotId + i].position.tile;
+		}
+		if (target) {
+			Output(fmt::format("cast {} at {},{}", a, target->x, target->y));
+			RequestCastSpell(static_cast<size_t>(a), *target);
+		} else {
+			Output("cast: no hero");
+		}
+	} else if (command == "trapfire") {
+		in >> a >> b >> c;
+		DevFireTrap(static_cast<size_t>(a), { b, c });
 	} else if (command == "raid") {
 		RequestStartRaid();
 	} else if (command == "gold") {
@@ -325,6 +360,8 @@ void DevctlFrame()
 		const std::string line = std::move(pending.front());
 		pending.pop_front();
 		Execute(line);
+		if (line.rfind("click", 0) == 0 || line.rfind("down", 0) == 0 || line.rfind("up", 0) == 0)
+			break;
 		const bool isInput = line.rfind("move", 0) == 0 || line.rfind("click", 0) == 0 || line.rfind("down", 0) == 0 || line.rfind("up", 0) == 0 || line.rfind("key", 0) == 0 || line.rfind("wheel", 0) == 0;
 		if (isInput)
 			break;

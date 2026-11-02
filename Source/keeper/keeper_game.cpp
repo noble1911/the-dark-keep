@@ -181,6 +181,27 @@ int restartCountdown = 0;
 /** Joiner: ticks until it leaves, once the host has surely gone. */
 int joinerRestartWait = 0;
 
+/**
+ * Host: slots handed out whose placement message hasn't come back yet. Requests that arrive together
+ * (two masters, or one quick one) must not get the same slot, or one structure vanishes after being paid for.
+ */
+std::bitset<MaxLairs> pendingLairs;
+std::bitset<MaxTraps> pendingTraps;
+std::bitset<MaxLocks> pendingLocks;
+std::bitset<MaxBaits> pendingBaits;
+
+template <typename Slots, typename Pending>
+std::optional<uint8_t> ReserveSlot(const Slots &slots, Pending &pending)
+{
+	for (size_t i = 0; i < slots.size(); i++) {
+		if (!slots[i].active && !pending.test(i)) {
+			pending.set(i);
+			return static_cast<uint8_t>(i);
+		}
+	}
+	return std::nullopt;
+}
+
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
 	TCmdKeeper cmd;
@@ -448,20 +469,11 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 {
 	if (kind >= BuildKinds.size() || !CanBuildAt(kind, tile))
 		return;
-	uint8_t slot = 0xFF;
-	if (IsLairKind(kind)) {
-		const auto it = std::find_if(State.lairs.begin(), State.lairs.end(), [](const Lair &lair) { return !lair.active; });
-		if (it == State.lairs.end())
-			return;
-		slot = static_cast<uint8_t>(it - State.lairs.begin());
-	} else {
-		const auto it = std::find_if(State.traps.begin(), State.traps.end(), [](const Trap &trap) { return !trap.active; });
-		if (it == State.traps.end())
-			return;
-		slot = static_cast<uint8_t>(it - State.traps.begin());
-	}
+	const std::optional<uint8_t> slot = IsLairKind(kind) ? ReserveSlot(State.lairs, pendingLairs) : ReserveSlot(State.traps, pendingTraps);
+	if (!slot)
+		return;
 	State.vaultGold -= BuildKinds[kind].cost;
-	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
+	Send(Action::Built, *slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
 	BroadcastState();
 }
 
@@ -473,6 +485,7 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 	if (IsLairKind(kind)) {
 		if (slot >= MaxLairs)
 			return;
+		pendingLairs.reset(slot);
 		Lair &lair = State.lairs[slot];
 		lair = {};
 		lair.active = true;
@@ -485,6 +498,7 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 	} else {
 		if (slot >= MaxTraps)
 			return;
+		pendingTraps.reset(slot);
 		Trap &trap = State.traps[slot];
 		trap.active = true;
 		trap.position = tile;
@@ -497,11 +511,11 @@ void HostLockDoor(Point doorPosition)
 {
 	if (!CanLockDoorAt(doorPosition))
 		return;
-	const auto it = std::find_if(State.locks.begin(), State.locks.end(), [](const DoorLock &lock) { return !lock.active; });
-	if (it == State.locks.end())
+	const std::optional<uint8_t> slot = ReserveSlot(State.locks, pendingLocks);
+	if (!slot)
 		return;
 	State.vaultGold -= LockDoorCost;
-	Send(Action::DoorLocked, static_cast<uint8_t>(it - State.locks.begin()), 0, doorPosition);
+	Send(Action::DoorLocked, *slot, 0, doorPosition);
 	BroadcastState();
 }
 
@@ -509,6 +523,7 @@ void ApplyDoorLocked(uint8_t slot, Point doorPosition)
 {
 	if (slot >= MaxLocks)
 		return;
+	pendingLocks.reset(slot);
 	Object *door = FindObjectAtPosition(doorPosition);
 	if (door == nullptr || !door->isDoor())
 		return;
@@ -525,11 +540,11 @@ void HostPlaceBait(Point tile)
 {
 	if (!CanPlaceBaitAt(tile))
 		return;
-	const auto it = std::find_if(State.baits.begin(), State.baits.end(), [](const Bait &bait) { return !bait.active; });
-	if (it == State.baits.end())
+	const std::optional<uint8_t> slot = ReserveSlot(State.baits, pendingBaits);
+	if (!slot)
 		return;
 	State.vaultGold -= BaitCost;
-	Send(Action::BaitPlaced, static_cast<uint8_t>(it - State.baits.begin()), 0, tile);
+	Send(Action::BaitPlaced, *slot, 0, tile);
 	BroadcastState();
 }
 
@@ -537,6 +552,7 @@ void ApplyBaitPlaced(uint8_t slot, Point tile)
 {
 	if (slot >= MaxBaits)
 		return;
+	pendingBaits.reset(slot);
 	Bait &bait = State.baits[slot];
 	bait.active = true;
 	bait.position = tile;
@@ -1117,6 +1133,10 @@ void OnPlayerJoinedLevel(const Player &player)
 void ResetGame(Point entrance, Point vault)
 {
 	State = {};
+	pendingLairs.reset();
+	pendingTraps.reset();
+	pendingLocks.reset();
+	pendingBaits.reset();
 	State.entrance = entrance;
 	State.vault = vault;
 	State.vaultGold = StartingGold();
@@ -1225,6 +1245,12 @@ void GameTick()
 
 	if (--ticksUntilBroadcast <= 0)
 		BroadcastState();
+}
+
+void DevFireTrap(size_t slot, Point victim)
+{
+	if (slot < State.traps.size() && State.traps[slot].active)
+		FireTrap(State.traps[slot], victim);
 }
 
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
