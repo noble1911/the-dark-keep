@@ -64,7 +64,7 @@ struct ResumeData {
 
 void WriteResumeFile(const ResumeData &data);
 void DeleteResumeFile();
-/** True if there is a file at all, valid or not. */
+/** True if there is a file at all, valid or not (a finished one still waiting to be moved into place counts). */
 bool HasResumeFile();
 /**
  * The save, if it can be used: intact, this version, a level that is open, and that level's seed and map

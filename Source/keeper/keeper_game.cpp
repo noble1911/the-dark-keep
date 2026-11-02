@@ -182,6 +182,7 @@ struct TCmdKeeperState {
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
 	std::array<int32_t, MaxBots> botHitPoints;
 	int32_t retryGold;
+	int32_t retryGoldLost;
 	uint8_t speedLevel;
 	uint8_t readyMask;
 	uint16_t readyTicks;
@@ -217,6 +218,8 @@ int retryGoldLost = 0;
  * once; clients stay in step regardless, as none can run a turn ahead of the turns it has from the others.
  */
 constexpr uint32_t SpeedSwitchLeadTurns = 2;
+/** The named turn never came (its sender's turns stopped): switch anyway rather than wait for ever. */
+constexpr int SpeedSwitchTimeoutTicks = 5 * TicksPerSecond;
 /** How long the rest have once one master is ready. */
 constexpr int ReadyVoteTimeoutTicks = 30 * TicksPerSecond;
 /** A resumed keep gives the master at least this long to look around, even if the clock had run out. */
@@ -227,6 +230,7 @@ struct PendingSpeed {
 	uint8_t level = 0;
 	uint16_t atTurn = 0;
 	uint8_t sender = 0;
+	int ticksWaited = 0;
 };
 PendingSpeed pendingSpeed;
 /** State snapshots that disagreed with this client's speed in a row. One can be from just before the switch. */
@@ -263,6 +267,7 @@ void BroadcastState()
 	for (size_t i = 0; i < MaxBots; i++)
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	cmd.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.retryGold)));
+	cmd.retryGoldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(retryGoldLost)));
 	cmd.speedLevel = static_cast<uint8_t>(GameSpeedLevel());
 	cmd.readyMask = State.readyMask;
 	cmd.readyTicks = Swap16LE(static_cast<uint16_t>(std::clamp(State.readyTicks, 0, 0xFFFF)));
@@ -391,6 +396,13 @@ void AnnouncePhase(Phase from, Phase to)
 	}
 }
 
+/**
+ * This game may write and delete the resume slot. A game takes the slot if it resumed from it or found it
+ * empty; otherwise it leaves the existing save alone until it survives a raid, and only then replaces it,
+ * saying so. A replay's defeat, or a quit in its preparation, costs the other save nothing.
+ */
+bool ownsResumeSlot = false;
+
 /** Only a single player's own campaign: progress is at stake nowhere else, and a test flag's game isn't a real one. */
 bool CanSaveKeep()
 {
@@ -400,7 +412,7 @@ bool CanSaveKeep()
 /** Writes the keep as it stands. Called when not raiding: nothing about a raid is in the file. */
 void SaveKeep()
 {
-	if (!CanSaveKeep())
+	if (!CanSaveKeep() || !ownsResumeSlot)
 		return;
 	ResumeData data;
 	const KeepSetup &setup = CurrentSetup();
@@ -417,30 +429,34 @@ void SaveKeep()
 	data.mana = State.mana[MyPlayerId];
 	data.mapXp = MapXpEarned();
 	data.upgrades = UpgradeTiers();
-	for (const Lair &lair : State.lairs) {
+	for (size_t slot = 0; slot < MaxLairs; slot++) {
+		const Lair &lair = State.lairs[slot];
 		if (!lair.active)
 			continue;
 		ResumeData::SavedLair saved;
 		saved.kind = lair.kind;
 		saved.monsterType = static_cast<int>(BuildKinds[lair.kind].type);
-		saved.cost = BuildKinds[lair.kind].cost;
+		saved.cost = RefundFor({ StructureType::Lair, slot });
 		saved.position = lair.position;
 		saved.hasRally = lair.hasRally;
 		saved.rally = lair.rally;
 		saved.route.assign(lair.route.begin(), lair.route.begin() + lair.routeCount);
 		data.lairs.push_back(std::move(saved));
 	}
-	for (const Trap &trap : State.traps) {
+	for (size_t slot = 0; slot < MaxTraps; slot++) {
+		const Trap &trap = State.traps[slot];
 		if (trap.active)
-			data.traps.push_back({ trap.kind, trap.position, 0, TrapKinds[trap.kind].cost });
+			data.traps.push_back({ trap.kind, trap.position, 0, RefundFor({ StructureType::Trap, slot }) });
 	}
-	for (const DoorLock &lock : State.locks) {
+	for (size_t slot = 0; slot < MaxLocks; slot++) {
+		const DoorLock &lock = State.locks[slot];
 		if (lock.active)
-			data.locks.push_back({ 0, lock.position, std::clamp(lock.strength, 0, 255), LockDoorCost * lock.strength / LockStrength });
+			data.locks.push_back({ 0, lock.position, std::clamp(lock.strength, 0, 255), RefundFor({ StructureType::Lock, slot }) });
 	}
-	for (const Bait &bait : State.baits) {
+	for (size_t slot = 0; slot < MaxBaits; slot++) {
+		const Bait &bait = State.baits[slot];
 		if (bait.active)
-			data.baits.push_back({ 0, bait.position, std::clamp(bait.uses, 0, 255), BaitCost * bait.uses / BaitUses });
+			data.baits.push_back({ 0, bait.position, std::clamp(bait.uses, 0, 255), RefundFor({ StructureType::Bait, slot }) });
 	}
 	WriteResumeFile(data);
 }
@@ -456,6 +472,10 @@ void AnnounceReadyChanges(uint8_t before, uint8_t after)
 
 void SetPhase(Phase phase)
 {
+	if (phase == Phase::Breather && State.phase == Phase::Raid && !ownsResumeSlot && CanSaveKeep()) {
+		ownsResumeSlot = true;
+		Announce("Autosaved: this keep replaces your earlier Continue.");
+	}
 	State.readyMask = 0;
 	State.readyTicks = 0;
 	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
@@ -478,7 +498,7 @@ void SetPhase(Phase phase)
 		BroadcastState();
 	if (phase == Phase::Breather)
 		SaveKeep();
-	else if ((phase == Phase::Defeat || phase == Phase::Victory) && CanSaveKeep())
+	else if ((phase == Phase::Defeat || phase == Phase::Victory) && CanSaveKeep() && ownsResumeSlot)
 		DeleteResumeFile(); // what's decided stays decided; a retry writes it again from its respite
 }
 
@@ -663,7 +683,8 @@ void UpdatePendingSpeed()
 	if (!pendingSpeed.active)
 		return;
 	const auto turnsLeft = static_cast<int16_t>(pendingSpeed.atTurn - static_cast<uint16_t>(multi_last_turn_from(pendingSpeed.sender)));
-	if (turnsLeft > 0)
+	const bool senderGone = pendingSpeed.sender >= NetPlayerSlots || !Players[pendingSpeed.sender].plractive;
+	if (turnsLeft > 0 && !senderGone && ++pendingSpeed.ticksWaited < SpeedSwitchTimeoutTicks)
 		return;
 	pendingSpeed.active = false;
 	speedMismatches = 0;
@@ -674,7 +695,8 @@ void UpdatePendingSpeed()
 
 void HostRetryRaid()
 {
-	if (State.phase != Phase::Defeat)
+	// The restart's countdown would pull everyone out of the retried raid.
+	if (State.phase != Phase::Defeat || restartChosen)
 		return;
 	State.vaultGold = std::max(State.retryGold, 0);
 	State.goldLost = retryGoldLost;
@@ -975,6 +997,7 @@ bool IsFloorForResume(Point tile)
  */
 void ApplyResume(const ResumeData &data)
 {
+	ownsResumeSlot = true;
 	if (data.level != CurrentSetup().campaignLevel || data.entrance != State.entrance || data.vault != State.vault) {
 		// The map isn't the one that was saved: this is a fresh start on it, and the file is no use.
 		DeleteResumeFile();
@@ -1535,6 +1558,8 @@ void ResetGame(Point entrance, Point vault)
 	pendingSpeed = {};
 	speedMismatches = 0;
 	ClearPings();
+	retryGoldLost = 0;
+	ownsResumeSlot = !HasResumeFile();
 	OnKeepLoadedSpeed();
 	ResetHeroes();
 	ResetRaidStats();
@@ -1639,7 +1664,7 @@ void OnLeavingKeep()
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
 		// Includes whatever this respite has built so far.
 		SaveKeep();
-	} else if (State.phase == Phase::Raid && HasResumeFile()) {
+	} else if (State.phase == Phase::Raid && ownsResumeSlot && HasResumeFile()) {
 		// Continue brings the raid back: this attempt pays nothing, as for a retry.
 		ProfileTakeBackRaid();
 	}
@@ -2055,7 +2080,7 @@ void RequestRetryRaid()
 
 bool CanRetryRaid()
 {
-	return State.phase == Phase::Defeat && !IsEditorTestRun() && (!IsJoinedGame() || IsHost());
+	return State.phase == Phase::Defeat && !restartChosen && !IsEditorTestRun() && (!IsJoinedGame() || IsHost());
 }
 
 void RequestPossess(size_t monsterId)
@@ -2130,6 +2155,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
 			State.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGold)));
+			retryGoldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGoldLost)));
 			// A joiner who wasn't there for the change, or missed it. Waits for a second word: this one may have left the host before the switch.
 			AnnounceReadyChanges(State.readyMask, message.readyMask);
 			State.readyMask = message.readyMask;
@@ -2182,7 +2208,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::SetSpeed:
 		if (message.a < GameSpeeds.size())
-			pendingSpeed = { true, message.a, Swap16LE(message.w), static_cast<uint8_t>(player.getId()) };
+			pendingSpeed = { true, message.a, Swap16LE(message.w), static_cast<uint8_t>(player.getId()), 0 };
 		break;
 	case Action::RequestRetryRaid:
 		if (IsHost())

@@ -83,6 +83,11 @@ void OnGameEndedSpeed()
 {
 	if (speedLevel != 0)
 		gnTickDelay = static_cast<uint16_t>(BaseTickMilliseconds());
+	// Single player keeps its speed for the next keep. A co-op game's was the party's choice.
+	if (gbIsMultiplayer)
+		speedLevel = 0;
+	// A held clock in a new game would mean a raid that never comes unless asked for: each game chooses again.
+	prepTimerHeld = false;
 }
 
 bool CanHoldPrepTimer()

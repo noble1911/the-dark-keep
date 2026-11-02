@@ -28,7 +28,7 @@ void CycleGameSpeed();
 void ApplyGameSpeedLevel(size_t level);
 /** A keep has loaded: single player carries on at its chosen speed, co-op starts at the normal one. */
 void OnKeepLoadedSpeed();
-/** Back to the game's own tick rate, for the menus. The choice is remembered for the next keep. */
+/** Back to the game's own tick rate, for the menus. Single player's speed is remembered for the next keep; the held timer isn't. */
 void OnGameEndedSpeed();
 
 // ---- no timer on preparation (single player) -----------------------------------------------
