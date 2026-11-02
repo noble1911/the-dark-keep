@@ -670,7 +670,8 @@ void MoveMissileAndCheckMissileCol(Missile &missile, DamageType damageType, int 
 
 	const bool tileChanged = MoveMissile(missile, checkTile, ifCollidesDontMoveToHitTile);
 
-	const int16_t tileTargetHash = dMonster[missile.position.tile.x][missile.position.tile.y] ^ dPlayer[missile.position.tile.x][missile.position.tile.y];
+	// [DARK KEEP] a master can cast at the map's edge, and then a Nova's rays leave the map
+	const int16_t tileTargetHash = InDungeonBounds(missile.position.tile) ? dMonster[missile.position.tile.x][missile.position.tile.y] ^ dPlayer[missile.position.tile.x][missile.position.tile.y] : 0;
 
 	// missile didn't change the tile... check that we perform CheckMissileCol only once for any monster/player to avoid multiple hits for slow missiles
 	if (!tileChanged && missile.lastCollisionTargetHash != tileTargetHash) {
