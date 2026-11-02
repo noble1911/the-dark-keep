@@ -186,7 +186,7 @@ void WatchRaid()
 			watch = {};
 			watch.inRaid = true;
 			watch.wave = State.wave;
-			watch.startTick = KeepTicks();
+			watch.startTick = DevKeeperTicks();
 			watch.keepAtStart = keep;
 			watch.lordAtStart = lord;
 			watch.lordLow = lord;
@@ -200,7 +200,7 @@ void WatchRaid()
 		watch.keepNow = keep;
 		if (!watch.reached && nearest <= 3) {
 			watch.reached = true;
-			Output(fmt::format("reach wave={} ticks={}", watch.wave, KeepTicks() - watch.startTick));
+			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
 		}
 		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
 			std::istringstream list(autocast);
@@ -215,7 +215,7 @@ void WatchRaid()
 				for (size_t i = 0; i < MaxBots; i++) {
 					if (IsLivingBot(Players[FirstBotId + i])) {
 						RequestCastSpell(spell, Players[FirstBotId + i].position.tile);
-						Output(fmt::format("autocast {} tick={}", spell, KeepTicks() - watch.startTick));
+						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
 						return;
 					}
 				}
@@ -223,7 +223,7 @@ void WatchRaid()
 					const Monster &monster = Monsters[ActiveMonsters[i]];
 					if (IsHero(monster) && monster.hitPoints > 0) {
 						RequestCastSpell(spell, monster.position.tile);
-						Output(fmt::format("autocast {} tick={}", spell, KeepTicks() - watch.startTick));
+						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
 						return;
 					}
 				}
@@ -234,7 +234,7 @@ void WatchRaid()
 	}
 	watch.inRaid = false;
 	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
-	    watch.wave, inKeep ? PhaseName(State.phase) : "left", KeepTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
+	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
 }
 
 struct DriftStats {
@@ -267,7 +267,7 @@ uint32_t driftStartTime = 0;
 void WriteDrift()
 {
 	const uint32_t seconds = std::max<uint32_t>((SDL_GetTicks() - driftStartTime) / 1000, 1);
-	const uint32_t gameSeconds = std::max<uint32_t>((KeepTicks() - driftStartTicks) / 20, 1);
+	const uint32_t gameSeconds = std::max<uint32_t>((DevKeeperTicks() - driftStartTicks) / 20, 1);
 	Output(fmt::format("drift gameSeconds={} botTiles {} hist0/1/2/3-4/5-9/10+={},{},{},{},{},{} botLife {} snaps={} walks={} monsterTiles {} monsterLife {} stateBytes={} perGameSecond={} realSeconds={}",
 	    gameSeconds, botTiles.describe(), botTileBuckets[0], botTileBuckets[1], botTileBuckets[2], botTileBuckets[3], botTileBuckets[4], botTileBuckets[5], botLife.describe(), botSnaps, botWalks, monsterTiles.describe(), monsterLife.describe(), bytesSent, bytesSent / gameSeconds, seconds));
 }
@@ -282,7 +282,7 @@ void ResetDrift()
 	botSnaps = 0;
 	botWalks = 0;
 	bytesSent = 0;
-	driftStartTicks = KeepTicks();
+	driftStartTicks = DevKeeperTicks();
 	driftStartTime = SDL_GetTicks();
 }
 

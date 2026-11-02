@@ -1121,12 +1121,12 @@ void UpdateTraps()
 		std::optional<Point> victim;
 		for (size_t i = 0; i < ActiveMonsterCount && !victim; i++) {
 			const Monster &monster = Monsters[ActiveMonsters[i]];
-			if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && IsStoneImmuneHero(monster)))
+			if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && monster.mode == MonsterMode::Petrified))
 				victim = monster.position.tile;
 		}
 		for (size_t i = 0; i < MaxBots && !victim; i++) {
 			const Player &bot = Players[FirstBotId + i];
-			if (IsLivingBot(bot) && bot.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && IsStoneImmuneBot(bot)))
+			if (IsLivingBot(bot) && bot.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && IsPetrifiedBot(bot)))
 				victim = bot.position.tile;
 		}
 		if (victim) {

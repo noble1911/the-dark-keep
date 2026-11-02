@@ -79,8 +79,6 @@ const Player *NearestBot(Point from, int range);
 /** Every client: the masters' Stone Curse turns a bot to stone for `ticks` game ticks. */
 bool PetrifyBot(Player &bot, int ticks);
 bool IsPetrifiedBot(const Player &player);
-/** Stone would do nothing to it: it is stone, or only just came out of it. */
-bool IsStoneImmuneBot(const Player &player);
 /** Any living bot within `distance` tiles of `tile`. */
 bool IsBotNear(Point tile, int distance);
 /** Every client: bots who can see trap `trapSlot` at `trapPosition` fire learn to route around it. */

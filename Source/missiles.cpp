@@ -2390,8 +2390,8 @@ void AddStoneCurse(Missile &missile, AddMissileParameter &parameter)
 			    // [DARK KEEP] the masters' curse only takes heroes: hero monsters and bot heroes
 			    const int playerId = std::abs(dPlayer[target.x][target.y]) - 1;
 			    if (monsterId < 0)
-				    return playerId >= 0 && keeper::IsLivingBot(Players[playerId]) && !keeper::IsStoneImmuneBot(Players[playerId]);
-			    if (!keeper::IsHero(Monsters[monsterId]) || keeper::IsStoneImmuneHero(Monsters[monsterId]))
+				    return playerId >= 0 && keeper::IsLivingBot(Players[playerId]) && !keeper::IsPetrifiedBot(Players[playerId]);
+			    if (!keeper::IsHero(Monsters[monsterId]))
 				    return false;
 		    }
 		    if (monsterId < 0) {
@@ -2446,8 +2446,6 @@ void AddStoneCurse(Missile &missile, AddMissileParameter &parameter)
 
 	missile.duration = std::min(missile.duration, 15);
 	missile.duration <<= 4;
-	if (keeper::IsActive()) // [DARK KEEP]
-		keeper::NoteHeroStoned(monster, missile.duration);
 }
 
 void AddGolem(Missile &missile, AddMissileParameter &parameter)
