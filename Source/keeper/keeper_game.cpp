@@ -17,6 +17,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -131,6 +132,7 @@ enum class Action : uint8_t {
 	SyncEnd,
 	Restart,
 	SyncUpgrade,
+	SyncHostSlot,
 };
 
 #pragma pack(push, 1)
@@ -727,6 +729,7 @@ void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
 	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave);
+	out.Add(Action::SyncHostSlot, LobbyHostSlot());
 	// Before the hit points: raising a tier adds life, and those are the final numbers.
 	for (size_t i = 0; i < NumUpgrades; i++)
 		out.Add(Action::SyncUpgrade, static_cast<uint8_t>(i), static_cast<uint8_t>(UpgradeTier(static_cast<UpgradeId>(i))));
@@ -854,6 +857,9 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	switch (message.action) {
 	case Action::SyncBegin:
 		ApplySyncBegin(message.a, message.b);
+		break;
+	case Action::SyncHostSlot:
+		LobbySetHostSlot(message.a);
 		break;
 	case Action::SyncUpgrade:
 		if (message.a < NumUpgrades)
@@ -1102,6 +1108,11 @@ std::string_view PhaseName(Phase phase)
 bool IsHost()
 {
 	return !awaitingKeepSnapshot && MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
+}
+
+bool IsAwaitingKeepSnapshot()
+{
+	return awaitingKeepSnapshot;
 }
 
 void OnPlayerJoinedLevel(const Player &player)
@@ -1708,6 +1719,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		ApplyPatrolLeg(message.a, message.b, message.x);
 		break;
 	case Action::SyncBegin:
+	case Action::SyncHostSlot:
 	case Action::SyncUpgrade:
 	case Action::SyncMonsterPosition:
 	case Action::SyncMonsterHitPoints:
