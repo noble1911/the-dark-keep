@@ -6,9 +6,8 @@
 #include "keeper/keeper_resume.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
-#include <fstream>
-#include <iterator>
 #include <sstream>
 #include <string_view>
 
@@ -47,6 +46,21 @@ uint32_t Checksum(std::string_view text)
 		hash *= 16777619U;
 	}
 	return hash;
+}
+
+/** Through OpenFile: the path is UTF-8, and a user's folder needn't be ASCII. */
+bool ReadWholeFile(const std::string &path, std::string &text)
+{
+	FILE *file = OpenFile(path.c_str(), "rb");
+	if (file == nullptr)
+		return false;
+	std::array<char, 4096> chunk;
+	size_t got = 0;
+	while ((got = std::fread(chunk.data(), 1, chunk.size(), file)) > 0)
+		text.append(chunk.data(), got);
+	const bool ok = std::ferror(file) == 0;
+	std::fclose(file);
+	return ok;
 }
 
 bool IsTile(int x, int y)
@@ -185,10 +199,13 @@ void WriteResumeFile(const ResumeData &data)
 		RemoveFile(temp.c_str());
 		return;
 	}
-	// The engine's RenameFile will not replace an existing file on Windows.
+	// The engine's RenameFile will not replace an existing file on Windows. The new file is complete
+	// from here on: if the rename fails, or the game dies before it, ReadResumeFile takes it from .tmp.
 	if (FileExists(path))
 		RemoveFile(path.c_str());
 	RenameFile(temp.c_str(), path.c_str());
+	if (!FileExists(path))
+		LogError("Cannot move keeper save into place: {}", path);
 }
 
 void DeleteResumeFile()
@@ -202,33 +219,44 @@ void DeleteResumeFile()
 
 bool HasResumeFile()
 {
-	return FileExists(ResumePath());
+	const std::string path = ResumePath();
+	return FileExists(path) || FileExists(path + ".tmp");
 }
 
 std::optional<ResumeData> ReadResumeFile()
 {
 	const std::string path = ResumePath();
-	if (!FileExists(path))
+	const std::string temp = path + ".tmp";
+	const bool fromTemp = !FileExists(path);
+	if (fromTemp && !FileExists(temp))
 		return std::nullopt;
-	std::ifstream in(path, std::ios::binary);
-	const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	std::string text;
+	// A file that can't be read isn't known to be damaged: it stays, for next time.
+	if (!ReadWholeFile(fromTemp ? temp : path, text)) {
+		LogError("Cannot read keeper save {}", fromTemp ? temp : path);
+		return std::nullopt;
+	}
 	const size_t sumAt = text.rfind("sum ");
 	ResumeData data;
-	bool intact = in.good() || in.eof();
-	if (intact && sumAt != std::string::npos) {
+	bool intact = false;
+	if (sumAt != std::string::npos) {
 		uint32_t stored = 0;
 		std::istringstream sum(text.substr(sumAt + 4));
 		intact = (sum >> stored) && stored == Checksum(std::string_view(text).substr(0, sumAt)) && Parse(std::string_view(text).substr(0, sumAt), data);
-	} else {
-		intact = false;
 	}
-	in.close();
 	if (!intact) {
+		if (fromTemp) {
+			// The game died while writing it: the save it was replacing went only after it was complete, so this was never the save.
+			RemoveFile(temp.c_str());
+			return std::nullopt;
+		}
 		Log("Keeper save {} is damaged or from another version: setting it aside", path);
 		CopyFileOverwrite(path.c_str(), (path + ".bad").c_str());
 		RemoveFile(path.c_str());
 		return std::nullopt;
 	}
+	if (fromTemp)
+		RenameFile(temp.c_str(), path.c_str());
 	if (!IsCurrent(data))
 		return std::nullopt;
 	return data;
