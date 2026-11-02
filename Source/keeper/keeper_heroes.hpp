@@ -110,6 +110,14 @@ bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);
 
 void ResetHeroes();
+/**
+ * How long a hero shrugs off stone after it wears off. Without this, a Stone recast faster than it lasts
+ * (high spell level, mana upgrades, or two masters) holds a hero for ever and the raid never ends.
+ */
+constexpr int StoneImmunityTicks = 5 * 20;
+/** Stone would do nothing to it: it is stone, or only just came out of it. */
+bool IsStoneImmuneHero(const Monster &monster);
+void NoteHeroStoned(const Monster &monster, int ticks);
 /** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
 void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 

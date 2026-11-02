@@ -1033,12 +1033,12 @@ std::optional<Point> StoneCurseTarget(Point tile)
 	};
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const Monster &monster = Monsters[ActiveMonsters[i]];
-		if (IsHero(monster) && monster.hitPoints > 0 && monster.mode != MonsterMode::Petrified)
+		if (IsHero(monster) && monster.hitPoints > 0 && !IsStoneImmuneHero(monster))
 			consider(monster.position.tile);
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const Player &bot = Players[FirstBotId + i];
-		if (IsLivingBot(bot) && !IsPetrifiedBot(bot))
+		if (IsLivingBot(bot) && !IsStoneImmuneBot(bot))
 			consider(bot.position.tile);
 	}
 	return best;
@@ -1676,7 +1676,7 @@ void Tick()
 		LeashMonsters();
 }
 
-uint32_t DevKeeperTicks()
+uint32_t KeepTicks()
 {
 	return tickCounter;
 }

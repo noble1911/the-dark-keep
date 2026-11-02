@@ -101,8 +101,8 @@ int UiBarHeight();
 
 /** @brief Dev/test (--keeper-devctl): points the camera at a tile. */
 void DevCenterCamera(Point tile);
-/** @brief Dev/test (--keeper-devctl): keep ticks since the level loaded. */
-uint32_t DevKeeperTicks();
+/** @brief Keep ticks since the level loaded. */
+uint32_t KeepTicks();
 
 /** @brief Dev/test flag (--keeper-autostart): skip menus and start a single-player keep. */
 extern bool AutoStart;

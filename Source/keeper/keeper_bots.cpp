@@ -26,6 +26,7 @@
 #include "player.h"
 #include "plrmsg.h"
 #include "spells.h"
+#include "utils/is_of.hpp"
 #include "utils/utf8.hpp"
 
 namespace devilution::keeper {
@@ -44,6 +45,8 @@ constexpr int FearChancePercent = 50;
 constexpr int FallBackMaxThinks = 12;
 /** Near a known trap, walk the route tile by tile: the engine's path to a far waypoint would cut through it. */
 constexpr int CarefulTrapRange = 9;
+/** How long a bot waits for a hero in its way before stepping aside. One heading out waits longer: it has right of way. */
+constexpr int BotGiveWayTicks = 20;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -67,6 +70,11 @@ struct BotState {
 	int regroupBudget = RegroupBudgetTicks;
 	/** Game ticks left turned to stone (the masters' Stone Curse). */
 	int petrifiedTicks = 0;
+	/** How long the bot has stood on this tile, in game ticks it wasn't busy. */
+	Point stillTile;
+	int stillTicks = 0;
+	/** Keep tick until which stone won't take: see StoneImmunityTicks. */
+	uint32_t stoneImmuneUntil = 0;
 };
 
 std::array<BotState, MaxBots> Bots;
@@ -250,6 +258,77 @@ bool StepOutOfFire(Player &bot)
 		}
 	}
 	return false;
+}
+
+/** Puts a bot on a tile, standing, ready to think again. The tile must be free or being vacated. */
+void PlaceBot(Player &bot, Point tile)
+{
+	ClrPlrPath(bot);
+	bot.destAction = ACTION_NONE;
+	bot.position.tile = tile;
+	bot.position.future = tile;
+	bot.position.old = tile;
+	bot.position.temp = tile;
+	StartStand(bot, bot._pdir);
+}
+
+/** In a one-wide corridor nobody can step aside: the two change places. @return false if the other one is busy. */
+bool SwapWithBlocker(Player &bot, Point blockerTile)
+{
+	const Point mine = bot.position.tile;
+	const int playerId = std::abs(dPlayer[blockerTile.x][blockerTile.y]) - 1;
+	if (playerId >= 0) {
+		Player &other = Players[playerId];
+		if (!IsLivingBot(other) || other._pmode != PM_STAND)
+			return false;
+		ClearBotFromMap(bot);
+		ClearBotFromMap(other);
+		PlaceBot(bot, blockerTile);
+		PlaceBot(other, mine);
+		return true;
+	}
+	const int monsterId = std::abs(dMonster[blockerTile.x][blockerTile.y]) - 1;
+	if (monsterId < 0)
+		return false;
+	Monster &monster = Monsters[monsterId];
+	if (!IsHero(monster) || !IsAnyOf(monster.mode, MonsterMode::Stand, MonsterMode::Delay))
+		return false;
+	ClearBotFromMap(bot);
+	M_ClearSquares(monster);
+	monster.position.tile = mine;
+	monster.position.future = mine;
+	monster.position.old = mine;
+	monster.occupyTile(mine, false);
+	PlaceBot(bot, blockerTile);
+	return true;
+}
+
+/**
+ * Paths ignore other players, so a bot running for the exit and one heading in can meet head-on and each wait
+ * for the other for ever, and the raid never ends. Whoever runs out of patience first steps aside.
+ * @return true if the bot moved out of the way.
+ */
+bool GiveWayIfBlocked(Player &bot, BotState &state)
+{
+	// The engine clears a path whose next step is blocked, so this looks at the path Think has just made.
+	if (bot.walkpath[0] == WALK_NONE)
+		return false;
+	const Direction ahead = WalkDirection(bot.walkpath[0]);
+	const bool headingOut = state.fleeing || state.carried != 0;
+	if (state.stillTicks < (headingOut ? 2 * BotGiveWayTicks : BotGiveWayTicks) || !IsHeroAt(bot.position.tile + ahead))
+		return false;
+	state.stillTicks = 0;
+	for (const Direction dir : { Left(Left(ahead)), Right(Right(ahead)), Left(ahead), Right(ahead) }) {
+		const Point tile = bot.position.tile + dir;
+		if (IsBurning(tile) || !PosOkPlayer(bot, tile))
+			continue;
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+		MakePlrPath(bot, tile, true);
+		if (bot.walkpath[0] != WALK_NONE)
+			return true;
+	}
+	return SwapWithBlocker(bot, bot.position.tile + ahead);
 }
 
 bool HasLineOfSight(Point from, Point to)
@@ -707,6 +786,12 @@ void UpdateBots()
 
 		if (bot._pmode != PM_STAND)
 			continue; // mid-swing, mid-step, mid-cast or reeling
+		if (state.stillTile != Point(bot.position.tile)) {
+			state.stillTile = bot.position.tile;
+			state.stillTicks = 0;
+		} else {
+			state.stillTicks++;
+		}
 		if (state.thinkCooldown > 0 && (bot.walkpath[0] != WALK_NONE || bot.destAction != ACTION_NONE)) {
 			state.thinkCooldown--;
 			continue;
@@ -722,6 +807,8 @@ void UpdateBots()
 		state.thinkCooldown = ThinkInterval;
 		Think(bot, state);
 		AvoidFire(bot);
+		if (GiveWayIfBlocked(bot, state))
+			state.thinkCooldown = ThinkInterval;
 	}
 }
 
@@ -777,15 +864,21 @@ bool PetrifyBot(Player &bot, int ticks)
 	if (!IsLivingBot(bot))
 		return false;
 	BotState &state = Bots[SlotOf(bot)];
-	if (state.petrifiedTicks > 0)
-		return false; // doesn't stack
+	if (KeepTicks() < state.stoneImmuneUntil)
+		return false; // doesn't stack, and can't be kept up for ever
 	state.petrifiedTicks = ticks;
+	state.stoneImmuneUntil = KeepTicks() + ticks + StoneImmunityTicks;
 	return true;
 }
 
 bool IsPetrifiedBot(const Player &player)
 {
 	return IsLivingBot(player) && Bots[SlotOf(player)].petrifiedTicks > 0;
+}
+
+bool IsStoneImmuneBot(const Player &player)
+{
+	return IsLivingBot(player) && KeepTicks() < Bots[SlotOf(player)].stoneImmuneUntil;
 }
 
 bool IsBotNear(Point tile, int distance)

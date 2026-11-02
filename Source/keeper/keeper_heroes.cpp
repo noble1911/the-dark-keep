@@ -167,6 +167,8 @@ struct HeroState {
 	bool fellBack = false;
 	int fallBackSteps = 0;
 	int regroupBudget = RegroupBudgetTicks;
+	/** Keep tick until which stone won't take: see StoneImmunityTicks. */
+	uint32_t stoneImmuneUntil = 0;
 };
 
 std::array<HeroState, MaxMonsters> Heroes;
@@ -1225,6 +1227,17 @@ void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int ca
 	hero.fleeing = fleeing;
 	hero.carried = carried;
 	HeroEscapes(Monsters[monsterId], hero, throughPortal);
+}
+
+bool IsStoneImmuneHero(const Monster &monster)
+{
+	return monster.mode == MonsterMode::Petrified || (monster.getId() < MaxMonsters && KeepTicks() < Heroes[monster.getId()].stoneImmuneUntil);
+}
+
+void NoteHeroStoned(const Monster &monster, int ticks)
+{
+	if (monster.getId() < MaxMonsters)
+		Heroes[monster.getId()].stoneImmuneUntil = KeepTicks() + ticks + StoneImmunityTicks;
 }
 
 void SetMonsterHome(size_t monsterId, Point tile)

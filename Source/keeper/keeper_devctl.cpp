@@ -185,7 +185,7 @@ void WatchRaid()
 			watch = {};
 			watch.inRaid = true;
 			watch.wave = State.wave;
-			watch.startTick = DevKeeperTicks();
+			watch.startTick = KeepTicks();
 			watch.keepAtStart = keep;
 			watch.lordAtStart = lord;
 			watch.lordLow = lord;
@@ -199,7 +199,7 @@ void WatchRaid()
 		watch.keepNow = keep;
 		if (!watch.reached && nearest <= 3) {
 			watch.reached = true;
-			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
+			Output(fmt::format("reach wave={} ticks={}", watch.wave, KeepTicks() - watch.startTick));
 		}
 		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
 			std::istringstream list(autocast);
@@ -214,7 +214,7 @@ void WatchRaid()
 				for (size_t i = 0; i < MaxBots; i++) {
 					if (IsLivingBot(Players[FirstBotId + i])) {
 						RequestCastSpell(spell, Players[FirstBotId + i].position.tile);
-						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
+						Output(fmt::format("autocast {} tick={}", spell, KeepTicks() - watch.startTick));
 						return;
 					}
 				}
@@ -222,7 +222,7 @@ void WatchRaid()
 					const Monster &monster = Monsters[ActiveMonsters[i]];
 					if (IsHero(monster) && monster.hitPoints > 0) {
 						RequestCastSpell(spell, monster.position.tile);
-						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
+						Output(fmt::format("autocast {} tick={}", spell, KeepTicks() - watch.startTick));
 						return;
 					}
 				}
@@ -233,7 +233,7 @@ void WatchRaid()
 	}
 	watch.inRaid = false;
 	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
-	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
+	    watch.wave, inKeep ? PhaseName(State.phase) : "left", KeepTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
 }
 
 void WriteMonsters()
