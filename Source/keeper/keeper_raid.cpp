@@ -165,7 +165,7 @@ Rectangle RowRect(const Rectangle &roster, size_t index)
 
 // ---- summary -----------------------------------------------------------------------
 
-constexpr int SummaryWidth = 340;
+constexpr int SummaryWidth = 400;
 constexpr int SummaryLineHeight = 14;
 constexpr int SummaryTitleHeight = 30;
 constexpr int SummaryTileHeight = 66;
@@ -199,7 +199,10 @@ void DrawSummaryTile(const Surface &out, const Rectangle &rect, const UiIcon &ic
 	DrawFrame(out, rect, PAL16_GRAY + 9);
 	constexpr int IconSize = 28;
 	DrawUiIcon(out.subregion(rect.position.x + 3, rect.position.y + 3, IconSize, IconSize), icon);
-	DrawString(out, FitText(value, rect.size.width - IconSize - 6), { { rect.position.x + IconSize + 3, rect.position.y + 4 }, { rect.size.width - IconSize - 6, 28 } }, { .flags = UiFlags::FontSize24 | UiFlags::AlignCenter | color });
+	// A big number when it fits; a number is never cut.
+	const int valueWidth = rect.size.width - IconSize - 6;
+	const bool big = GetLineWidth(value, GameFont24) <= valueWidth;
+	DrawString(out, value, { { rect.position.x + IconSize + 3, rect.position.y + (big ? 4 : 10) }, { valueWidth, 28 } }, { .flags = (big ? UiFlags::FontSize24 : UiFlags::FontSize12) | UiFlags::AlignCenter | color });
 	DrawString(out, FitText(label, rect.size.width - 2), { { rect.position.x, rect.position.y + rect.size.height - 22 }, { rect.size.width, SummaryLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 }
 

@@ -33,6 +33,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "multi.h"
@@ -317,7 +318,7 @@ bool IsTipDue(const TipInfo &info)
 	case Tip::Lord:
 		return raiding && IsTipSeen(Tip::CastSpell);
 	case Tip::Respite:
-		return State.phase == Phase::Breather;
+		return State.phase == Phase::Breather && !IsRaidSummaryVisible(); // the summary says it first
 	case Tip::Traps:
 		return building;
 	case Tip::Rally:
