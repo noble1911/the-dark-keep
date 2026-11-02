@@ -103,6 +103,12 @@ constexpr int GuardianDamagePerRaise = 3;
 constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
 /** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
 constexpr int JoinSyncTimeoutTicks = 10 * TicksPerSecond;
+/** "Spend it or guard it": gold left in the vault when a raid ends earns this, up to a cap scaled by the level's strength. */
+constexpr int VaultInterestPercent = 5;
+constexpr int VaultInterestMaxGold = 100;
+/** Opening the gates early pays this for each second of preparation given up, up to a cap. */
+constexpr int EarlyCallGoldPerSecond = 1;
+constexpr int EarlyCallMaxGold = 60;
 
 enum class Action : uint8_t {
 	RequestBuild = 1,
@@ -146,6 +152,7 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+	EarlyCallPaid,
 };
 
 #pragma pack(push, 1)
@@ -173,6 +180,8 @@ struct TCmdKeeperState {
 	/** Every upgrade's tier, so a client that joined late still gets them. */
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
 	std::array<int32_t, MaxBots> botHitPoints;
+	int32_t lastTribute;
+	int32_t lastInterest;
 };
 #pragma pack(pop)
 
@@ -227,6 +236,8 @@ void BroadcastState()
 	cmd.upgradeTiers = UpgradeTiers();
 	for (size_t i = 0; i < MaxBots; i++)
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
+	cmd.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastTribute)));
+	cmd.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastInterest)));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -304,7 +315,7 @@ void AnnouncePhase(Phase from, Phase to)
 		return;
 	// Raid stats: every client sees the phase change, so each keeps its own tally.
 	if (from == Phase::Raid)
-		NoteRaidEnded(to, to == Phase::Breather ? TributeFor(State.wave - 1) : 0);
+		NoteRaidEnded(to, to == Phase::Breather ? State.lastTribute : 0, to == Phase::Breather ? State.lastInterest : 0);
 	if (to == Phase::Raid)
 		NoteRaidStarted(State.wave);
 	if (from == Phase::Raid) {
@@ -317,7 +328,8 @@ void AnnouncePhase(Phase from, Phase to)
 		break;
 	case Phase::Breather:
 		if (State.wave > 1)
-			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
+			Announce(State.lastInterest > 0 ? fmt::format("Raid {} is over. The dark lands pay {} gold: tribute, and {} interest on your vault.", State.wave - 1, State.lastTribute, State.lastInterest)
+			                                : fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, State.lastTribute));
 		break;
 	case Phase::Victory:
 		NoteVictory();
@@ -445,16 +457,27 @@ void RefillLairs()
 		RefillLair(lair);
 }
 
+/** Host: pays for the time given up. Before the phase changes, which ends the timer. */
+void PayEarlyCall(int bonus)
+{
+	if (!IsHost() || bonus <= 0)
+		return;
+	State.vaultGold += bonus;
+	Send(Action::EarlyCallPaid, 0, 0, {}, static_cast<uint16_t>(bonus));
+	BroadcastState();
+}
+
 void StartRaid()
 {
+	const int earlyCallBonus = EarlyCallBonusNow();
 	SetPhase(Phase::Raid);
+	PayEarlyCall(earlyCallBonus);
 	if (IsHost())
 		StartWave(State.wave);
 }
 
 void EndRaid()
 {
-	const int tribute = TributeFor(State.wave);
 	if (State.bossDown) {
 		// The party was wiped out before anyone escaped: the Lord rises again (UpdateBoss respawns it).
 		State.bossDown = false;
@@ -465,7 +488,10 @@ void EndRaid()
 		SetPhase(Phase::Victory);
 		return;
 	}
-	State.vaultGold += tribute;
+	// Worked out here, from the host's own vault: a joiner's copy may be behind, so it is told the result.
+	State.lastInterest = VaultInterestOn(State.vaultGold);
+	State.lastTribute = TributeFor(State.wave) + State.lastInterest;
+	State.vaultGold += State.lastTribute;
 	State.wave++;
 	for (Trap &trap : State.traps)
 		trap.cooldown = 0;
@@ -1688,6 +1714,18 @@ void RequestOrder(Point tile, int targetMonster)
 	Send(Action::Order, 0, 0, tile, static_cast<uint16_t>(targetMonster + 1));
 }
 
+int EarlyCallBonusNow()
+{
+	if (State.phase != Phase::Setup && State.phase != Phase::Breather)
+		return 0;
+	return std::min(State.phaseTicks / TicksPerSecond * EarlyCallGoldPerSecond, EarlyCallMaxGold);
+}
+
+int VaultInterestOn(int gold)
+{
+	return std::min(std::max(gold, 0) * VaultInterestPercent / 100, ScaleByHeroStrength(VaultInterestMaxGold));
+}
+
 void AddVaultGold(int amount)
 {
 	State.vaultGold += amount;
@@ -1729,6 +1767,9 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
 			}
 			State.wave = message.wave;
+			// Before the phase: the end of a raid announces these.
+			State.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastTribute)));
+			State.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastInterest)));
 			SetRaidMasters((message.reserved >> 2) & 7);
 			SetGameDifficulty(static_cast<Difficulty>((message.reserved >> 5) & 3));
 			const bool wasBossDown = State.bossDown;
@@ -1770,6 +1811,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::Cast:
 		ApplyCast(player, message.a, tile);
+		break;
+	case Action::EarlyCallPaid:
+		NoteEarlyCallBonus(Swap16LE(message.w));
+		Announce(fmt::format("The gates open early: {} gold for the time you gave up.", Swap16LE(message.w)));
 		break;
 	case Action::RequestStartRaid:
 		if (IsHost() && (State.phase == Phase::Setup || State.phase == Phase::Breather))

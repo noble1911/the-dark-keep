@@ -233,7 +233,7 @@ std::string ResistWords()
 /** The card's height for what it holds: the heroes are the only part that varies. */
 int CardHeight(const CardLayout &layout, const ScoutInfo &info)
 {
-	return layout.margin * 2 + layout.titleHeight + 4 * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
+	return layout.margin * 2 + layout.titleHeight + 5 * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
 	    + layout.textHeight + 2 * layout.textHeight + 8 + 6 + layout.textHeight;
 }
 
@@ -401,6 +401,10 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 		FillRect(out, bar.position.x, bar.position.y, fill, bar.size.height, PAL16_YELLOW + 2);
 	DrawFrame(out, bar, PAL16_GRAY + 8);
 	DrawString(out, fmt::format("{} (est.)", verdict), { { x + barWidth + 6, y }, { inner - barWidth - 6, layout.textHeight } }, { .flags = UiFlags::FontSize12 | verdictColor });
+	y += layout.textHeight;
+
+	// Spend it or guard it.
+	DrawString(out, fmt::format("Call now: +{} gold.  Vault interest: +{} gold.", EarlyCallBonusNow(), VaultInterestOn(State.vaultGold)), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	y += layout.textHeight;
 
 	const Rectangle close = CloseButton(*rect, layout);

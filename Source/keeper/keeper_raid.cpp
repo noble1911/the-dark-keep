@@ -50,6 +50,9 @@ struct RaidStats {
 	int goldRecovered = 0;
 	int bounties = 0;
 	int tribute = 0;
+	/** The part of the tribute that is interest on the vault. */
+	int interest = 0;
+	int earlyCall = 0;
 	int monstersLost = 0;
 };
 
@@ -171,7 +174,7 @@ struct SummaryLine {
 std::vector<SummaryLine> SummaryLines()
 {
 	const RaidStats &s = finished;
-	const int net = s.goldRecovered + s.bounties + s.tribute - s.goldLooted;
+	const int net = s.goldRecovered + s.bounties + s.tribute + s.earlyCall - s.goldLooted;
 	std::vector<SummaryLine> lines {
 		{ "Heroes slain", std::to_string(s.slain), UiFlags::ColorGold },
 		{ "Heroes escaped", std::to_string(s.escaped), s.escaped > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
@@ -183,6 +186,10 @@ std::vector<SummaryLine> SummaryLines()
 	};
 	if (s.outcome == Phase::Breather)
 		lines.push_back({ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold });
+	if (s.interest > 0)
+		lines.push_back({ "  ...of it interest on your vault", std::to_string(s.interest), UiFlags::ColorGold });
+	if (s.earlyCall > 0)
+		lines.push_back({ "Early call bonus", std::to_string(s.earlyCall), UiFlags::ColorGold });
 	lines.push_back({ "Keep monsters lost", std::to_string(s.monstersLost), s.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite });
 	lines.push_back({ "Net gold this raid", fmt::format("{:+}", net), net >= 0 ? UiFlags::ColorGold : UiFlags::ColorRed });
 	return lines;
@@ -331,12 +338,19 @@ void NoteRaidStarted(uint8_t wave)
 	summaryVisible = false;
 }
 
-void NoteRaidEnded(Phase outcome, int tribute)
+void NoteEarlyCallBonus(int amount)
+{
+	if (raidActive)
+		current.earlyCall += amount;
+}
+
+void NoteRaidEnded(Phase outcome, int tribute, int interest)
 {
 	if (!raidActive)
 		return;
 	current.outcome = outcome;
 	current.tribute = tribute;
+	current.interest = interest;
 	finished = current;
 	if (outcome == Phase::Defeat)
 		ProfileNoteDefeat();

@@ -423,6 +423,17 @@ void Execute(const std::string &line)
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
+	} else if (command == "hurtheroes") {
+		// Every hero down to one hit point, for testing how raids end.
+		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+			Monster &monster = Monsters[ActiveMonsters[i]];
+			if (IsHero(monster) && monster.hitPoints > 0)
+				monster.hitPoints = 1 << 6;
+		}
+		for (size_t i = 0; i < MaxBots; i++) {
+			if (IsLivingBot(Players[FirstBotId + i]))
+				SetPlayerHitPoints(Players[FirstBotId + i], 1 << 6);
+		}
 	} else if (command == "fillmana") {
 		State.mana[MyPlayerId] = MaxMana * ManaScale;
 		State.spellCooldown[MyPlayerId] = 0;
