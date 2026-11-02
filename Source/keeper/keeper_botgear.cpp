@@ -26,6 +26,11 @@ constexpr int BotGearRaidsPerTier = 4;
 constexpr int BotGearMaxTier = 5;
 /** A Sorcerer's robes and staff are worth this many levels of its spells, per tier. */
 constexpr int BotGearSpellLevelsPerTier = 1;
+/**
+ * Share of an item's listed armour a bot gets, in percent. Monsters hit bots on toHit + 30 - armour, floor 15%,
+ * so the full listed value puts a late Warrior at that floor. The look and the name stay.
+ */
+constexpr int BotGearArmorPercent = 60;
 
 struct GearSet {
 	std::string_view weapon;
@@ -60,13 +65,13 @@ constexpr std::array<std::array<GearSet, BotGearMaxTier>, NumHeroClasses> GearTa
         { "War Staff", "", "Hard Leather Armor", "Cap" },
         { "War Staff", "", "Studded Leather Armor", "Helm" },
     } },
-    // Monk
+    // Monk. The engine gives a Monk in light armour twice its level in armour, and bots run to level 50: they wear mail.
     { {
-        { "Long Staff", "", "Robe", "" },
-        { "Composite Staff", "", "Robe", "" },
-        { "Quarter Staff", "", "Quilted Armor", "" },
-        { "War Staff", "", "Leather Armor", "Cap" },
-        { "War Staff", "", "Hard Leather Armor", "Cap" },
+        { "Long Staff", "", "Ring Mail", "" },
+        { "Composite Staff", "", "Ring Mail", "" },
+        { "Quarter Staff", "", "Ring Mail", "" },
+        { "War Staff", "", "Chain Mail", "" },
+        { "War Staff", "", "Chain Mail", "" },
     } },
 } };
 
@@ -88,6 +93,7 @@ void Equip(Player &bot, inv_body_loc slot, std::string_view name)
 		return;
 	Item &item = bot.InvBody[slot];
 	InitializeItem(item, *index); // base stats, no random rolls
+	item._iAC = item._iAC * BotGearArmorPercent / 100;
 	// A hero's gear suits its station whatever its strength: the requirements would only leave it bare-handed.
 	item._iMinStr = 0;
 	item._iMinMag = 0;
