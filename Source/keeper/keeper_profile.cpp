@@ -114,6 +114,19 @@ void DefaultSpellBar(Profile &p)
 	}
 }
 
+/** A hand-edited or damaged file can list a spell twice, or one that isn't owned. */
+void TidySpellBar(Profile &p)
+{
+	for (size_t slot = 0; slot < NumSpellSlots; slot++) {
+		const int8_t spell = p.spellBar[slot];
+		if (spell < 0)
+			continue;
+		const auto end = p.spellBar.begin() + slot;
+		if (p.spells[static_cast<size_t>(spell)] == 0 || std::find(p.spellBar.begin(), end, spell) != end)
+			p.spellBar[slot] = -1;
+	}
+}
+
 enum class ReadResult : uint8_t {
 	Ok,
 	Missing,
@@ -182,6 +195,7 @@ void Load()
 		result = ReadProfile(path + ".tmp", profile);
 	if (result == ReadResult::Ok) {
 		GrantStarters(profile);
+		TidySpellBar(profile);
 		return;
 	}
 	if (result == ReadResult::Newer)
