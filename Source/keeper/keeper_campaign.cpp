@@ -529,7 +529,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 {
 	gameData.nDifficulty = DIFF_NORMAL; // how hard a game is comes from the campaign
 	LatchGameDifficulty();
-	gameData.keeperReserved = static_cast<uint8_t>(GameDifficulty());
+	gameData.keeperDifficulty = static_cast<uint8_t>(GameDifficulty());
 	gameData.keeperMode = static_cast<uint8_t>(currentSetup.mode);
 	gameData.keeperLevel = static_cast<uint8_t>(currentSetup.campaignLevel);
 	WriteHostUnlocks(gameData);
@@ -551,7 +551,7 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 {
 	joinedGame = true;
 	ReadHostUnlocks(gameData);
-	SetGameDifficulty(static_cast<Difficulty>(gameData.keeperReserved));
+	SetGameDifficulty(gameData.keeperDifficulty < NumDifficulties ? static_cast<Difficulty>(gameData.keeperDifficulty) : Difficulty::Normal);
 
 	KeepSetup setup;
 	setup.mode = gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap) ? GameMode::CustomMap : GameMode::Campaign;
@@ -578,8 +578,8 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 
 std::string DescribeHostedGame(const GameData &gameData)
 {
-	const std::string_view difficulty = gameData.keeperReserved < NumDifficulties && gameData.keeperReserved != static_cast<uint8_t>(Difficulty::Normal)
-	    ? DifficultyName(static_cast<Difficulty>(gameData.keeperReserved))
+	const std::string_view difficulty = gameData.keeperDifficulty < NumDifficulties && gameData.keeperDifficulty != static_cast<uint8_t>(Difficulty::Normal)
+	    ? DifficultyName(static_cast<Difficulty>(gameData.keeperDifficulty))
 	    : "";
 	const std::string extra = difficulty.empty() ? std::string() : fmt::format(", {}", difficulty);
 	if (gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap))

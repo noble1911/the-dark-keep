@@ -50,6 +50,8 @@ struct GameData {
 	uint8_t keeperKinds[14];
 	uint8_t keeperSpells[11];
 	uint8_t keeperTraps[4];
+	// [DARK KEEP] The host's Difficulty: keeperLastSpell took the byte that was spare.
+	uint8_t keeperDifficulty;
 
 	void swapLE();
 };

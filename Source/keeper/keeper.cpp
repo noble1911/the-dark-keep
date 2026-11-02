@@ -2701,9 +2701,9 @@ void PadHudTargets(std::vector<Rectangle> &targets)
 	const Surface ui = UiHitSurface();
 	const int top = HudRect().position.y;
 	if (IsGameOver()) {
-		const int count = GameOverContinue() ? 2 : 1;
+		const int count = static_cast<int>(GameOverChoices().size());
 		for (int i = 0; i < count; i++)
-			targets.push_back(GameOverButton(ui.w(), top, i, count));
+			targets.push_back(MapSummaryButton(ui, i, count));
 		return;
 	}
 	if (LobbyPadTargets(SpellBarRect(), targets))

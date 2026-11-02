@@ -33,6 +33,7 @@
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -546,7 +547,7 @@ void DrawHelpButton(const Surface &out, const Rectangle &rect, std::string_view 
 
 std::string InputLabel(KeeperAction action, size_t index)
 {
-	return KeyLabel(action, index);
+	return InputName(action, index);
 }
 
 std::string ExpandInputs(std::string_view text)

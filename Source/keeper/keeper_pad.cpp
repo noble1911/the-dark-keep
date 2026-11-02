@@ -9,6 +9,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <optional>
 
 #include <fmt/format.h>
 
@@ -233,6 +234,29 @@ void PressMouse(GameAction &action, uint8_t mouseButton, bool up)
 	action = GameActionSendKey { static_cast<uint32_t>(mouseButton) | KeymapperMouseButtonMask, up };
 }
 
+/** What the modifier and a button do on the keep, for the actions with no button of their own. */
+struct ModifierBinding {
+	KeeperAction action;
+	ControllerButton button;
+};
+constexpr std::array<ModifierBinding, 6> ModifierBindings { {
+	{ KeeperAction::ScoutCard, ControllerButton_BUTTON_Y },
+	{ KeeperAction::RoutePreview, ControllerButton_BUTTON_LEFTSTICK },
+	{ KeeperAction::Ping, ControllerButton_BUTTON_RIGHTSTICK },
+	{ KeeperAction::CycleSpeed, ControllerButton_BUTTON_BACK },
+	{ KeeperAction::Help, ControllerButton_BUTTON_LEFTSHOULDER },
+	{ KeeperAction::HoldTimer, ControllerButton_BUTTON_RIGHTSHOULDER },
+} };
+
+std::optional<KeeperAction> ModifierAction(ControllerButton button)
+{
+	for (const ModifierBinding &binding : ModifierBindings) {
+		if (binding.button == button)
+			return binding.action;
+	}
+	return std::nullopt;
+}
+
 /** @param button As labelled on the controller. */
 void HandlePress(ControllerButton button, GameAction &action)
 {
@@ -248,6 +272,12 @@ void HandlePress(ControllerButton button, GameAction &action)
 	}
 	if (editor && EditorPadButton(button, modifier, IsControllerButtonPressed(SpellButton)))
 		return;
+	if (modifier && !editor) {
+		if (const std::optional<KeeperAction> action2 = ModifierAction(button); action2) {
+			PerformKeeperAction(*action2, 0);
+			return;
+		}
+	}
 
 	switch (button) {
 	case ControllerButton_BUTTON_A:
@@ -462,6 +492,17 @@ std::string InputName(KeeperAction action, size_t index)
 	case KeeperAction::CameraUp:
 	case KeeperAction::CameraDown:
 		return InputName(PadAction::MoveCamera);
+	case KeeperAction::ScoutCard:
+	case KeeperAction::RoutePreview:
+	case KeeperAction::Ping:
+	case KeeperAction::CycleSpeed:
+	case KeeperAction::Help:
+	case KeeperAction::HoldTimer:
+		for (const ModifierBinding &binding : ModifierBindings) {
+			if (binding.action == action)
+				return Combo(ModifierButton, binding.button);
+		}
+		return {};
 	// Cards have no button of their own: the focus goes to them.
 	case KeeperAction::CardSlot:
 	case KeeperAction::LockDoor:
