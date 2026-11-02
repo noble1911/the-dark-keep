@@ -2570,7 +2570,7 @@ void AddWallControl(Missile &missile, AddMissileParameter &parameter)
 {
 	std::optional<Point> spreadPosition = FindClosestValidPosition(
 	    [start = missile.position.start](Point target) {
-		    return start != target && !TileHasAny(target, TileProperties::BlockMissile) && LineClearMissile(start, target);
+		    return InDungeonBounds(target) && start != target && !TileHasAny(target, TileProperties::BlockMissile) && LineClearMissile(start, target); // [DARK KEEP] a master can cast near the edge
 	    },
 	    parameter.dst, 0, 5);
 

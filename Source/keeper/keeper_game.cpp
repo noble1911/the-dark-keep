@@ -1021,7 +1021,8 @@ void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
 
 void ApplyCast(Player &caster, size_t spell, Point tile)
 {
-	if (spell >= SpellKinds.size() || !InDungeonBounds(tile))
+	// Not the outermost ring either: a spell's own positions, a tile either side of this, travel as bytes and would wrap.
+	if (spell >= SpellKinds.size() || tile.x < 1 || tile.y < 1 || tile.x >= MAXDUNX - 1 || tile.y >= MAXDUNY - 1)
 		return;
 	const size_t pid = caster.getId();
 	const SpellKind &kind = SpellKinds[spell];
