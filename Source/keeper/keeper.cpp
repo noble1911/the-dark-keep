@@ -839,7 +839,7 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 		if (lair.summonTicks > 0) {
 			state = "Summoning...";
 		} else if (const Monster *monster = LairMonster(ref.slot); monster != nullptr) {
-			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At rally point" : "Guarding its lair");
+			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At rally point" : "Guarding lair");
 			state = fmt::format("{} ({}%)", duty, monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
 		} else {
 			state = "Slain: returns after the raid";
@@ -1649,8 +1649,11 @@ void Tick()
 		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && !IsBot(player)) {
 			ParkPlayer(player);
 			// Many spells scale with the caster's level as well as the spell's.
-			if (player.getCharacterLevel() != masterLevel)
+			if (player.getCharacterLevel() != masterLevel) {
 				player.setCharacterLevel(masterLevel);
+				// What the level changes too: a joiner checks the host's numbers against its own and drops it on any difference.
+				CalcPlrInv(player, false);
+			}
 		}
 	}
 	RevealKeep();
