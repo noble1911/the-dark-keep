@@ -751,7 +751,7 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 		nameLine.remove_prefix(space + 1);
 	}
 	DrawString(out, FitText(nameLine, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite | UiFlags::Outlined });
 	DrawString(out, FitText(text.cost, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 
@@ -2147,6 +2147,8 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::ScoutCard:
 		ToggleScoutCard();
+		if (IsScoutCardOn())
+			LobbyOnEscape(); // a joiner's spell panel would cover the card's lower half
 		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
@@ -2689,7 +2691,7 @@ void DrawUi(const Surface &out)
 		for (const GameOverChoice choice : GameOverChoices()) {
 			switch (choice) {
 			case GameOverChoice::RetryRaid:
-				labels.push_back(fmt::format("Retry raid {} ({})", State.wave, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter")));
+				labels.push_back(fmt::format("Retry ({})", IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter")));
 				break;
 			case GameOverChoice::Continue:
 				labels.push_back(CoopStartingTicks() > 0 ? fmt::format("Start now ({})", IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter")) : GameOverContinueLabel(*GameOverContinue()));

@@ -118,7 +118,7 @@ const CardLayout &LayoutFor(const Surface &out)
 	return out.w() >= BigCardMinUiWidth ? BigCard : SmallCard;
 }
 
-bool scoutCardOn = true;
+bool scoutCardOn = false;
 
 /** Identical heroes make one row. */
 struct HeroRow {
