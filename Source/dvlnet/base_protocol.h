@@ -416,9 +416,12 @@ tl::expected<void, PacketError> base_protocol<P>::recv_ingame(packet &pkt, endpo
 			}
 		} else if (pkt.Type() == PT_INFO_REQUEST) {
 			if ((plr_self != PLR_BROADCAST) && (get_master() == plr_self)) {
-				buffer_t buf;
 				// [DARK KEEP] Only the GameData: a map may follow it in game_init_info, too big for this reply.
 				const size_t gameDataSize = sizeof(GameData);
+				// [DARK KEEP] What a host sent is network data: a different build's can be shorter.
+				if (game_init_info.size() < gameDataSize)
+					return {};
+				buffer_t buf;
 				buf.resize(gameDataSize + (PlayerNameLength * MAX_PLRS) + gamename.size());
 				std::memcpy(buf.data(), &game_init_info[0], gameDataSize);
 				for (size_t i = 0; i < NetPlayerSlots; i++) {

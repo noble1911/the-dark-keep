@@ -95,12 +95,16 @@ bool IsGameCompatible(const GameData &data)
 	return (data.versionMajor == PROJECT_VERSION_MAJOR
 	    && data.versionMinor == PROJECT_VERSION_MINOR
 	    && data.versionPatch == PROJECT_VERSION_PATCH
-	    && data.programid == GAME_ID);
-	return false;
+	    && data.programid == GAME_ID
+	    && data.size == sizeof(GameData) // [DARK KEEP] the same version number isn't the same build
+	    && keeper::IsSameBuild(data));
 }
 
 static std::string GetErrorMessageIncompatibility(const GameData &data)
 {
+	// [DARK KEEP] The numbers can match on two different builds.
+	if (data.versionMajor == PROJECT_VERSION_MAJOR && data.versionMinor == PROJECT_VERSION_MINOR && data.versionPatch == PROJECT_VERSION_PATCH && data.programid == GAME_ID)
+		return "The host is running a different build of The Dark Keep. Everyone needs the same build to play together.";
 	if (data.programid != GAME_ID) {
 		std::string_view gameMode;
 		switch (data.programid) {

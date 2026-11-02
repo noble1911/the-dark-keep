@@ -18,9 +18,18 @@
 #include "engine/render/text_render.hpp"
 #include "engine/surface.hpp"
 
+#include <fmt/format.h>
+
 namespace devilution::keeper {
 
 constexpr uint8_t PanelFrameColor = PAL16_YELLOW + 4;
+
+/** Game ticks as minutes:seconds, rounded up. */
+inline std::string FormatTicks(int ticks)
+{
+	const int seconds = (ticks + 19) / 20;
+	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
+}
 
 inline void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
 {

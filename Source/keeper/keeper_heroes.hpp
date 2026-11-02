@@ -142,6 +142,36 @@ void ResetHeroes();
 /** The host's copy of a monster hero robbed the vault, or lost its nerve: a joiner's does too. */
 void ApplyHeroLooted(size_t monsterId, int amount);
 void ApplyHeroFled(size_t monsterId);
+
+/** What a hero has been through, for a master joining mid-raid. */
+struct HeroSyncState {
+	bool fleeing = false;
+	bool fearRolled = false;
+	bool fellBack = false;
+	int carried = 0;
+	uint8_t baitsVisited = 0;
+	uint16_t trapsKnown = 0;
+	uint16_t trapsSeen = 0;
+	int fallBackSteps = 0;
+	int regroupBudget = 0;
+};
+/** Nullopt if the monster isn't an active, living hero. */
+std::optional<HeroSyncState> GetHeroSyncState(size_t monsterId);
+void ApplyHeroSyncState(size_t monsterId, const HeroSyncState &state);
+
+/** The heroes' way out, for a master joining mid-raid. */
+struct PortalSyncState {
+	bool open = false;
+	bool awaitingBotCast = false;
+	/** Bot slot or monster id channelling (-1 = none). */
+	int botSlot = -1;
+	int casterMonster = -1;
+	int channel = 0;
+	int castTimeout = 0;
+	Point position;
+};
+PortalSyncState GetPortalSyncState();
+void ApplyPortalSyncState(const PortalSyncState &state);
 /** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
 void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 

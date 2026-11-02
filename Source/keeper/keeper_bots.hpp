@@ -58,6 +58,25 @@ void ApplyBotLooted(size_t slot, int amount);
 void ApplyBotFled(size_t slot);
 /** The host's copy got out: a joiner's does too, however far it had come, with the host's facts. */
 void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
+/** A bot's mind, for a master joining mid-raid. */
+struct BotSyncState {
+	bool fleeing = false;
+	bool fearRolled = false;
+	bool fellBack = false;
+	int carried = 0;
+	int potions = 0;
+	int petrifiedTicks = 0;
+	uint8_t baitsVisited = 0;
+	uint16_t trapsKnown = 0;
+	uint16_t trapsSeen = 0;
+	int baitLingerTicks = 0;
+	int fallBackThinks = 0;
+	int regroupBudget = 0;
+	int thinkCooldown = 0;
+};
+/** Nullopt if there is no living bot in that slot. */
+std::optional<BotSyncState> GetBotSyncState(size_t slot);
+void ApplyBotSyncState(size_t slot, const BotSyncState &state);
 /** True if this client applies the player's damage/effects itself: the local master, or any bot. */
 bool SimulatesLocally(const Player &player);
 

@@ -882,6 +882,34 @@ void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
 	Escape(bot, state, throughPortal);
 }
 
+std::optional<BotSyncState> GetBotSyncState(size_t slot)
+{
+	if (slot >= MaxBots || !IsLivingBot(Players[FirstBotId + slot]))
+		return std::nullopt;
+	const BotState &state = Bots[slot];
+	return BotSyncState { state.fleeing, state.fearRolled, state.fellBack, state.carried, state.potions, state.petrifiedTicks, state.baitsVisited, state.trapsKnown, state.trapsSeen, state.baitLingerTicks, state.fallBackThinks, state.regroupBudget, state.thinkCooldown };
+}
+
+void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
+{
+	if (slot >= MaxBots)
+		return;
+	BotState &state = Bots[slot];
+	state.fleeing = synced.fleeing;
+	state.fearRolled = synced.fearRolled;
+	state.fellBack = synced.fellBack;
+	state.carried = synced.carried;
+	state.potions = synced.potions;
+	state.petrifiedTicks = synced.petrifiedTicks;
+	state.baitsVisited = synced.baitsVisited;
+	state.trapsKnown = synced.trapsKnown;
+	state.trapsSeen = synced.trapsSeen;
+	state.baitLingerTicks = synced.baitLingerTicks;
+	state.fallBackThinks = synced.fallBackThinks;
+	state.regroupBudget = synced.regroupBudget;
+	state.thinkCooldown = synced.thinkCooldown;
+}
+
 bool SimulatesLocally(const Player &player)
 {
 	return &player == MyPlayer || IsBot(player);

@@ -1192,6 +1192,9 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-rank") { // [DARK KEEP] dev/test: override the campaign rank (pass the same on every client)
 			if (i + 1 < argc)
 				keeper::TestRank = std::atoi(argv[++i]);
+		} else if (arg == "--keeper-test-stamp") { // [DARK KEEP] dev/test: pretend to be a different build
+			if (i + 1 < argc)
+				keeper::TestBuildStamp = std::atoi(argv[++i]);
 		} else if (arg == "--keeper-lord-hp") { // [DARK KEEP] dev/test: override the Keep Lord's hit points
 			if (i + 1 < argc)
 				keeper::TestLordHitPoints = std::atoi(argv[++i]);

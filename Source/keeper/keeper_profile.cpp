@@ -265,7 +265,7 @@ void AddXp(int amount)
 /** Test flags and editor test runs earn nothing. */
 bool EarnsXp()
 {
-	return OverrideRank() == 0 && !IsEditorTestRun();
+	return !IsTestRun() && !IsEditorTestRun();
 }
 
 } // namespace
@@ -512,8 +512,7 @@ void ProfileBeginMap()
 	Load();
 	mapXp = 0;
 	const KeepSetup &setup = CurrentSetup();
-	// A joiner's own campaign doesn't advance in someone else's game, so nothing there is a first clear.
-	mapIsReplay = IsJoinedGame() || setup.mode != GameMode::Campaign || setup.campaignLevel <= LevelsCleared();
+	mapIsReplay = setup.mode != GameMode::Campaign || IsLevelCredited(setup.campaignLevel);
 }
 
 void ProfileNoteHeroSlain(int wave)

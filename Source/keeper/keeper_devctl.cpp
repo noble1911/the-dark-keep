@@ -345,9 +345,10 @@ void WriteMonsters()
 		const size_t id = ActiveMonsters[i];
 		const Monster &monster = Monsters[id];
 		const std::optional<size_t> lair = LairOfMonster(id);
-		Output(fmt::format("mon {} {} hero={} lair={} at={},{} hp={}/{} mode={} home={},{}", id, monster.name(), IsHero(monster), lair ? static_cast<int>(*lair) : -1,
+		const std::optional<HeroSyncState> mind = GetHeroSyncState(id);
+		Output(fmt::format("mon {} {} hero={} lair={} at={},{} hp={}/{} mode={} home={},{} carried={} fleeing={} traps={} baits={} regroup={} fallback={}", id, monster.name(), IsHero(monster), lair ? static_cast<int>(*lair) : -1,
 		    monster.position.tile.x, monster.position.tile.y, monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode),
-		    lair ? State.lairs[*lair].position.x : -1, lair ? State.lairs[*lair].position.y : -1));
+		    lair ? State.lairs[*lair].position.x : -1, lair ? State.lairs[*lair].position.y : -1, mind ? mind->carried : 0, mind ? mind->fleeing : false, mind ? mind->trapsKnown : 0, mind ? mind->baitsVisited : 0, mind ? mind->regroupBudget : 0, mind ? mind->fallBackSteps : 0));
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const Player &bot = Players[FirstBotId + i];
@@ -356,6 +357,8 @@ void WriteMonsters()
 			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={} stone={} flee={} carried={} potions={} dest={} step={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode),
 			    IsPetrifiedBot(bot), summary->fleeing, summary->carried, summary->potions, static_cast<int>(bot.destAction), static_cast<int>(bot.walkpath[0])));
 		}
+		if (const std::optional<BotSyncState> mind = GetBotSyncState(i); mind)
+			Output(fmt::format("botmind {} carried={} fleeing={} potions={} traps={} regroup={} fallback={}", i, mind->carried, mind->fleeing, mind->potions, mind->trapsKnown, mind->regroupBudget, mind->fallBackThinks));
 	}
 	for (const DoorLock &lock : State.locks) {
 		if (lock.active)
@@ -537,6 +540,46 @@ void Execute(const std::string &line)
 	} else if (command == "sell") {
 		in >> a;
 		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
+	} else if (command == "herostate") {
+		// id carried fleeing trapsKnown: for testing what a late joiner hears.
+		int fleeing = 0;
+		int known = 0;
+		in >> a >> b >> fleeing >> known;
+		if (std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(a)); hero) {
+			hero->carried = b;
+			hero->fleeing = fleeing != 0;
+			hero->trapsKnown = static_cast<uint16_t>(known);
+			ApplyHeroSyncState(static_cast<size_t>(a), *hero);
+		}
+	} else if (command == "botstate") {
+		// slot carried fleeing potions.
+		int fleeing = 0;
+		in >> a >> b >> fleeing >> c;
+		if (std::optional<BotSyncState> bot = GetBotSyncState(static_cast<size_t>(a)); bot) {
+			bot->carried = b;
+			bot->fleeing = fleeing != 0;
+			bot->potions = c;
+			ApplyBotSyncState(static_cast<size_t>(a), *bot);
+		}
+	} else if (command == "pace") {
+		// hero|bot id regroup fallback: for testing what a late joiner hears.
+		in >> word >> a >> b >> c;
+		if (word == "hero") {
+			if (std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(a)); hero) {
+				hero->regroupBudget = b;
+				hero->fallBackSteps = c;
+				ApplyHeroSyncState(static_cast<size_t>(a), *hero);
+			}
+		} else if (std::optional<BotSyncState> bot = GetBotSyncState(static_cast<size_t>(a)); bot) {
+			bot->regroupBudget = b;
+			bot->fallBackThinks = c;
+			ApplyBotSyncState(static_cast<size_t>(a), *bot);
+		}
+	} else if (command == "win") {
+		DevForceVictory();
+	} else if (command == "portal") {
+		const PortalSyncState portal = GetPortalSyncState();
+		Output(fmt::format("portal open={} at={},{} channel={} bot={} caster={} bossDown={}", portal.open, portal.position.x, portal.position.y, portal.channel, portal.botSlot, portal.casterMonster, State.bossDown));
 	} else if (command == "raid") {
 		RequestStartRaid();
 	} else if (command == "gold") {
