@@ -350,7 +350,11 @@ void DrawMasters(const Surface &out)
 			tag += host ? ", you" : "you";
 		if (!mine && (player._pLvlChanging || !player.isOnActiveLevel()))
 			tag += tag.empty() ? "arriving" : ", arriving";
-		rows.push_back({ player._pName, std::move(tag), mine });
+		// Everyone's hero is called the same unless they renamed it.
+		const bool sameName = std::any_of(Players.begin(), Players.begin() + NetPlayerSlots, [&](const Player &other) {
+			return &other != &player && other.plractive && std::string_view(other._pName) == player._pName;
+		});
+		rows.push_back({ sameName ? fmt::format("{} {}", player._pName, player.getId() + 1) : std::string(player._pName), std::move(tag), mine });
 	}
 
 	const Rectangle panel { { MastersLeft, MastersTop }, { MastersWidth, 18 + static_cast<int>(rows.size()) * MastersRowHeight + 2 } };
