@@ -246,6 +246,8 @@ bool IsTSyncEnemyValid(const TSyncMonster &monsterSync)
 
 size_t sync_all_monsters(std::byte *pbBuf, size_t dwMaxLen)
 {
+	if (keeper::IsActive() && !keeper::IsHost()) // [DARK KEEP] nobody listens to a joiner about monsters
+		return dwMaxLen;
 	if (ActiveMonsterCount < 1) {
 		return dwMaxLen;
 	}
@@ -313,6 +315,7 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 	if (IsValidLevelForMultiplayer(level)) {
 		const auto *monsterSyncs = reinterpret_cast<const TSyncMonster *>(&header + 1);
 		const bool isOwner = player.getId() > MyPlayerId;
+		const bool takeSync = keeper::TakesMonsterSyncFrom(player); // [DARK KEEP]
 
 		for (int i = 0; i < monsterCount; i++) {
 			if (!IsTSyncMonsterValid(monsterSyncs[i]))
@@ -321,11 +324,11 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 			if (syncLocalLevel) {
 				if (!IsTSyncEnemyValid(monsterSyncs[i]))
 					continue;
-				if (keeper::TakesMonsterSyncFrom(player)) // [DARK KEEP]
+				if (takeSync)
 					SyncMonster(isOwner, monsterSyncs[i]);
 			}
 
-			if (keeper::TakesMonsterSyncFrom(player)) // [DARK KEEP] whoHit comes with it: only the host's counts, and masters earn no engine XP from it
+			if (takeSync) // [DARK KEEP] whoHit comes with it: only the host's counts, and masters earn no engine XP from it
 				delta_sync_monster(monsterSyncs[i], level);
 		}
 	}

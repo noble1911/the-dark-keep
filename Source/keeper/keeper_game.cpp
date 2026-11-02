@@ -144,6 +144,8 @@ enum class Action : uint8_t {
 	Restart,
 	SyncUpgrade,
 	SyncHostSlot,
+	BotEscaped,
+	HeroEscaped,
 };
 
 #pragma pack(push, 1)
@@ -321,6 +323,9 @@ void AnnouncePhase(Phase from, Phase to)
 
 void SetPhase(Phase phase)
 {
+	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
+	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
+		BroadcastState();
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
 	switch (phase) {
@@ -574,12 +579,16 @@ void ApplyBaitPlaced(uint8_t slot, Point tile)
 	bait.uses = BaitUses;
 }
 
+void ApplySold(uint8_t type, uint8_t slot);
+
 void HostSell(StructureRef ref)
 {
 	if (!CanSell(ref))
 		return;
 	State.vaultGold += RefundFor(ref);
 	Send(Action::Sold, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
+	// Now, not when the message comes back: a second request in the same turn mustn't refund again.
+	ApplySold(static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
 	BroadcastState();
 }
 
@@ -1147,13 +1156,7 @@ bool TakesMonsterSyncFrom(const Player &sender)
 {
 	if (!IsActive())
 		return true;
-	if (IsHost())
-		return false;
-	for (const Player &player : Players) {
-		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && player.getId() < NetPlayerSlots)
-			return &player == &sender;
-	}
-	return false;
+	return !IsHost() && MyPlayer->levelOwner() == &sender;
 }
 
 bool IgnoresMonsterSyncMove(const Monster &monster)
@@ -1673,6 +1676,27 @@ void AddVaultGold(int amount)
 	State.vaultGold += amount;
 }
 
+namespace {
+
+/** Escape facts travel in `a` (bit 0: portal, bit 1: fleeing), with the gold split over x and y. */
+void SendEscape(Action action, uint8_t b, uint16_t w, bool throughPortal, bool fleeing, int carried)
+{
+	const int gold = std::clamp(carried, 0, 0xFFFF);
+	Send(action, static_cast<uint8_t>((throughPortal ? 1 : 0) | (fleeing ? 2 : 0)), b, { gold & 0xFF, gold >> 8 }, w);
+}
+
+} // namespace
+
+void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
+{
+	SendEscape(Action::BotEscaped, static_cast<uint8_t>(slot), 0, throughPortal, fleeing, carried);
+}
+
+void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried)
+{
+	SendEscape(Action::HeroEscaped, 0, static_cast<uint16_t>(monsterId), throughPortal, fleeing, carried);
+}
+
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 {
 	if (cmd->bCmd == CMD_KEEPER_STATE) {
@@ -1685,6 +1709,11 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			const bool wasBossDown = State.bossDown;
 			State.bossDown = (message.reserved & 1) != 0;
 			State.portalEscape = (message.reserved & 2) != 0;
+			// Before the phase: leaving a raid removes the bots, and a death has to be counted first.
+			if (phase == Phase::Raid) {
+				for (size_t i = 0; i < MaxBots; i++)
+					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
+			}
 			AnnouncePhase(State.phase, phase);
 			if (wasBossDown && !State.bossDown && phase != Phase::Defeat)
 				Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
@@ -1700,8 +1729,6 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			const int bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.bossHitPoints)));
 			if (const Monster *boss = FindBoss(); boss != nullptr && bossHitPoints > 0)
 				const_cast<Monster *>(boss)->hitPoints = std::min(bossHitPoints, boss->maxHitPoints);
-			for (size_t i = 0; i < MaxBots; i++)
-				ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
 		}
 		return sizeof(message);
 	}
@@ -1768,7 +1795,16 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			HostSell({ static_cast<StructureType>(message.a), message.b });
 		break;
 	case Action::Sold:
-		ApplySold(message.a, message.b);
+		if (&player != MyPlayer) // the host did it as it sent this, and may have reused the slot since
+			ApplySold(message.a, message.b);
+		break;
+	case Action::BotEscaped:
+		if (&player != MyPlayer && message.b < MaxBots)
+			ApplyBotEscaped(message.b, (message.a & 1) != 0, (message.a & 2) != 0, message.x | (message.y << 8));
+		break;
+	case Action::HeroEscaped:
+		if (&player != MyPlayer)
+			ApplyHeroEscaped(Swap16LE(message.w), (message.a & 1) != 0, (message.a & 2) != 0, message.x | (message.y << 8));
 		break;
 	case Action::RequestRally:
 		if (IsHost())

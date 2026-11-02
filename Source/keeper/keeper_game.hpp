@@ -296,6 +296,10 @@ constexpr int PossessManaCost = 10;
 /** Dev/test (--keeper-devctl): sets off a trap at a tile, whoever stands there. */
 void DevFireTrap(size_t slot, Point victim);
 
+/** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
+void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
+void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
+
 /** Handles CMD_KEEPER / CMD_KEEPER_STATE. @return bytes consumed */
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);
 

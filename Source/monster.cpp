@@ -3940,6 +3940,13 @@ void ApplyMonsterDamage(DamageType damageType, Monster &monster, int damage)
 
 	monster.hitPoints -= damage;
 
+	if (keeper::IsActive() && !keeper::IsHost()) { // [DARK KEEP] a joiner's spell: the host's copy says if this kills
+		if (monster.hasNoLife())
+			monster.hitPoints = 1 << 6;
+		NetSendCmdMonDmg(false, static_cast<uint16_t>(monster.getId()), damage);
+		return;
+	}
+
 	if (monster.hasNoLife()) {
 		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
 		NetSendCmdLocParam1(false, CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));

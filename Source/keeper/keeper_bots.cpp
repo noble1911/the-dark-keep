@@ -328,6 +328,18 @@ void Escape(Player &bot, BotState &state, bool throughPortal)
 	RemoveBot(bot);
 }
 
+/** Positions differ between clients, so only the host's copy decides it has got out. */
+void LeaveKeep(Player &bot, BotState &state, bool throughPortal)
+{
+	if (HoldsBotAlive(bot)) {
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+		return;
+	}
+	NotifyBotEscaped(SlotOf(bot), throughPortal, state.fleeing, std::max(state.carried, 0));
+	Escape(bot, state, throughPortal);
+}
+
 void HandleDeath(Player &bot, BotState &state)
 {
 	if (state.deathHandled)
@@ -477,11 +489,11 @@ void Think(Player &bot, BotState &state)
 
 	// Out through the portal (once the Lord is dead) or the entrance (thieves and cowards).
 	if (State.bossDown && PortalPosition() && GoalDistance(HeroGoal::Portal, position) <= 1) {
-		Escape(bot, state, true);
+		LeaveKeep(bot, state, true);
 		return;
 	}
 	if (!State.bossDown && (state.carried != 0 || state.fleeing) && GoalDistance(HeroGoal::Entrance, position) <= 1) {
-		Escape(bot, state, false);
+		LeaveKeep(bot, state, false);
 		return;
 	}
 
@@ -578,16 +590,26 @@ void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
 	if (hitPoints == BotLifeUnknown || !IsLivingBot(bot))
 		return;
 	if (hitPoints == BotLifeGone) {
-		// It left the keep on the host. This copy can't die any more, so it has to go too.
-		const BotState &state = Bots[slot];
-		NoteHeroLeft(state.fleeing, std::max(state.carried, 0));
+		// Not there on the host, and ApplyBotEscaped didn't say why. This copy can't die, so it has to go.
 		RemoveBot(bot);
 		return;
 	}
-	if (hitPoints == 0)
+	if (hitPoints == 0) {
 		SyncPlrKill(bot, DeathReason::MonsterOrTrap);
-	else
+		HandleDeath(bot, Bots[slot]); // now: the raid may end before the next tick looks
+	} else
 		SetPlayerHitPoints(bot, std::min(hitPoints, bot._pMaxHP));
+}
+
+void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
+{
+	Player &bot = Players[FirstBotId + slot];
+	if (!IsLivingBot(bot))
+		return;
+	BotState &state = Bots[slot];
+	state.fleeing = fleeing;
+	state.carried = carried;
+	Escape(bot, state, throughPortal);
 }
 
 bool SimulatesLocally(const Player &player)

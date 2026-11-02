@@ -2024,7 +2024,7 @@ void Player::occupyTile(Point tilePosition, bool isMoving) const
 	dPlayer[tilePosition.x][tilePosition.y] = isMoving ? -id : id;
 }
 
-bool Player::isLevelOwnedByLocalClient() const
+const Player *Player::levelOwner() const
 {
 	for (const Player &other : Players) {
 		if (!other.plractive)
@@ -2039,10 +2039,15 @@ bool Player::isLevelOwnedByLocalClient() const
 			continue;
 		if (&other == MyPlayer && gbBufferMsgs != 0)
 			continue;
-		return &other == MyPlayer;
+		return &other;
 	}
 
-	return false;
+	return nullptr;
+}
+
+bool Player::isLevelOwnedByLocalClient() const
+{
+	return levelOwner() == MyPlayer;
 }
 
 Player *PlayerAtPosition(Point position, bool ignoreMovingPlayers /*= false*/)
