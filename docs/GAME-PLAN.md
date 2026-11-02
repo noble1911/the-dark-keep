@@ -47,11 +47,16 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [ ] Summon Golem spell (its AI attacks keep monsters and ignores bot heroes)
 - [x] Keep Lord upgrades
 - [x] Persistent progression: XP and Renown (gold upgrades last one map)
-- [ ] Co-op: joiners pick their spell bar in a lobby step (for now: their own choice, filtered by the host's unlocks)
+- [x] Co-op: joiners pick their spell bar in the keep from what the host has
 - [ ] Tune XP, Renown prices and difficulty
 
 ## Known issues
 - [ ] Balance: scaled on paper across the campaign, never playtested
 - [x] Mid-game joiners see structures built before they joined
-- [ ] Joining mid-raid: hero loot and morale, bot state and the portal aren't sent, so clients can drift
+- [x] Joining mid-raid: hero loot and morale, bot state and the portal are sent with the keep
+- [x] Co-op: Keeper screen between maps, with the session up and a timed wait for the next map
+- [x] Co-op: 3 and 4 players tested on one machine; the host leaving ends the game with a notice
+- [x] Co-op: a joiner earns campaign credit; a level won ahead of order counts once the ones before it are cleared
+- [x] A client of a different build is refused
+- [ ] Co-op over a real network: only ever run on localhost
 - [ ] Everything in docs/NEXT-PHASE.md needs a first playtest

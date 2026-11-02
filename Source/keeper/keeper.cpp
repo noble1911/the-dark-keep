@@ -2262,7 +2262,7 @@ void DrawUi(const Surface &out)
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
 	}
 
-	if (IsGameOver()) {
+	if (IsGameOver() && !CoopHasHostLeft()) {
 		const bool won = State.phase == Phase::Victory;
 		const Rectangle banner = GameOverBanner(out.w(), top);
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
