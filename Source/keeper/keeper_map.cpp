@@ -407,6 +407,9 @@ bool IsSetupEditor()
 	return CurrentSetup().mode == GameMode::MapEditor && !gbIsMultiplayer;
 }
 
+/** ReloadKeepLevel asked for the keep to be built anew. */
+bool wantFreshLevel = false;
+
 void ForgetFileMap()
 {
 	fileMap.reset();
@@ -1013,6 +1016,10 @@ void SetLiveMap(const KeepMap *map, const bool *decorate)
 
 void PrepareMapLevel()
 {
+	if (wantFreshLevel && IsKeepLevel()) {
+		wantFreshLevel = false;
+		MyPlayer->_pLvlVisited[KeepLevel] = false; // a fresh build, not the saved copy of this level
+	}
 	levelFromMap = false;
 	mapLoadError.clear();
 	if (!IsKeepLevel())
@@ -1137,6 +1144,11 @@ void NoteMapLevelLoaded()
 	}
 }
 
+void ForgetMapCache()
+{
+	ForgetFileMap();
+}
+
 bool IsLevelFromMap()
 {
 	return levelFromMap;
@@ -1145,9 +1157,9 @@ bool IsLevelFromMap()
 void ReloadKeepLevel()
 {
 	ForgetFileMap(); // the file may have changed: a test run rewrites the same one
-	Player &me = *MyPlayer;
-	me._pLvlVisited[KeepLevel] = false; // a fresh build, not the saved copy of this level
-	StartNewLvl(me, WM_DIABNEXTLVL, KeepLevel);
+	// Saving the level on the way out marks it visited again, so PrepareMapLevel clears this later.
+	wantFreshLevel = true;
+	StartNewLvl(*MyPlayer, WM_DIABNEXTLVL, KeepLevel);
 }
 
 // ---- co-op ----------------------------------------------------------------------------------------------

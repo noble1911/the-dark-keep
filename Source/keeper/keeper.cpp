@@ -1378,6 +1378,8 @@ std::optional<KeepSetup> GameOverContinue()
 
 std::string GameOverContinueLabel(const KeepSetup &next)
 {
+	if (IsEditorTestRun())
+		return "Back to editor (Enter)";
 	if (State.phase != Phase::Victory)
 		return "Retry (Enter)";
 	if (CurrentSetup().mode != GameMode::Campaign)
@@ -1401,6 +1403,10 @@ Rectangle GameOverButton(int width, int hudTop, int index, int count)
 
 void ChooseGameOverContinue()
 {
+	if (IsEditorTestRun()) {
+		EditorEndTestRun();
+		return;
+	}
 	if (const std::optional<KeepSetup> next = GameOverContinue(); next)
 		RequestRestart(*next);
 }
@@ -1545,6 +1551,7 @@ void OnLevelLoaded()
 void OnGameEnded()
 {
 	EditorOnGameEnded();
+	ForgetMapCache();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1828,7 +1835,7 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		const std::optional<KeepSetup> next = GameOverContinue();
 		const int count = next ? 2 : 1;
 		if (next && Contains(GameOverButton(width, top, 0, count), UiMouse())) {
-			RequestRestart(*next);
+			ChooseGameOverContinue();
 			return true;
 		}
 		if (Contains(GameOverButton(width, top, count - 1, count), UiMouse())) {

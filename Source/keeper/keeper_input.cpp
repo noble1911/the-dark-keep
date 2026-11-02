@@ -18,6 +18,7 @@
 #include "engine/displacement.hpp"
 #include "gmenu.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_editor.hpp"
 #include "levels/dun_tile.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -67,7 +68,7 @@ constexpr std::array<uint32_t, NumSpellKinds> SpellDefaults { 'Z', 'X', 'C', 'F'
 
 bool CanUseKeeperKeys()
 {
-	return IsActive() && !ChatFlag && !gmenu_is_active();
+	return IsActive() && !IsEditorActive() && !ChatFlag && !gmenu_is_active();
 }
 
 std::string ActionKey(KeeperAction action, size_t index)

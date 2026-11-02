@@ -42,24 +42,33 @@ of your monsters and fight them yourself — before they get away with your gold
 | WASD / arrows / screen edge | Move the camera |
 | Mouse wheel, `+` / `-` | Zoom in / out |
 | Space / V | Jump to the entrance / the vault |
-| Card bar | Click a card (Lairs / Traps & Tricks tabs), then click in the keep. A preview shows where it can go and what it reaches |
+| Card bar | Click a card (Lairs, Traps & Tricks), then click in the keep. A preview shows where it can go and what it reaches. Upgrade cards buy on click; the Bestiary lists every monster and when it unlocks |
 | Tab | Next card tab (mouse wheel over the bar scrolls it) |
-| 1–6 | Build: Zombie, Fallen, Bones, Archer, Brute (one monster each), Fire Trap |
+| 1–9 | The Nth visible card on the current tab |
 | Z X C F | Spells, cast instantly at the cursor: Lightning Nova, Fire Wall, Guardian, Stone Curse (or click the spell bar, then the keep) |
 | Left click a hero | Inspect its stats and gear (Esc / right click to close); the raid roster (top right) does the same and jumps the camera to the hero |
 | Esc / click | Dismiss the end-of-raid summary |
 | Left click your monster / trap / bait / lock | Select it (shown in the info panel) |
+| Left drag | Select a group of your monsters; selling, rally points and patrols apply to all of them |
 | Del / Backspace | Sell the selection: full refund outside a raid, half during one |
 | Right click (monster selected) | Set its rally point: it walks there and guards that spot. Right click its lair to clear |
+| Shift + right click (monster selected) | Add a patrol waypoint (up to 6) |
 | G / T | Lock a door / place fool's-gold bait |
 | Left click | Place / cast the selected tool (or order a possessed monster) |
 | Right click / Esc | Cancel the tool (Esc also releases a possessed monster) |
 | E | Possess the monster under the cursor / release it |
 | R | Open the gates early (start the next raid) |
 
+Most keys can be rebound under Settings > Keymapping.
+
+The campaign has 20 levels. Clearing one raises your rank, which unlocks more monsters. A level
+offers up to 16 kinds at once. Maps made in the Map Editor (main menu) go in the `maps` folder of
+the save directory and can be played from Custom Map; see [docs/MAP-FORMAT.md](docs/MAP-FORMAT.md).
+
 Building during a raid is allowed, but not within sight of a hero, and new lairs take a few
 seconds to summon. Each monster takes up room in the keep (Pop: Zombie and Fallen 1, Bones and
-Archer 2, Brute 4); the keep holds 16 in raid 1 and 4 more after every raid. Sell monsters to
+Archer 2, Brute 4, stronger monsters up to 14); the keep holds 16 in raid 1 of the first level, 2 more per
+campaign level and 4 more after every raid. Sell monsters to
 make room.
 
 ## Building and running (Windows)

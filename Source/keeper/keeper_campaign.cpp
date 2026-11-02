@@ -283,6 +283,10 @@ KeepSetup SetupForMapEditor()
 
 void ApplyAutoStartSetup()
 {
+	if (currentSetup.mode == GameMode::MapEditor) { // --keeper-editor
+		currentSetup = SetupForMapEditor();
+		return;
+	}
 	if (TestCampaignLevel > 0)
 		devRank = std::clamp(TestCampaignLevel, 1, NumCampaignLevels);
 	SetCurrentSetup(SetupForCampaignLevel(TestCampaignLevel > 0 ? TestCampaignLevel : 1));

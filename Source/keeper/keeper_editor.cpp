@@ -1160,8 +1160,6 @@ void EditorOnLevelLoaded()
 
 void EditorOnGameEnded()
 {
-	if (sessionStarted && !testing && CurrentSetup().mode == GameMode::MapEditor)
-		Autosave();
 	if (testing) {
 		SetCurrentSetup(setupBeforeTest);
 		testing = false;
@@ -1170,6 +1168,12 @@ void EditorOnGameEnded()
 	sessionStarted = false;
 	modal = Modal::None;
 	stroke.active = false;
+}
+
+void EditorBeforeGameFreed()
+{
+	if (sessionStarted)
+		Autosave();
 }
 
 void EditorUpdateFrame()
@@ -1196,12 +1200,22 @@ bool EditorOnTestKey(SDL_Keycode key)
 {
 	if (!testing || key != SDLK_F10)
 		return false;
+	EditorEndTestRun();
+	return true;
+}
+
+bool IsEditorTestRun()
+{
+	return testing;
+}
+
+void EditorEndTestRun()
+{
 	testing = false;
 	SetCurrentSetup(setupBeforeTest);
 	// Off with the raid while the level is still whole; the reload replaces everything else.
 	ResetGame(State.entrance, State.vault);
 	ReloadKeepLevel();
-	return true;
 }
 
 bool EditorOnKeyDown(SDL_Keycode key)

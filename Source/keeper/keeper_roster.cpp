@@ -560,7 +560,8 @@ std::string UnlocksBetween(int fromRank, int toRank)
 void AnnounceRankUnlocks()
 {
 	const int rank = RosterRank();
-	const int from = lastAnnouncedRank == 0 ? rank - 1 : lastAnnouncedRank;
+	// The first load of a session isn't a rank-up.
+	const int from = lastAnnouncedRank == 0 ? rank : lastAnnouncedRank;
 	lastAnnouncedRank = rank;
 	if (rank <= from || rank <= 1)
 		return;

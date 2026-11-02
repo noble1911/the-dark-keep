@@ -791,8 +791,7 @@ void ApplySyncMonsterPosition(int monsterId, Point tile)
 	monster.position.old = tile;
 	monster.position.future = tile;
 	monster.occupyTile(tile, false);
-	// ResetGame forgot the heroes loaded with the level, and the wave they scale with wasn't known yet.
-	OnMonsterInit(monster);
+	RefreshMonsterAfterSync(monster);
 	M_StartStand(monster, monster.direction);
 }
 
@@ -1041,7 +1040,8 @@ void ResetGame(Point entrance, Point vault)
 	ticksUntilBroadcast = 0;
 	ResetUpgrades();
 	patrolWatch = {};
-	awaitingKeepSnapshot = IsAnotherMasterInKeep();
+	// A joiner's fellow masters aren't marked active until after its first load, so go by how it got here.
+	awaitingKeepSnapshot = IsJoinedGame() || IsAnotherMasterInKeep();
 	keepSnapshotTimeout = JoinSyncTimeoutTicks;
 	restartChosen = false;
 	ResetHeroes();

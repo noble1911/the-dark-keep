@@ -64,6 +64,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_input.hpp" // [DARK KEEP]
 #include "keeper/keeper_campaign.hpp" // [DARK KEEP]
+#include "keeper/keeper_editor.hpp" // [DARK KEEP]
 #include "keeper/keeper_map.hpp" // [DARK KEEP]
 #include "levels/drlg_l1.h"
 #include "levels/drlg_l2.h"
@@ -983,6 +984,7 @@ void RunGameLoop(interface_mode uMsg)
 	scrollrt_draw_game_screen();
 	previousHandler = SetEventHandler(previousHandler);
 	assert(HeadlessMode || previousHandler == GameEventHandler);
+	keeper::EditorBeforeGameFreed(); // [DARK KEEP] autosave needs the level
 	FreeGame();
 
 	if (cineflag) {

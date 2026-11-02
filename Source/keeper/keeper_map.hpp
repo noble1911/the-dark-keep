@@ -160,6 +160,8 @@ bool IsLevelFromMap();
 
 /** Reloads the keep level in place (new tileset, a test run, a map that just arrived). */
 void ReloadKeepLevel();
+/** A game ended: the next one reads its map from disk, which may have changed. */
+void ForgetMapCache();
 
 // ---- co-op -----------------------------------------------------------------------------------
 

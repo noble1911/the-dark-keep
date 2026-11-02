@@ -68,6 +68,8 @@ void HeroAi(Monster &monster);
 void LeashMonsters();
 /** Where a keep monster stands guard (its lair, or the lair's rally point). */
 void SetMonsterHome(size_t monsterId, Point tile);
+/** A joiner's snapshot moved this monster: rebuilds what the join lost, without touching upgraded stats. */
+void RefreshMonsterAfterSync(Monster &monster);
 /** A patrolling monster looks for enemies around itself: its "home" is only the next waypoint. */
 void SetMonsterRoaming(size_t monsterId, bool roaming);
 

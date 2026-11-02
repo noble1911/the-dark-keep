@@ -25,12 +25,18 @@ bool EditorCapturesKeys();
 void EditorPrepareSession();
 void EditorOnLevelLoaded();
 void EditorOnGameEnded();
+/** The game is about to be freed while the level is still whole: last chance to autosave. */
+void EditorBeforeGameFreed();
 /** Once per rendered frame: drag strokes, and rebuilding the level after a change. */
 void EditorUpdateFrame();
 
 bool EditorOnKeyDown(SDL_Keycode key);
 /** During a test run: F10 goes back to the editor. @return true if consumed. */
 bool EditorOnTestKey(SDL_Keycode key);
+/** A map from the editor is being played. */
+bool IsEditorTestRun();
+/** Ends the test run and goes back to the editor with the map as it was. */
+void EditorEndTestRun();
 bool EditorOnMouseDown(bool right);
 bool EditorOnMouseWheel(int deltaY);
 

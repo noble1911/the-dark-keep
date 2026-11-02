@@ -1141,6 +1141,16 @@ void SetMonsterHome(size_t monsterId, Point tile)
 		Homes[monsterId] = tile;
 }
 
+void RefreshMonsterAfterSync(Monster &monster)
+{
+	// ResetGame forgot the heroes loaded with the level, and the wave they scale with wasn't known yet.
+	// Everyone else keeps their stats: running their init again would upgrade them twice.
+	if (HeroClassOf(monster.type().type))
+		OnMonsterInit(monster);
+	else
+		SetMonsterHome(monster.getId(), monster.position.tile);
+}
+
 void SetMonsterRoaming(size_t monsterId, bool roaming)
 {
 	if (monsterId < MaxMonsters)
