@@ -67,6 +67,7 @@ Hellfire Intro=0
 Splash=0
 [Network]
 Bind Address=127.0.0.1
+Port=6122
 "@
     $profileDir
 }

@@ -21,6 +21,7 @@
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "monster.h"
@@ -389,7 +390,7 @@ void DrawInspectPanel(const Surface &out, int left, int hudTop)
 	FillRect(out, rect->position.x + rect->size.width - 1, rect->position.y, 1, rect->size.height, frame);
 
 	Point at = rect->position + Displacement { 6, 6 };
-	DrawString(out, "Esc: close", { at, { rect->size.width - 12, InspectLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("{}: close", InputName(PadAction::Cancel)), { at, { rect->size.width - 12, InspectLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	for (const InspectLine &line : InspectLines()) {
 		DrawString(out, line.text, { at, { rect->size.width - 12, InspectLineHeight } }, { .flags = UiFlags::FontSize12 | line.color });
 		at.y += InspectLineHeight;

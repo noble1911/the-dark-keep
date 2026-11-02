@@ -29,6 +29,7 @@
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_input.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "levels/gendung.h"
 #include "monster.h"
@@ -44,6 +45,8 @@ namespace {
 
 /** Full stick crosses the screen's height in this long. */
 constexpr float CursorCrossSeconds = 1.1F;
+/** A Switch doubles the UI from this screen height, where a computer waits for 1440p. */
+constexpr int TvDoubleHeight = 1080;
 /** Anything straight ahead beats anything off to the side, however near. */
 constexpr int OffToTheSide = 100000;
 /** How far from the cursor a monster or hero counts as under it, in tiles. */
@@ -321,7 +324,20 @@ bool IsControllerEvent(const SDL_Event &event)
 
 #ifdef KEEPER_DEVCTL
 bool DevPadEngineOnly = false;
+bool DevTvUiScale = false;
 #endif
+
+int KeeperUiScale()
+{
+#ifdef __SWITCH__
+	constexpr bool Tv = true;
+#elif defined(KEEPER_DEVCTL)
+	const bool Tv = DevTvUiScale;
+#else
+	constexpr bool Tv = false;
+#endif
+	return std::clamp((gnScreenHeight + (Tv && gnScreenHeight >= TvDoubleHeight ? 720 : 0)) / 720, 1, 4);
+}
 
 bool IsPadInUse()
 {

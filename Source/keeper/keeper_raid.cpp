@@ -26,6 +26,7 @@
 #include "engine/render/primitive_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
@@ -320,7 +321,7 @@ void DrawRaidSummary(const Surface &out, int hudTop)
 		y += SummaryLineHeight;
 	}
 	y += 6;
-	DrawString(out, "Click or Esc to close", { { rect->position.x, y }, { rect->size.width, SummaryLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("{} or {} to close", InputName(PadAction::Confirm), InputName(PadAction::Cancel)), { { rect->position.x, y }, { rect->size.width, SummaryLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 }
 
 void ResetRaidStats()

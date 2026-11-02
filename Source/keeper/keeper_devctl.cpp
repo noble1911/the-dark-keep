@@ -28,6 +28,7 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_input.hpp"
 #include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -447,6 +448,9 @@ void Execute(const std::string &line)
 		// padengine 1: what the engine's own controller code does in the keep, without keeper_pad.
 		in >> a;
 		DevPadEngineOnly = a != 0;
+	} else if (command == "tvui") {
+		in >> a;
+		DevTvUiScale = a != 0;
 	} else if (command == "padname") {
 		// What the on-screen prompts would call these.
 		Output(fmt::format("padname confirm={} cancel={} waypoint={} sell={} spell1={} raid={} zoom={}", InputName(PadAction::Confirm), InputName(PadAction::Cancel), InputName(PadAction::Waypoint), InputName(PadAction::Sell), InputName(KeeperAction::Spell, 0), InputName(KeeperAction::StartRaid), InputName(PadAction::Zoom)));

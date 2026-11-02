@@ -821,7 +821,7 @@ void UiKeeperScreen()
 	UiRestartFadeIn();
 	(void)LoadLargeSpellIcons();
 
-	const int scale = std::clamp(gnScreenHeight / 720, 1, 4);
+	const int scale = KeeperUiScale();
 	OwnedSurface canvas(gnScreenWidth / scale, gnScreenHeight / scale);
 	if (selected.tab == Tab::Monsters && !BestiaryKinds().empty() && !IsKindOnRoster(selected.index))
 		selected.index = BestiaryKinds().front();

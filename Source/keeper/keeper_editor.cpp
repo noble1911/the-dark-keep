@@ -795,9 +795,11 @@ std::vector<Button> PanelButtons()
 	};
 	for (size_t i = 0; i < NumEditTools; i++) {
 		const auto thisTool = static_cast<EditTool>(i);
-		std::string label = fmt::format("{} {}", Tools[i].key, Tools[i].name);
+		// A controller has no number keys to go with the labels.
+		const std::string key = IsPadInUse() ? std::string() : fmt::format("{} ", Tools[i].key);
+		std::string label = fmt::format("{}{}", key, Tools[i].name);
 		if (thisTool == EditTool::Object)
-			label = fmt::format("{} {}", Tools[i].key, MapObjectName(objectKind));
+			label = fmt::format("{}{}", key, MapObjectName(objectKind));
 		bool enabled = true;
 		if (thisTool == EditTool::Door)
 			enabled = MapTilesetHasDoors(model.tileset);
@@ -818,7 +820,7 @@ std::vector<Button> PanelButtons()
 	add(IsViewZoomed() ? "Zoom: 2x" : "Zoom: 1x", ActionKind::Zoom, 0, IsViewZoomed());
 	add("Grid", ActionKind::Grid, 0, showGrid);
 	add("Variants", ActionKind::Decor, 0, decorPreview);
-	add("F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
+	add(IsPadInUse() ? "Test" : "F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
 	return buttons;
 }
 
@@ -873,6 +875,29 @@ void DoAction(const Button &button)
 		StartTest();
 		break;
 	}
+}
+
+/** A tool's help is written for a mouse: says it in buttons when a controller is in use. */
+std::string ToolHelp(std::string_view help)
+{
+	std::string text(help);
+	if (!IsPadInUse())
+		return text;
+	const auto replace = [&](std::string_view from, const std::string &to) {
+		for (size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size()))
+			text.replace(at, from.size(), to);
+	};
+	const std::string confirm = InputName(PadAction::Confirm);
+	const std::string order = InputName(PadAction::Order);
+	const auto name = [](ControllerButton button) { return std::string(ToString(GamepadType, TranslateTo(GamepadType, button))); };
+	replace("Right-drag", fmt::format("{}-drag", order));
+	replace("Right-click", order);
+	replace("Drag", fmt::format("{}-drag", confirm));
+	replace("Click", confirm);
+	replace("click", confirm);
+	replace("Shift", InputName(PadAction::Modifier));
+	replace("[ ]", fmt::format("{} {}", name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER)));
+	return text;
 }
 
 void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
@@ -962,7 +987,7 @@ void CommitTextModal()
 		std::string name = modalText;
 		const std::string file = MapFileName(name);
 		// One Enter to warn, a second with the same name to overwrite.
-		const std::string warning = fmt::format("{} exists. Enter again to replace it.", file);
+		const std::string warning = fmt::format("{} exists. {} again to replace it.", file, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter"));
 		if (file != fileName && FileExists(MapsFolder() + file) && modalNote != warning) {
 			modalNote = warning;
 			return;
@@ -1493,7 +1518,7 @@ void EditorDrawUi(const Surface &out)
 
 	// What the tool does (or what's under the mouse), under the buttons.
 	const int leftWidth = out.w() - RightColumnWidth - 18;
-	std::string hint(Tools[static_cast<size_t>(tool)].help);
+	std::string hint = ToolHelp(Tools[static_cast<size_t>(tool)].help);
 	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
 		hint += fmt::format("  Size {}", brushSize);
 	DrawString(out, WordWrapString(hint, leftWidth), { { 6, contentBottom + 5 }, { leftWidth, out.h() - contentBottom - 6 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });

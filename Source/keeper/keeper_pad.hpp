@@ -30,9 +30,10 @@
 #include "engine/point.hpp"
 #include "engine/rectangle.hpp"
 #include "engine/surface.hpp"
-#include "keeper/keeper_input.hpp"
 
 namespace devilution::keeper {
+
+enum class KeeperAction : uint8_t;
 
 /** What a player does, whatever they do it with. */
 enum class PadAction : uint8_t {
@@ -72,6 +73,8 @@ bool PadOwnsSticks();
 #ifdef KEEPER_DEVCTL
 /** Dev/test: hands the controller back to the engine, to see what it would do without all this. */
 extern bool DevPadEngineOnly;
+/** Dev/test: the Switch's UI scale, on a computer. */
+extern bool DevTvUiScale;
 #endif
 
 /**
@@ -102,6 +105,12 @@ void PadDrawCursor(const Surface &out);
 void PadDrawOverlay(const Surface &out);
 /** The sticks' pull on the camera this frame: the right stick, and the cursor pushing at the edge of the view. */
 void PadCameraPull(float &sx, float &sy);
+
+/**
+ * How many screen pixels a UI pixel is, for the HUD and the keeper screen: 2x from 1440p, 3x at 4K. A
+ * Switch is across the room on a TV, where a 12-pixel font at 1080p can't be read, so it is 2x from 1080p.
+ */
+int KeeperUiScale();
 
 // ---- shared with the keeper screen, which runs its own loop ----
 

@@ -310,7 +310,7 @@ BarTab TabOf(const Tool &tool)
 
 int UiScale()
 {
-	return std::clamp(gnScreenHeight / 720, 1, 4);
+	return KeeperUiScale();
 }
 
 int UiWidth()
