@@ -150,6 +150,9 @@ struct RaidWatch {
 RaidWatch watch;
 std::string autocast;
 size_t autocastNext = 0;
+/** Ticks between autocasts, so a test can spend mana as a person might. 0: whenever the spell is ready. */
+uint32_t autocastEvery = 0;
+uint32_t autocastLast = 0;
 
 void WatchRaid()
 {
@@ -204,16 +207,17 @@ void WatchRaid()
 			watch.reached = true;
 			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
 		}
-		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
+		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0 && (autocastEvery == 0 || autocastLast == 0 || DevKeeperTicks() - autocastLast >= autocastEvery)) {
 			std::istringstream list(autocast);
 			std::vector<size_t> spells;
 			for (std::string item; std::getline(list, item, ',');)
 				spells.push_back(static_cast<size_t>(std::atoi(item.c_str())));
 			for (size_t tried = 0; tried < spells.size(); tried++) {
 				const size_t spell = spells[(autocastNext + tried) % spells.size()];
-				if (State.mana[MyPlayerId] < SpellManaCost(spell) * ManaScale)
+				if (State.mana[MyPlayerId] < SpellManaCostScaled(spell))
 					continue;
 				autocastNext += tried + 1;
+				autocastLast = DevKeeperTicks();
 				for (size_t i = 0; i < MaxBots; i++) {
 					if (IsLivingBot(Players[FirstBotId + i])) {
 						RequestCastSpell(spell, Players[FirstBotId + i].position.tile);
@@ -406,7 +410,12 @@ void Execute(const std::string &line)
 		DevFireTrap(static_cast<size_t>(a), { b, c });
 	} else if (command == "autocast") {
 		autocast.clear();
-		in >> autocast;
+		autocastEvery = 0;
+		autocastLast = 0;
+		in >> autocast >> autocastEvery;
+	} else if (command == "upgrade") {
+		in >> a;
+		RequestBuyUpgrade(static_cast<UpgradeId>(a));
 	} else if (command == "bait") {
 		in >> a >> b;
 		RequestPlaceBait({ a, b });
