@@ -41,11 +41,8 @@ struct KeepSetup {
 const KeepSetup &CurrentSetup();
 void SetCurrentSetup(const KeepSetup &setup);
 
-/**
- * The master's rank for this game, 1-based: rises as campaign levels are cleared and unlocks monsters.
- * In co-op this is the host's rank, so every client agrees on what can be built.
- */
-int CampaignRank();
+/** Test flags: everything up to this keeper level counts as unlocked (--keeper-rank, --keeper-level). 0 = play normally. */
+int OverrideRank();
 
 // ---- level rules -------------------------------------------------------------------------
 
@@ -93,15 +90,15 @@ void ApplyAutoStartSetup();
 
 /** The maps folder in the save directory (with trailing separator); created if missing. */
 std::string MapsFolder();
-/** File names of the *.dkmap files in MapsFolder(), sorted. */
-std::vector<std::string> ListCustomMaps();
+/** File names of the *.dkmap files in MapsFolder(), sorted. `includeScratch`: also the editor's autosave and test files. */
+std::vector<std::string> ListMapFiles(bool includeScratch);
 
 // ---- progress ----------------------------------------------------------------------------
 
 /** Campaign levels this machine's master has cleared, from the progress file. */
 int LevelsCleared();
-/** This machine's own rank, whoever's game we are in: LevelsCleared() + 1, capped at 20. */
-int SavedRank();
+/** The furthest campaign level open to this machine's master: LevelsCleared() + 1, capped at 20. */
+int NextOpenLevel();
 /** The keep stands. Saves progress when this client's own campaign game cleared its next level. */
 void NoteVictory();
 
@@ -128,6 +125,11 @@ std::string DescribeHostedGame(const GameData &gameData);
  * level or map again after a defeat, or nothing after the campaign's last level.
  */
 std::optional<KeepSetup> ContinueSetup(bool won);
+
+/** Single player chose what comes next: it leaves through the character screen and starts `setup` after it. */
+void SetPostMapSetup(const KeepSetup &setup);
+/** Consumed by the main menu loop. */
+std::optional<KeepSetup> TakePostMapSetup();
 
 /** Every client got the host's restart command: leave this game at the next tick. */
 void MarkRestartRequested();

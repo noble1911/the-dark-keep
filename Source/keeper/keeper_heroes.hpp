@@ -51,6 +51,9 @@ bool InitHeroGFX(CMonster &monsterType);
 
 /** Adds the hero types and this level's muster to the level's monster types (keep level only). */
 void AddHeroMonsterTypes();
+/** A keep's lair kinds are listed at level load, but only loaded when one first spawns (EnsureMonsterTypeLoaded). */
+bool IsDeferredMonsterType(size_t typeIndex);
+void ClearDeferredMonsterTypes();
 
 /** Called whenever a monster is (re)initialised on any client: applies wave stats to heroes, remembers homes. */
 void OnMonsterInit(Monster &monster);
@@ -75,6 +78,8 @@ void SetMonsterRoaming(size_t monsterId, bool roaming);
 
 /** A keep monster with nothing to fight: it guards its lair instead of running its stock AI. */
 bool ShouldGuard(const Monster &monster);
+/** A keep monster with a target: every kind finds its way there, not only those the base game lets search. */
+bool HuntsEnemy(const Monster &monster);
 /** True while a monster's own path planning must stay out of the way: it guards its post, or a master drives it. */
 bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);

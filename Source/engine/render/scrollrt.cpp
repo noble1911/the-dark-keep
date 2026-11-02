@@ -1302,6 +1302,7 @@ void DrawGame(const Surface &fullOut, Point position, Displacement offset)
 	    dLight, MicroTileLen);
 
 	DrawFloor(out, lightmap, position, Point {} + offset, rows, columns);
+	keeper::DrawFloorOverlays(out); // [DARK KEEP] on the floor: walls and monsters stand in front of them
 	DrawTileContent(out, lightmap, position, Point {} + offset, rows, columns);
 	DrawOOB(out, lightmap, position, Point {} + offset, rows, columns);
 

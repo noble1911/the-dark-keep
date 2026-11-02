@@ -22,6 +22,7 @@
 
 #include "appfat.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_profile.hpp"
 #include "multi.h"
 #include "storm/storm_net.hpp"
 #include "utils/file_util.h"
@@ -76,11 +77,11 @@ constexpr int ProgressVersion = 1;
 
 KeepSetup currentSetup;
 
-/** Rank from --keeper-level, so a test of a late level has the units it is meant to be played with. */
+/** From --keeper-level, so a test of a late level has the units it is meant to be played with. */
 int devRank = 0;
 
 bool joinedGame = false;
-int hostRank = 1;
+std::optional<KeepSetup> postMapSetup;
 
 bool restartRequested = false;
 Rematch pendingRematch;
@@ -198,11 +199,21 @@ void SetCurrentSetup(const KeepSetup &setup)
 	currentSetup = setup;
 }
 
-int CampaignRank()
+int OverrideRank()
 {
-	if (joinedGame)
-		return hostRank;
-	return std::max(SavedRank(), devRank);
+	return std::clamp(TestRank > 0 ? TestRank : devRank, 0, NumCampaignLevels);
+}
+
+void SetPostMapSetup(const KeepSetup &setup)
+{
+	postMapSetup = setup;
+}
+
+std::optional<KeepSetup> TakePostMapSetup()
+{
+	std::optional<KeepSetup> setup = postMapSetup;
+	postMapSetup.reset();
+	return setup;
 }
 
 const LevelRules &CampaignLevelRules(int level)
@@ -299,13 +310,13 @@ std::string MapsFolder()
 	return folder;
 }
 
-std::vector<std::string> ListCustomMaps()
+std::vector<std::string> ListMapFiles(bool includeScratch)
 {
 	constexpr std::string_view Extension = ".dkmap";
 	std::vector<std::string> maps;
 	for (std::string &file : ListFiles(MapsFolder().c_str())) {
 		// The editor's autosave and test-run files start with an underscore.
-		if (file.size() <= Extension.size() || file[0] == '_')
+		if (file.size() <= Extension.size() || (!includeScratch && file[0] == '_'))
 			continue;
 		const std::string_view tail = std::string_view(file).substr(file.size() - Extension.size());
 		const bool matches = std::equal(tail.begin(), tail.end(), Extension.begin(), [](char a, char b) {
@@ -324,14 +335,16 @@ int LevelsCleared()
 	return levelsCleared;
 }
 
-int SavedRank()
+int NextOpenLevel()
 {
 	return std::min(LevelsCleared() + 1, NumCampaignLevels);
 }
 
 void NoteVictory()
 {
-	if (joinedGame || currentSetup.mode != GameMode::Campaign)
+	const bool campaign = currentSetup.mode == GameMode::Campaign;
+	ProfileNoteVictory(campaign ? currentSetup.campaignLevel : 1, campaign && !joinedGame && currentSetup.campaignLevel == LevelsCleared() + 1);
+	if (joinedGame || !campaign)
 		return;
 	// The menus only offer levels up to the rank, so this is the only way forward. Being strict
 	// also keeps --keeper-level from unlocking the whole campaign in a real profile.
@@ -344,7 +357,7 @@ void NoteVictory()
 void BeginSession()
 {
 	joinedGame = false;
-	hostRank = 1;
+	ForgetHostUnlocks();
 	restartRequested = false;
 }
 
@@ -358,7 +371,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	gameData.nDifficulty = DIFF_NORMAL; // how hard a game is comes from the campaign
 	gameData.keeperMode = static_cast<uint8_t>(currentSetup.mode);
 	gameData.keeperLevel = static_cast<uint8_t>(currentSetup.campaignLevel);
-	gameData.keeperRank = static_cast<uint8_t>(CampaignRank());
+	WriteHostUnlocks(gameData);
 	gameData.keeperSeed = currentSetup.seed;
 
 	GameData wire = gameData;
@@ -375,7 +388,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t mapSize)
 {
 	joinedGame = true;
-	hostRank = std::clamp<int>(gameData.keeperRank, 1, NumCampaignLevels);
+	ReadHostUnlocks(gameData);
 
 	KeepSetup setup;
 	setup.mode = gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap) ? GameMode::CustomMap : GameMode::Campaign;
@@ -400,8 +413,8 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 std::string DescribeHostedGame(const GameData &gameData)
 {
 	if (gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap))
-		return fmt::format("Custom map, rank {}", gameData.keeperRank);
-	return fmt::format("Level {}: {}, rank {}", gameData.keeperLevel, CampaignLevelRules(gameData.keeperLevel).name, gameData.keeperRank);
+		return fmt::format("Custom map, keeper level {}", gameData.keeperRank);
+	return fmt::format("Level {}: {}, keeper level {}", gameData.keeperLevel, CampaignLevelRules(gameData.keeperLevel).name, gameData.keeperRank);
 }
 
 std::optional<KeepSetup> ContinueSetup(bool won)

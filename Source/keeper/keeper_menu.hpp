@@ -8,6 +8,8 @@
 
 namespace devilution::keeper {
 
+/** The character screen: XP, stats, Renown, and everything unlocked or still to unlock. */
+void UiKeeperScreen();
 /** @return true if a level was chosen. */
 bool UiCampaignLevelSelect();
 /** @return true if a map was chosen. */

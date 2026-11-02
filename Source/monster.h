@@ -35,7 +35,7 @@ struct Missile;
 struct Player;
 
 constexpr size_t MaxMonsters = 200;
-constexpr size_t MaxLvlMTypes = 24;
+constexpr size_t MaxLvlMTypes = 128; // [DARK KEEP] was 24: a keep lists the whole roster, and loads what it uses
 
 enum monster_flag : uint16_t {
 	// clang-format off
@@ -507,6 +507,8 @@ inline tl::expected<size_t, std::string> AddMonsterType(UniqueMonsterType unique
 tl::expected<void, std::string> InitMonsterSND(CMonster &monsterType);
 tl::expected<void, std::string> InitMonsterGFX(CMonster &monsterType, MonsterSpritesData &&spritesData = {});
 tl::expected<void, std::string> InitAllMonsterGFX();
+/** [DARK KEEP] Loads a deferred keep monster type's graphics and sounds the first time it is needed. */
+void EnsureMonsterTypeLoaded(size_t typeIndex);
 void WeakenNaKrul();
 void InitGolems();
 tl::expected<void, std::string> InitMonsters();

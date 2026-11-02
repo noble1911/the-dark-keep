@@ -13,9 +13,11 @@
 
 #include "engine/direction.hpp"
 #include "engine/path.h"
+#include "gamemenu.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
@@ -31,11 +33,19 @@
 
 namespace devilution::keeper {
 
+// Balance: name, missile, mana, engine spell level at level 1, cooldown, unlock rank, icon, flavour.
 const std::array<SpellKind, NumSpellKinds> SpellKinds { {
-	{ "Nova", MissileID::Nova, 35, 6, 20 * 6 },
-	{ "Wall", MissileID::FireWallControl, 25, 4, 20 * 4 },
-	{ "Guard", MissileID::Guardian, 30, 4, 20 * 8 },
-	{ "Stone", MissileID::StoneCurse, 20, 4, 20 * 5 },
+	{ "Nova", MissileID::Nova, 35, 6, 20 * 6, 1, SpellID::Nova, "A ring of lightning bursts out around the target." },
+	{ "Wall", MissileID::FireWallControl, 25, 4, 20 * 4, 1, SpellID::FireWall, "A wall of fire across a corridor." },
+	{ "Guard", MissileID::Guardian, 30, 4, 20 * 8, 1, SpellID::Guardian, "Summons a guardian that spits fire at heroes for a while." },
+	{ "Stone", MissileID::StoneCurse, 20, 4, 20 * 5, 1, SpellID::StoneCurse, "Turns the hero nearest the target to stone for a few seconds." },
+	{ "Inferno", MissileID::InfernoControl, 15, 2, 20 * 2, 3, SpellID::Inferno, "A short jet of fire from the target towards the entrance." },
+	{ "Fireball", MissileID::Fireball, 20, 3, 20 * 3, 5, SpellID::Fireball, "An explosion at the target, burning everything close by." },
+	{ "Chain", MissileID::ChainLightning, 30, 3, 20 * 5, 8, SpellID::ChainLightning, "Lightning leaps from the target to every hero in reach." },
+	{ "Shock Wall", MissileID::LightningWallControl, 30, 3, 20 * 5, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
+	{ "Wave", MissileID::FlameWaveControl, 35, 3, 20 * 6, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
+	{ "Ring", MissileID::RingOfFire, 40, 3, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
+	{ "Apocalypse", MissileID::Apocalypse, 70, 1, 20 * 20, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
 } };
 
 KeepState State;
@@ -54,19 +64,29 @@ constexpr int VaultKeepOut = 3;
 /** During a raid nothing can be placed this close to a hero, and lairs take a while to summon. */
 constexpr int RaidBuildHeroDistance = 6;
 constexpr int RaidSummonTicks = 3 * TicksPerSecond;
-constexpr int TrapRearmTicks = 8 * TicksPerSecond;
 constexpr int LockStrength = 12;
 constexpr int BaitUses = 3;
 constexpr int StateBroadcastInterval = TicksPerSecond;
 /** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
 constexpr int PossessDrainPerTick = 10;
+constexpr int ManaCastTolerance = 5 * ManaScale;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
 constexpr int BaseSupply = 16;
 constexpr int SupplyPerRaid = 4;
+/** How long a host stays to tell joiners about the next game, and how often it says so. */
+constexpr int RestartNoticeTicks = 20;
+constexpr int RestartResendTicks = 4;
+/** A joiner hears the word at any point in the host's notice, so it waits all of it and a little more. */
+constexpr int RestartJoinerWaitTicks = RestartNoticeTicks + 20;
 /** Later levels start roomier: their monsters take far more Pop. */
 constexpr int SupplyPerLevel = 2;
-/** The masters' spells gain a level every this many campaign levels, to keep up with the heroes. */
-constexpr int LevelsPerSpellLevel = 4;
+/** Each trap level adds this much damage, and takes this much off its rearm time down to the floor (percent). */
+constexpr int TrapDamagePerLevel = 25;
+constexpr int TrapRearmPerLevel = 6;
+constexpr int TrapRearmFloorPercent = 40;
+constexpr int SnareSpellLevelBase = 2;
+/** Apocalypse's damage ignores the engine's spell level, so its level raises it directly (percent). */
+constexpr int ApocalypseDamagePerLevel = 20;
 /** A patrolling monster that hasn't moved for this long gives up on its waypoint and takes the next. */
 constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
 /** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
@@ -110,6 +130,7 @@ enum class Action : uint8_t {
 	SyncBot,
 	SyncEnd,
 	Restart,
+	SyncUpgrade,
 };
 
 #pragma pack(push, 1)
@@ -154,6 +175,11 @@ struct PatrolWatch {
 std::array<std::array<PatrolWatch, MaxLairMembers>, MaxLairs> patrolWatch;
 /** This client already chose what comes after the siege (the choice changes the setup). */
 bool restartChosen = false;
+/** Host: the game it chose, and the ticks left before leaving so joiners surely got the word. */
+KeepSetup restartSetup;
+int restartCountdown = 0;
+/** Joiner: ticks until it leaves, once the host has surely gone. */
+int joinerRestartWait = 0;
 
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
@@ -463,6 +489,7 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 		trap.active = true;
 		trap.position = tile;
 		trap.cooldown = summon;
+		trap.kind = static_cast<uint8_t>(kind - NumLairKinds);
 	}
 }
 
@@ -700,6 +727,9 @@ void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
 	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave);
+	// Before the hit points: raising a tier adds life, and those are the final numbers.
+	for (size_t i = 0; i < NumUpgrades; i++)
+		out.Add(Action::SyncUpgrade, static_cast<uint8_t>(i), static_cast<uint8_t>(UpgradeTier(static_cast<UpgradeId>(i))));
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned id = ActiveMonsters[i];
@@ -729,7 +759,7 @@ void SendKeepSnapshot(size_t playerId)
 	for (size_t slot = 0; slot < MaxTraps; slot++) {
 		const Trap &trap = State.traps[slot];
 		if (trap.active)
-			out.Add(Action::SyncTrap, static_cast<uint8_t>(slot), 0, trap.position, static_cast<uint16_t>(std::clamp(trap.cooldown, 0, 0xFFFF)));
+			out.Add(Action::SyncTrap, static_cast<uint8_t>(slot), trap.kind, trap.position, static_cast<uint16_t>(std::clamp(trap.cooldown, 0, 0xFFFF)));
 	}
 	for (size_t slot = 0; slot < MaxLocks; slot++) {
 		const DoorLock &lock = State.locks[slot];
@@ -825,6 +855,10 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	case Action::SyncBegin:
 		ApplySyncBegin(message.a, message.b);
 		break;
+	case Action::SyncUpgrade:
+		if (message.a < NumUpgrades)
+			SetUpgradeTierQuietly(static_cast<UpgradeId>(message.a), message.b);
+		break;
 	case Action::SyncMonsterPosition:
 		ApplySyncMonsterPosition(monsterId, tile);
 		break;
@@ -862,6 +896,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 			trap.active = true;
 			trap.position = tile;
 			trap.cooldown = Swap16LE(message.w);
+			trap.kind = std::min<uint8_t>(message.b, NumTrapKinds - 1);
 		}
 		break;
 	case Action::SyncLock:
@@ -946,17 +981,73 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		return;
 	const size_t pid = caster.getId();
 	const SpellKind &kind = SpellKinds[spell];
-	State.mana[pid] = std::max(State.mana[pid] - kind.manaCost * ManaScale, 0);
+	// Every client checks: mana is only in step to within a second's regeneration, hence the tolerance.
+	if (State.phase != Phase::Raid || State.spellLevels[spell] == 0 || State.mana[pid] + ManaCastTolerance < SpellManaCost(spell) * ManaScale)
+		return;
+	State.mana[pid] = std::max(State.mana[pid] - SpellManaCost(spell) * ManaScale, 0);
 	State.spellCooldown[pid] = kind.cooldownTicks;
 
+	const int level = State.spellLevels[spell];
 	Direction dir = Direction::South;
 	WorldTilePosition src = tile;
-	if (kind.missile == MissileID::FireWallControl) {
+	WorldTilePosition dst = tile;
+	switch (kind.missile) {
+	case MissileID::FireWallControl:
+	case MissileID::LightningWallControl:
 		// A wall needs a direction: run it across the screen (north-east to south-west).
 		dir = Direction::SouthEast;
 		src = tile + Displacement(Direction::NorthWest);
+		break;
+	case MissileID::FlameWaveControl:
+	case MissileID::InfernoControl:
+		// These travel, and the master's body is parked out of the way: send them towards the raiders' way in.
+		if (tile != State.entrance)
+			dir = GetDirection(tile, State.entrance);
+		dst = tile + dir;
+		caster._pdir = dir; // the flame wave rolls the way its caster faces
+		break;
+	default:
+		break;
 	}
-	AddMissile(src, tile, dir, kind.missile, TARGET_MONSTERS, caster, 0, UpgradedSpellLevel(kind.spellLevel + (CurrentLevelNumber() - 1) / LevelsPerSpellLevel));
+	Missile *missile = AddMissile(src, dst, dir, kind.missile, TARGET_MONSTERS, caster, 0, kind.spellLevel + level - 1);
+	if (missile == nullptr)
+		return;
+	if (kind.missile == MissileID::Fireball)
+		missile->duration = 1; // it would fly on until it hit something: burst where the master pointed
+	if (kind.missile == MissileID::Apocalypse)
+		missile->_midam = missile->_midam * (100 + ApocalypseDamagePerLevel * (level - 1)) / 100;
+}
+
+/** Sets off a trap of its kind at a hero on `victim`, on every client. */
+void FireTrap(Trap &trap, Point victim)
+{
+	const TrapKind &kind = TrapKinds[trap.kind];
+	const int level = State.trapLevels[trap.kind];
+	const Direction dir = GetDirection(trap.position, victim);
+	const int damage = ScaleByHeroStrength(kind.baseDamage + kind.damagePerWave * State.wave) * (100 + TrapDamagePerLevel * (level - 1)) / 100;
+	switch (trap.kind) {
+	case 0:
+		AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
+		AddMissile(trap.position, victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, damage, 0);
+		break;
+	case 1:
+		AddMissile(trap.position, victim, dir, MissileID::Arrow, TARGET_PLAYERS, -1, damage, 0);
+		break;
+	case 2:
+		AddMissile(trap.position, victim, dir, MissileID::LightningControl, TARGET_PLAYERS, -1, damage, 0);
+		break;
+	case SnareTrapKind:
+		// Stone Curse is a player's spell: every client lends it the same master.
+		for (size_t pid = 0; pid < MAX_PLRS; pid++) {
+			if (!Players[pid].plractive)
+				continue;
+			AddMissile(victim, victim, Direction::South, MissileID::StoneCurse, TARGET_MONSTERS, Players[pid], 0, SnareSpellLevelBase + level - 1);
+			break;
+		}
+		break;
+	}
+	const int rearmPercent = std::max(100 - TrapRearmPerLevel * (level - 1), TrapRearmFloorPercent);
+	trap.cooldown = kind.rearmTicks * rearmPercent / 100;
 }
 
 /** Traps fire on every client: their missiles are local effects, like any other trap in the game. */
@@ -969,22 +1060,21 @@ void UpdateTraps()
 			trap.cooldown--;
 			continue;
 		}
+		// A snare has nothing to do to a hero who is already held.
+		const bool snare = trap.kind == SnareTrapKind;
 		std::optional<Point> victim;
 		for (size_t i = 0; i < ActiveMonsterCount && !victim; i++) {
 			const Monster &monster = Monsters[ActiveMonsters[i]];
-			if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(trap.position) <= 1)
+			if (IsHero(monster) && monster.hitPoints > 0 && monster.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && monster.mode == MonsterMode::Petrified))
 				victim = monster.position.tile;
 		}
 		for (size_t i = 0; i < MaxBots && !victim; i++) {
 			const Player &bot = Players[FirstBotId + i];
-			if (IsLivingBot(bot) && bot.position.tile.WalkingDistance(trap.position) <= 1)
+			if (IsLivingBot(bot) && bot.position.tile.WalkingDistance(trap.position) <= 1 && !(snare && IsPetrifiedBot(bot)))
 				victim = bot.position.tile;
 		}
 		if (victim) {
-			const Direction dir = GetDirection(trap.position, *victim);
-			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
-			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, UpgradedTrapDamage(ScaleByHeroStrength(20 + 5 * State.wave)), 0);
-			trap.cooldown = UpgradedTrapRearmTicks(TrapRearmTicks);
+			FireTrap(trap, *victim);
 			NoteTrapFired(static_cast<size_t>(&trap - State.traps.data()));
 		}
 	}
@@ -1033,6 +1123,11 @@ void ResetGame(Point entrance, Point vault)
 	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, NumWaves()));
 	State.phase = Phase::Setup;
 	State.phaseTicks = SetupTicks;
+	for (size_t i = 0; i < NumSpellKinds; i++)
+		State.spellLevels[i] = static_cast<uint8_t>(GameSpellLevel(i));
+	for (size_t i = 0; i < NumTrapKinds; i++)
+		State.trapLevels[i] = static_cast<uint8_t>(GameTrapLevel(i));
+	ProfileBeginMap();
 	for (int &mana : State.mana)
 		mana = MaxMana * ManaScale / 2;
 	for (Lair &lair : State.lairs)
@@ -1044,12 +1139,26 @@ void ResetGame(Point entrance, Point vault)
 	awaitingKeepSnapshot = IsJoinedGame() || IsAnotherMasterInKeep();
 	keepSnapshotTimeout = JoinSyncTimeoutTicks;
 	restartChosen = false;
+	restartCountdown = 0;
+	joinerRestartWait = 0;
 	ResetHeroes();
 	ResetRaidStats();
 }
 
 void GameTick()
 {
+	// The word goes out repeatedly: a message can wait for the next turn, and a joiner may be loading.
+	if (joinerRestartWait > 0 && --joinerRestartWait == 0)
+		MarkRestartRequested();
+	if (restartCountdown > 0) {
+		if (restartCountdown % RestartResendTicks == 0)
+			Send(Action::Restart);
+		if (--restartCountdown == 0) {
+			SetCurrentSetup(restartSetup);
+			MarkRestartRequested();
+		}
+	}
+
 	if (awaitingKeepSnapshot && --keepSnapshotTimeout <= 0)
 		awaitingKeepSnapshot = false;
 
@@ -1128,7 +1237,9 @@ bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
 	if (kind >= BuildKinds.size())
 		return fail("Unknown structure");
 	if (IsLairKind(kind) && !IsKindMustered(kind))
-		return fail(IsKindUnlocked(kind) ? "Not mustered for this keep" : "Not unlocked yet");
+		return fail("Not unlocked yet");
+	if (!HasRoomToLoadKind(kind))
+		return fail("Too many kinds of monster in this keep");
 	if (IsSiegeOver())
 		return fail("The siege is over");
 	if (!InDungeonBounds(tile) || !IsTileWalkable(tile) || IsObjectAtPosition(tile))
@@ -1143,9 +1254,22 @@ bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
 		return fail("Heroes are watching");
 	if (State.vaultGold < BuildKinds[kind].cost)
 		return fail("Not enough gold");
+	if (!IsLairKind(kind) && !IsTrapAvailable(kind - NumLairKinds))
+		return fail("Not unlocked yet");
 	if (IsLairKind(kind) && SupplyUsed() + BuildKinds[kind].supply > SupplyCap())
 		return fail("The keep is full (Pop)");
 	return true;
+}
+
+int SpellManaCostAt(size_t spell, int level)
+{
+	const int base = SpellKinds[spell].manaCost;
+	return std::max(base - (std::max(level, 1) - 1) * std::max(base / MaxKeepLevel, 1), base / 2);
+}
+
+int SpellManaCost(size_t spell)
+{
+	return SpellManaCostAt(spell, State.spellLevels[spell]);
 }
 
 int SupplyUsed()
@@ -1220,7 +1344,7 @@ int RefundFor(StructureRef ref)
 		value = BuildKinds[State.lairs[ref.slot].kind].cost;
 		break;
 	case StructureType::Trap:
-		value = BuildKinds[static_cast<size_t>(BuildKind::FireTrap)].cost;
+		value = TrapKinds[State.traps[ref.slot].kind].cost;
 		break;
 	case StructureType::Bait:
 		value = BaitCost * State.baits[ref.slot].uses / BaitUses;
@@ -1421,8 +1545,13 @@ void RequestRestart(const KeepSetup &next)
 	if (restartChosen)
 		return;
 	restartChosen = true;
-	SetCurrentSetup(next);
-	Send(Action::Restart);
+	if (!gbIsMultiplayer) {
+		SetPostMapSetup(next); // by way of the character screen
+		gamemenu_exit_game(false);
+		return;
+	}
+	restartSetup = next;
+	restartCountdown = RestartNoticeTicks;
 }
 
 void RequestStartRaid()
@@ -1579,6 +1708,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		ApplyPatrolLeg(message.a, message.b, message.x);
 		break;
 	case Action::SyncBegin:
+	case Action::SyncUpgrade:
 	case Action::SyncMonsterPosition:
 	case Action::SyncMonsterHitPoints:
 	case Action::SyncLair:
@@ -1595,11 +1725,19 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::Restart:
 		// Only the game's creator picks what comes next; everyone else comes back to its new game.
-		if (IsJoinedGame() ? &player != MyPlayer : &player == MyPlayer)
-			MarkRestartRequested();
+		if (IsJoinedGame() && &player != MyPlayer && joinerRestartWait == 0)
+			joinerRestartWait = RestartJoinerWaitTicks;
 		break;
 	}
 	return sizeof(message);
+}
+
+bool IsHeroAt(Point tile)
+{
+	if (const int mid = dMonster[tile.x][tile.y] - 1; mid >= 0 && IsHero(Monsters[mid]) && Monsters[mid].hitPoints > 0)
+		return true;
+	const int pid = dPlayer[tile.x][tile.y] - 1;
+	return pid >= 0 && IsLivingBot(Players[pid]);
 }
 
 bool IsBurning(Point tile)

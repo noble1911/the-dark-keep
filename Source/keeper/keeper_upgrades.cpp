@@ -24,9 +24,6 @@ constexpr std::array<UpgradeInfo, NumUpgrades> Upgrades { {
 	{ .cardName = "Mon Life", .title = "Monster health", .effectSign = "+", .effectUnit = "% life for your lair monsters", .icon = SpellID::Healing, .maxTier = 5, .baseCost = 150, .costStep = 100, .effectPerTier = 15 },
 	{ .cardName = "Mon Dmg", .title = "Monster damage", .effectSign = "+", .effectUnit = "% damage for your lair monsters", .icon = SpellID::Rage, .maxTier = 5, .baseCost = 200, .costStep = 125, .effectPerTier = 15 },
 	{ .cardName = "Mon Armor", .title = "Monster armor", .effectSign = "+", .effectUnit = " armor for your lair monsters", .icon = SpellID::ManaShield, .maxTier = 5, .baseCost = 100, .costStep = 75, .effectPerTier = 5 },
-	{ .cardName = "Trap Dmg", .title = "Trap damage", .effectSign = "+", .effectUnit = "% damage for trap firebolts", .icon = SpellID::RuneOfFire, .maxTier = 5, .baseCost = 120, .costStep = 80, .effectPerTier = 25 },
-	{ .cardName = "Rearm", .title = "Trap rearm speed", .effectSign = "-", .effectUnit = "% time for traps to rearm", .icon = SpellID::TrapDisarm, .maxTier = 5, .baseCost = 120, .costStep = 80, .effectPerTier = 12 },
-	{ .cardName = "Spells", .title = "Spell power", .effectSign = "+", .effectUnit = " level on your spells", .icon = SpellID::Magi, .maxTier = 4, .baseCost = 200, .costStep = 150, .effectPerTier = 1 },
 	{ .cardName = "Mana", .title = "Mana regeneration", .effectSign = "+", .effectUnit = "% mana regeneration", .icon = SpellID::Mana, .maxTier = 4, .baseCost = 120, .costStep = 80, .effectPerTier = 25 },
 	{ .cardName = "Lord Life", .title = "Keep Lord health", .effectSign = "+", .effectUnit = "% life for the Keep Lord", .icon = SpellID::HealOther, .maxTier = 5, .baseCost = 150, .costStep = 100, .effectPerTier = 20 },
 	{ .cardName = "Lord Dmg", .title = "Keep Lord damage", .effectSign = "+", .effectUnit = "% damage for the Keep Lord", .icon = SpellID::Berserk, .maxTier = 5, .baseCost = 150, .costStep = 100, .effectPerTier = 15 },
@@ -177,6 +174,12 @@ void ApplyUpgradeTier(UpgradeId id, int tier)
 	EventPlrMsg(fmt::format("{} raised to tier {}.", info.title, UpgradeTier(id)), UiFlags::ColorGold);
 }
 
+void SetUpgradeTierQuietly(UpgradeId id, int tier)
+{
+	if (RaiseTier(id, tier))
+		ApplyStatsToLivingMonsters();
+}
+
 void SyncUpgradeTiers(const std::array<uint8_t, NumUpgrades> &newTiers)
 {
 	bool changed = false;
@@ -199,21 +202,6 @@ void OnKeepMonsterInit(Monster &monster)
 		.armorClass = monster.armorClass,
 	};
 	ApplyStats(monster);
-}
-
-int UpgradedTrapDamage(int baseDamage)
-{
-	return AddPercent(baseDamage, TotalEffect(UpgradeId::TrapDamage));
-}
-
-int UpgradedTrapRearmTicks(int baseTicks)
-{
-	return AddPercent(baseTicks, -TotalEffect(UpgradeId::TrapRearm));
-}
-
-int UpgradedSpellLevel(int baseLevel)
-{
-	return baseLevel + TotalEffect(UpgradeId::SpellPower);
 }
 
 int UpgradedManaRegen(int baseRegen)

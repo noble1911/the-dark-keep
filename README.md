@@ -42,10 +42,10 @@ of your monsters and fight them yourself — before they get away with your gold
 | WASD / arrows / screen edge | Move the camera |
 | Mouse wheel, `+` / `-` | Zoom in / out |
 | Space / V | Jump to the entrance / the vault |
-| Card bar | Click a card (Lairs, Traps & Tricks), then click in the keep. A preview shows where it can go and what it reaches. Upgrade cards buy on click; the Bestiary lists every monster and when it unlocks |
+| Card bar | Click a card (Lairs, Traps & Tricks), then click in the keep. A preview shows where it can go and what it reaches. Upgrade cards buy on click |
 | Tab | Next card tab (mouse wheel over the bar scrolls it) |
 | 1–9 | The Nth visible card on the current tab |
-| Z X C F | Spells, cast instantly at the cursor: Lightning Nova, Fire Wall, Guardian, Stone Curse (or click the spell bar, then the keep) |
+| Z X C F Q B | Spell bar slots, cast instantly at the cursor (or click the spell bar, then the keep). Spells only work during a raid. You start with Lightning Nova, Fire Wall, Guardian and Stone Curse |
 | Left click a hero | Inspect its stats and gear (Esc / right click to close); the raid roster (top right) does the same and jumps the camera to the hero |
 | Esc / click | Dismiss the end-of-raid summary |
 | Left click your monster / trap / bait / lock | Select it (shown in the info panel) |
@@ -61,8 +61,16 @@ of your monsters and fight them yourself — before they get away with your gold
 
 Most keys can be rebound under Settings > Keymapping.
 
-The campaign has 20 levels. Clearing one raises your rank, which unlocks more monsters. A level
-offers up to 16 kinds at once. Maps made in the Map Editor (main menu) go in the `maps` folder of
+**Gold is for the current map:** lairs, traps, locks, bait and the Upgrades tab. **XP is permanent:**
+heroes slain, raids survived and levels cleared earn XP (first clears pay best), XP raises your keeper
+level, and each level gives Renown. Spend Renown on the Keeper screen (main menu, level select, and
+between maps) to unlock monsters, spells and trap types and to level spells and traps, up to 15. A spell's
+level works as in the base game: stronger, longer or wider depending on the spell, and cheaper in mana. A
+trap's level adds damage and speeds its rearm. Choose your six spells there too. Respec is free. Trap
+types are Fire, Arrow, Shock and Snare (which holds a hero in place). In co-op the game uses the host's unlocks.
+
+The campaign has 20 levels; clearing one opens the next. What you've unlocked is available on every
+level. To stay safe for every player, a co-op game or the Switch limits how many different kinds one keep can load. Maps made in the Map Editor (main menu) go in the `maps` folder of
 the save directory and can be played from Custom Map; see [docs/MAP-FORMAT.md](docs/MAP-FORMAT.md).
 
 Building during a raid is allowed, but not within sight of a hero, and new lairs take a few

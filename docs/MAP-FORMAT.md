@@ -77,13 +77,5 @@ byte or flag bits for anything older readers must understand.
 
 ## Co-op
 
-The host sends `CMD_KEEPER_MAP` messages:
-
-1. **Offer** (host, once a second until every player has it): CRC and size.
-2. **Have** (joiner): it is already playing that map.
-3. **Want** (joiner): it lacks the map. A file in `maps/received/<crc>.dkmap` with the right CRC is
-   used instead of asking.
-4. **Chunk** (host, one per tick): 180 bytes at an offset, for as long as someone wants them. About
-   3 seconds for a whole map.
-
-The joiner checks the CRC, parses the map, saves it in `maps/received`, and reloads the level.
+The host sends the map's bytes in the join data, with the rest of the setup. The joiner saves them as
+`maps/received/from_host.dkmap` before the level loads, so everyone builds the same level from the start.

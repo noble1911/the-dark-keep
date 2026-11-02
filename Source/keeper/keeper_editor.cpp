@@ -818,7 +818,7 @@ void DoAction(const Button &button)
 		break;
 	case ActionKind::Load:
 		modal = Modal::LoadList;
-		modalList = ListMapFiles();
+		modalList = ListMapFiles(/*includeScratch=*/true);
 		modalScroll = 0;
 		modalNote = modalList.empty() ? "No maps saved yet" : "";
 		break;

@@ -15,6 +15,7 @@
 #include "engine/demomode.h"
 #include "engine/events.hpp"
 #include "engine/sound.h"
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #include "engine/sound_defs.hpp"
 #include "game_mode.hpp"
 #include "gmenu.h"
@@ -91,11 +92,12 @@ const char *const SoundToggleNames[] = {
 
 void GamemenuUpdateSingle()
 {
-	sgSingleMenu[2].setEnabled(gbValidSaveFile);
+	sgSingleMenu[2].setEnabled(gbValidSaveFile && !keeper::IsActive()); // [DARK KEEP] campaign progress saves itself
 
 	const bool enable = MyPlayer->_pmode != PM_DEATH && !MyPlayerIsDead;
 
 	sgSingleMenu[0].setEnabled(enable);
+	sgSingleMenu[1].setEnabled(!keeper::IsActive()); // [DARK KEEP]
 }
 
 void GamemenuPrevious(bool /*bActivate*/)
@@ -297,6 +299,8 @@ void gamemenu_quit_game(bool bActivate)
 
 void gamemenu_load_game(bool /*bActivate*/)
 {
+	if (keeper::IsActive()) // [DARK KEEP] a keep's state isn't in the save (quick load comes here too)
+		return;
 	EventHandler saveProc = SetEventHandler(DisableInputEventHandler);
 	gamemenu_off();
 	ClearFloatingNumbers();
@@ -335,6 +339,8 @@ void gamemenu_load_game(bool /*bActivate*/)
 
 void gamemenu_save_game(bool /*bActivate*/)
 {
+	if (keeper::IsActive()) // [DARK KEEP]
+		return;
 	if (pcurs != CURSOR_HAND) {
 		return;
 	}

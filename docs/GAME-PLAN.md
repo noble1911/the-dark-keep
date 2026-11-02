@@ -36,13 +36,19 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] Level editor and `.dkmap` maps (docs/MAP-FORMAT.md), all tilesets; Cathedral is the fullest
 - [x] 20-level campaign with saved rank, random layouts for now
 - [x] Menus without class, difficulty or the Hellfire prompt
-- [x] Monsters from the whole game, unlocked by rank (Bestiary tab)
+- [x] Monsters from the whole game, unlocked with Renown
 - [ ] Replace the campaign's random layouts with editor maps (assets/keeper/campaign/level_NN.dkmap)
 
 ## 5. Upgrade paths
-- [x] Upgrades for monsters, traps and spells
+- [x] Temporary monster upgrades with gold; spells and trap types level up permanently with Renown (1-15)
+- [x] Keeper screen: XP, keeper level, Renown, stats, Bestiary, Spellbook, Traps, Spell Bar, free respec
+- [x] 11 spells unlocked with Renown, six equipped at a time
+- [x] Trap types: Fire, Arrow, Shock, Snare
+- [ ] Summon Golem spell (its AI attacks keep monsters and ignores bot heroes)
 - [x] Keep Lord upgrades
-- [x] Persistent progression: campaign rank (upgrades last one game)
+- [x] Persistent progression: XP and Renown (gold upgrades last one map)
+- [ ] Co-op: joiners pick their spell bar in a lobby step (for now: their own choice, filtered by the host's unlocks)
+- [ ] Tune XP, Renown prices and difficulty
 
 ## Known issues
 - [ ] Balance: scaled on paper across the campaign, never playtested

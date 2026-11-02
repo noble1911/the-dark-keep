@@ -8,18 +8,26 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <optional>
+#include <string>
 #include <utility>
 
 #include <fmt/format.h>
 
+#include "engine/load_cl2.hpp"
+#include "engine/load_file.hpp"
+#include "engine/render/clx_render.hpp"
 #include "game_mode.hpp"
+#include "headless_mode.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_profile.hpp"
 #include "monster.h"
 #include "multi.h"
 #include "plrmsg.h"
 #include "tables/monstdat.h"
+#include "utils/str_cat.hpp"
 
 namespace devilution::keeper {
 
@@ -46,20 +54,13 @@ constexpr int RangedPowerPercent = 125;
 constexpr int ChargerPowerPercent = 110;
 constexpr int AmbusherPowerPercent = 110;
 
+static_assert(NumLairKinds + 8 <= MaxLvlMTypes, "Every kind must fit in a level's type table, with the Golem, heroes and Keep Lord");
 /**
- * Level monster type slots: 24 in the engine, of which 5 are in use (Golem, 3 heroes, Keep Lord)
- * and 3 stay spare for other uses of the level's types.
+ * Most sprite memory loaded kinds may take in monstdat's `image` units (the engine's own random levels
+ * stop at 4000; the whole roster is about 117000), on the Switch and in any co-op game: a joiner may be
+ * on a Switch, and it has to load whatever the host builds. Single player on a computer has no limit.
  */
-constexpr size_t ReservedTypeSlots = 8;
-constexpr size_t MaxMusterKinds = MaxLvlMTypes - ReservedTypeSlots;
-/**
- * Most sprite memory the muster may take, in monstdat's `image` units. The engine's own random
- * levels stop at 4000, but the keep already exceeded that with the first roster (Lord + 5 kinds is
- * 6000), and 16 of the biggest families is 35000. This keeps a late-game muster to about 6 levels' worth.
- */
-constexpr int MusterImageBudget = 24000;
-/** Families always mustered when there are too many: the cheapest, so there is always something to afford. */
-constexpr size_t MusterCheapFamilies = 3;
+constexpr int LimitedImageBudget = 24000;
 
 // ---- the table -----------------------------------------------------------------
 
@@ -248,10 +249,12 @@ constexpr BuildInfo MakeBuildInfo(size_t kind)
 template <size_t... Kinds>
 constexpr std::array<BuildInfo, NumBuildKinds> MakeBuildKinds(std::index_sequence<Kinds...> /*unused*/)
 {
-	return { MakeBuildInfo(Kinds)..., BuildInfo { "Trap", 80, MT_INVALID, 0, 0 } };
+	return { MakeBuildInfo(Kinds)...,
+		BuildInfo { TrapKinds[0].name, TrapKinds[0].cost, MT_INVALID, 0, 0 },
+		BuildInfo { TrapKinds[1].name, TrapKinds[1].cost, MT_INVALID, 0, 0 },
+		BuildInfo { TrapKinds[2].name, TrapKinds[2].cost, MT_INVALID, 0, 0 },
+		BuildInfo { TrapKinds[3].name, TrapKinds[3].cost, MT_INVALID, 0, 0 } };
 }
-
-constexpr std::string_view TrapFlavor = "Breathes fire at heroes who walk past. Rearms after a few seconds; Rogues may spot and disarm it.";
 
 constexpr std::array<std::string_view, NumKindFamilies> FamilyNames {
 	"Zombies", "Fallen spears", "Fallen swords", "Skeleton axemen", "Skeleton archers", "Skeleton captains", "Scavengers",
@@ -263,8 +266,10 @@ constexpr std::array<std::string_view, NumKindFamilies> FamilyNames {
 
 std::vector<size_t> muster;
 std::array<bool, NumLairKinds> mustered {};
+/** The stand sprites last asked for: a kind's full graphics only load when one spawns. */
+std::optional<OwnedClxSpriteListOrSheet> portrait;
+size_t portraitKind = 0;
 std::vector<size_t> bestiary;
-int lastAnnouncedRank = 0;
 
 int IntegerSquareRoot(int value)
 {
@@ -333,60 +338,6 @@ int FormulaUnlockRank(const MonsterData &data)
 	return std::clamp(rank, 1, NumCampaignLevels);
 }
 
-/** A small generator of our own: the muster must not disturb (or depend on) the engine's random state. */
-uint32_t NextMusterRandom(uint32_t &state)
-{
-	state = state * 1664525U + 1013904223U;
-	return state >> 8;
-}
-
-using FamilyTiers = std::array<std::vector<size_t>, NumKindFamilies>;
-
-/** Tiers of each family unlocked at `rank`, lowest first. */
-FamilyTiers UnlockedTiers(int rank)
-{
-	FamilyTiers tiers;
-	for (size_t kind = 0; kind < NumLairKinds; kind++) {
-		if (IsKindOnRoster(kind) && UnlockRankOf(kind) <= rank)
-			tiers[static_cast<size_t>(Roster[kind].family)].push_back(kind);
-	}
-	for (std::vector<size_t> &family : tiers)
-		std::stable_sort(family.begin(), family.end(), [](size_t a, size_t b) { return UnlockRankOf(a) < UnlockRankOf(b); });
-	return tiers;
-}
-
-/** The families that get a slot when they don't all fit, most deserving first. */
-std::vector<size_t> FamiliesByPriority(const FamilyTiers &tiers, int rank, const KeepSetup &setup)
-{
-	std::vector<size_t> newest;
-	std::vector<size_t> others;
-	for (size_t family = 0; family < NumKindFamilies; family++) {
-		if (tiers[family].empty())
-			continue;
-		// What this rank just unlocked is always there: a rank-up must deliver what it announced.
-		if (UnlockRankOf(tiers[family].back()) == rank)
-			newest.push_back(family);
-		else
-			others.push_back(family);
-	}
-
-	// Then something cheap to fill out a keep with...
-	std::stable_sort(others.begin(), others.end(), [&](size_t a, size_t b) {
-		return BuildKinds[tiers[a].back()].cost < BuildKinds[tiers[b].back()].cost;
-	});
-	const size_t cheap = std::min(MusterCheapFamilies, others.size());
-
-	// ...and a shuffle of the rest, a different draw for each level, so every family gets its turn.
-	uint32_t state = setup.seed ^ (static_cast<uint32_t>(setup.campaignLevel) * 2654435761U);
-	for (size_t i = others.size(); i > cheap + 1; i--) {
-		const size_t pick = cheap + NextMusterRandom(state) % (i - cheap);
-		std::swap(others[i - 1], others[pick]);
-	}
-
-	newest.insert(newest.end(), others.begin(), others.end());
-	return newest;
-}
-
 } // namespace
 
 std::array<BuildInfo, NumBuildKinds> BuildKinds = MakeBuildKinds(std::make_index_sequence<NumLairKinds> {});
@@ -418,14 +369,9 @@ void InitRoster()
 	std::stable_sort(bestiary.begin(), bestiary.end(), [](size_t a, size_t b) { return UnlockRankOf(a) < UnlockRankOf(b); });
 }
 
-int RosterRank()
-{
-	return std::clamp(TestRank > 0 ? TestRank : CampaignRank(), 1, NumCampaignLevels);
-}
-
 std::string_view KindFlavor(size_t kind)
 {
-	return kind < NumLairKinds ? Roster[kind].flavor : TrapFlavor;
+	return kind < NumLairKinds ? Roster[kind].flavor : TrapKinds[kind - NumLairKinds].flavor;
 }
 
 KindFamily FamilyOfKind(size_t kind)
@@ -464,7 +410,7 @@ bool IsKindOnRoster(size_t kind)
 
 bool IsKindUnlocked(size_t kind)
 {
-	return IsKindOnRoster(kind) && UnlockRankOf(kind) <= RosterRank();
+	return IsKindOnRoster(kind) && IsKindAvailable(kind);
 }
 
 int KindLife(size_t kind)
@@ -488,44 +434,59 @@ int KindMaxDamage(size_t kind)
 
 void ChooseMuster()
 {
-	const int rank = RosterRank();
-	const FamilyTiers tiers = UnlockedTiers(rank);
-
 	muster.clear();
 	mustered.fill(false);
-	int image = 0;
-	const auto add = [&](size_t kind) {
-		const int cost = MonstersData[Roster[kind].type].image;
-		if (muster.size() >= MaxMusterKinds || image + cost > MusterImageBudget)
-			return false;
-		image += cost;
-		muster.push_back(kind);
-		mustered[kind] = true;
-		return true;
-	};
-
-	// The strongest unlocked tier of every family that fits...
-	const std::vector<size_t> families = FamiliesByPriority(tiers, rank, CurrentSetup());
-	std::array<int, NumKindFamilies> nextTier {};
-	for (const size_t family : families)
-		nextTier[family] = add(tiers[family].back()) ? static_cast<int>(tiers[family].size()) - 2 : -1;
-
-	// ...and any room left goes to the weaker tiers, one per family per pass (early on: everything).
-	for (bool added = true; added;) {
-		added = false;
-		for (const size_t family : families) {
-			if (nextTier[family] < 0)
-				continue;
-			if (add(tiers[family][nextTier[family]])) {
-				nextTier[family]--;
-				added = true;
-			} else {
-				nextTier[family] = -1;
-			}
+	for (size_t kind = 0; kind < NumLairKinds; kind++) {
+		if (IsKindUnlocked(kind)) {
+			muster.push_back(kind);
+			mustered[kind] = true;
 		}
 	}
+}
 
-	std::sort(muster.begin(), muster.end());
+bool HasRoomToLoadKind(size_t kind)
+{
+#ifndef __SWITCH__
+	if (!gbIsMultiplayer)
+		return true;
+#endif
+	if (kind >= NumLairKinds)
+		return true;
+	int image = 0;
+	for (size_t i = 0; i < LevelMonsterTypeCount; i++) {
+		const CMonster &monsterType = LevelMonsterTypes[i];
+		if (monsterType.animData == nullptr)
+			continue;
+		if (monsterType.type == Roster[kind].type)
+			return true;
+		image += MonstersData[monsterType.type].image;
+	}
+	return image + MonstersData[Roster[kind].type].image <= LimitedImageBudget;
+}
+
+OptionalClxSpriteList KindPortrait(size_t kind)
+{
+	if (kind >= NumLairKinds || HeadlessMode)
+		return std::nullopt;
+	if (!portrait || portraitKind != kind) {
+		const MonsterData &data = MonstersData[Roster[kind].type];
+		const std::string path = StrCat("monsters\\", data.spritePath(), "n");
+		portrait.emplace(LoadCl2ListOrSheet(path.c_str(), PointerOrValue<uint16_t> { data.width }));
+		portraitKind = kind;
+		if (!data.trnFile.empty()) {
+			const std::string trnPath = StrCat("monsters\\", data.trnFile, ".trn");
+			std::array<uint8_t, 256> translation;
+			LoadFileInMem(trnPath.c_str(), translation);
+			std::replace(translation.begin(), translation.end(), static_cast<uint8_t>(255), static_cast<uint8_t>(0));
+			const ClxSpriteListOrSheet sprites { *portrait };
+			if (sprites.isSheet())
+				ClxApplyTrans(ClxSpriteSheet { sprites.sheet() }, translation.data());
+			else
+				ClxApplyTrans(ClxSpriteList { sprites.list() }, translation.data());
+		}
+	}
+	const ClxSpriteListOrSheet sprites { *portrait };
+	return sprites.isSheet() ? sprites.sheet()[0] : sprites.list();
 }
 
 const std::vector<size_t> &MusterKinds()
@@ -543,31 +504,11 @@ const std::vector<size_t> &BestiaryKinds()
 	return bestiary;
 }
 
-std::string UnlocksBetween(int fromRank, int toRank)
+std::optional<size_t> PreviousTier(size_t kind)
 {
-	std::string names;
-	for (const size_t kind : bestiary) {
-		const int rank = UnlockRankOf(kind);
-		if (rank <= fromRank || rank > toRank)
-			continue;
-		if (!names.empty())
-			names += ", ";
-		names += Roster[kind].name;
-	}
-	return names;
-}
-
-void AnnounceRankUnlocks()
-{
-	const int rank = RosterRank();
-	// The first load of a session isn't a rank-up.
-	const int from = lastAnnouncedRank == 0 ? rank : lastAnnouncedRank;
-	lastAnnouncedRank = rank;
-	if (rank <= from || rank <= 1)
-		return;
-	const std::string names = UnlocksBetween(from, rank);
-	if (!names.empty())
-		EventPlrMsg(fmt::format("Rank {}! New monsters answer your call: {}.", rank, names), UiFlags::ColorGold);
+	if (kind == 0 || kind >= NumLairKinds || Roster[kind - 1].family != Roster[kind].family)
+		return std::nullopt;
+	return kind - 1;
 }
 
 } // namespace devilution::keeper

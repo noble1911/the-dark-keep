@@ -38,6 +38,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_map.hpp"
+#include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_units.hpp"
@@ -73,6 +74,8 @@ constexpr uint8_t AmbientLight = 3;
 constexpr float CameraSpeed = 720.F;
 /** Mouse distance from the window edge (pixels) that scrolls the camera. */
 constexpr int EdgeScrollMargin = 6;
+/** A master's character level rises with the campaign, so their spells keep up with stronger heroes. */
+constexpr int MasterLevelsPerCampaignLevel = 2;
 
 bool active = false;
 uint32_t tickCounter = 0;
@@ -98,8 +101,11 @@ struct Tool {
 };
 
 Tool currentTool;
+/** The spell bar for this game: the profile's choice, less anything a host's game doesn't have. */
+std::array<std::optional<size_t>, NumSpellSlots> equippedSpells;
 
 const Monster *MyPossessed();
+void LoadSpellBar();
 bool IsMouseOverUi();
 
 /** Feedback line shown above the palette (e.g. why a placement failed). */
@@ -239,17 +245,16 @@ enum class BarTab : uint8_t {
 	Lairs,
 	Traps,
 	Upgrades,
-	Bestiary,
 };
-constexpr size_t NumBarTabs = 4;
-constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades", "Bestiary" };
+constexpr size_t NumBarTabs = 3;
+constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades" };
 
 BarTab currentTab = BarTab::Lairs;
 /** First visible card of each tab. */
 std::array<int, NumBarTabs> tabScroll {};
 
 /** The cards on a tab, in display order. Each card is the tool it selects. */
-std::vector<Tool> TabCards(BarTab tab)
+std::vector<Tool> BuildTabCards(BarTab tab)
 {
 	std::vector<Tool> cards;
 	switch (tab) {
@@ -257,13 +262,9 @@ std::vector<Tool> TabCards(BarTab tab)
 		for (const size_t kind : MusterKinds())
 			cards.push_back({ ToolType::Build, kind });
 		break;
-	case BarTab::Bestiary:
-		for (const size_t kind : BestiaryKinds())
-			cards.push_back({ ToolType::Build, kind });
-		break;
 	case BarTab::Traps:
 		for (size_t i = 0; i < NumBuildKinds; i++) {
-			if (!IsLairKind(i))
+			if (!IsLairKind(i) && IsTrapAvailable(i - NumLairKinds))
 				cards.push_back({ ToolType::Build, i });
 		}
 		cards.push_back({ ToolType::LockDoor, 0 });
@@ -274,6 +275,23 @@ std::vector<Tool> TabCards(BarTab tab)
 			cards.push_back({ ToolType::Upgrade, i });
 		break;
 	}
+	return cards;
+}
+
+/** The cards are looked up many times a frame and only change when a level loads. */
+std::array<std::vector<Tool>, NumBarTabs> tabCards;
+
+void ClearTabCards()
+{
+	for (std::vector<Tool> &cards : tabCards)
+		cards.clear();
+}
+
+const std::vector<Tool> &TabCards(BarTab tab)
+{
+	std::vector<Tool> &cards = tabCards[static_cast<size_t>(tab)];
+	if (cards.empty())
+		cards = BuildTabCards(tab);
 	return cards;
 }
 
@@ -434,14 +452,14 @@ constexpr int SpellSlotGap = 4;
 Rectangle SpellSlotRect(size_t i)
 {
 	const Rectangle info = InfoRect();
-	constexpr int Total = static_cast<int>(NumSpellKinds) * SpellSlotSize + (static_cast<int>(NumSpellKinds) - 1) * SpellSlotGap;
+	constexpr int Total = static_cast<int>(NumSpellSlots) * SpellSlotSize + (static_cast<int>(NumSpellSlots) - 1) * SpellSlotGap;
 	const int left = info.position.x + info.size.width - Total;
 	return { { left + static_cast<int>(i) * (SpellSlotSize + SpellSlotGap), info.position.y - SpellSlotSize - 8 }, { SpellSlotSize, SpellSlotSize } };
 }
 
 std::optional<size_t> SpellSlotAt(Point p)
 {
-	for (size_t i = 0; i < NumSpellKinds; i++) {
+	for (size_t i = 0; i < NumSpellSlots; i++) {
 		if (Contains(SpellSlotRect(i), p))
 			return i;
 	}
@@ -451,7 +469,7 @@ std::optional<size_t> SpellSlotAt(Point p)
 /** The card under `p` on the current tab, if any. */
 std::optional<Tool> CardAt(Point p)
 {
-	const std::vector<Tool> cards = TabCards(currentTab);
+	const std::vector<Tool> &cards = TabCards(currentTab);
 	const int first = ScrollOf(currentTab);
 	for (int slot = 0; slot < VisibleCardCount() && first + slot < static_cast<int>(cards.size()); slot++) {
 		if (Contains(CardRect(slot), p))
@@ -464,7 +482,7 @@ std::optional<Tool> CardAt(Point p)
 void RevealCard(const Tool &tool)
 {
 	currentTab = TabOf(tool);
-	const std::vector<Tool> cards = TabCards(currentTab);
+	const std::vector<Tool> &cards = TabCards(currentTab);
 	const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
 	if (it == cards.end())
 		return;
@@ -490,14 +508,35 @@ void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
 	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
 }
 
-// ---- cards -------------------------------------------------------------------
+/** Cuts `text` down until it fits in `width` pixels, marking the cut. */
+std::string FitText(std::string_view text, int width)
+{
+	std::string fitted(text);
+	if (GetLineWidth(fitted) <= width)
+		return fitted;
+	while (!fitted.empty() && GetLineWidth(fitted + ".") > width)
+		fitted.pop_back();
+	while (!fitted.empty() && fitted.back() == ' ')
+		fitted.pop_back();
+	return fitted + ".";
+}
 
-constexpr std::array<std::string_view, NumSpellKinds> SpellFlavor {
-	"A ring of lightning bursts out around the target. Hurts heroes, never your monsters.",
-	"A wall of fire across a corridor.",
-	"Summons a guardian that spits fire at heroes for a while.",
-	"Turns the hero nearest the target to stone for a few seconds.",
-};
+/** Word-wraps `text` to at most `height` pixels of lines, marking any cut. */
+std::string FitLines(std::string_view text, int width, int height, int lineHeight)
+{
+	const std::string wrapped = WordWrapString(text, width);
+	const int maxLines = std::max(height / lineHeight, 1);
+	size_t end = 0;
+	for (int line = 0; line < maxLines; line++) {
+		end = wrapped.find('\n', end);
+		if (end == std::string::npos)
+			return wrapped;
+		end++;
+	}
+	return FitText(wrapped.substr(0, end - 1) + "...", width * maxLines);
+}
+
+// ---- cards -------------------------------------------------------------------
 
 struct CardText {
 	std::string name;
@@ -513,7 +552,7 @@ std::string CardHotkey(const Tool &tool)
 {
 	std::string hotkey;
 	if (TabOf(tool) == currentTab) {
-		const std::vector<Tool> cards = TabCards(currentTab);
+		const std::vector<Tool> &cards = TabCards(currentTab);
 		const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
 		const int slot = static_cast<int>(it - cards.begin()) - ScrollOf(currentTab);
 		if (it != cards.end() && slot >= 0 && slot < VisibleCardCount() && slot < static_cast<int>(NumCardSlotKeys))
@@ -541,14 +580,8 @@ CardText DescribeCard(const Tool &tool)
 		text.cost = fmt::format("{}g", kind.cost);
 		text.ready = State.vaultGold >= kind.cost;
 		if (!IsLairKind(tool.index)) {
-			text.description = std::string(KindFlavor(tool.index));
-		} else if (!IsKindUnlocked(tool.index)) {
-			text.ready = false;
-			text.cost = fmt::format("Rank {}", UnlockRankOf(tool.index));
-			text.description = fmt::format("{}. {}\nUnlocks at rank {}.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index), UnlockRankOf(tool.index));
-		} else if (!IsKindMustered(tool.index)) {
-			text.ready = false;
-			text.description = fmt::format("{}. {}\nUnlocked, but a keep can only muster so many kinds: not on this level.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index));
+			const size_t trap = tool.index - NumLairKinds;
+			text.description = fmt::format("Level {}. {}", State.trapLevels[trap], TrapKinds[trap].flavor);
 		} else {
 			text.ready = text.ready && SupplyUsed() + kind.supply <= SupplyCap();
 			text.description = fmt::format("Pop {}  Life {}  Hit {}-{}\n{} Places one monster; if slain it returns after the raid.", kind.supply, KindLife(tool.index), KindMinDamage(tool.index), KindMaxDamage(tool.index), KindFlavor(tool.index));
@@ -558,10 +591,13 @@ CardText DescribeCard(const Tool &tool)
 	case ToolType::Spell: {
 		const SpellKind &spell = SpellKinds[tool.index];
 		text.name = std::string(spell.name);
-		text.hotkey = KeyLabel(KeeperAction::Spell, tool.index);
-		text.cost = fmt::format("{} mana", spell.manaCost);
-		text.ready = State.mana[me] >= spell.manaCost * ManaScale && State.spellCooldown[me] == 0;
-		text.description = fmt::format("{} Your spells share a {}s recovery.", SpellFlavor[tool.index], spell.cooldownTicks / 20);
+		for (size_t slot = 0; slot < NumSpellSlots; slot++) {
+			if (equippedSpells[slot] == tool.index)
+				text.hotkey = KeyLabel(KeeperAction::Spell, slot);
+		}
+		text.cost = fmt::format("{} mana", SpellManaCost(tool.index));
+		text.ready = State.mana[me] >= SpellManaCost(tool.index) * ManaScale && State.spellCooldown[me] == 0;
+		text.description = fmt::format("Level {}. {} Your spells share a {}s recovery.", State.spellLevels[tool.index], spell.flavor, spell.cooldownTicks / 20);
 		break;
 	}
 	case ToolType::LockDoor:
@@ -604,18 +640,91 @@ void DrawCentred(const Surface &area, ClxSprite sprite, int drop = 0)
 	ClxDraw(area, { x, y }, sprite);
 }
 
-void DrawMonsterPortrait(const Surface &area, _monster_id type)
+/** A monster trimmed and shrunk to fit a card, kept for good so its sprites needn't stay in memory. */
+struct CardImage {
+	bool built = false;
+	int width = 0;
+	int height = 0;
+	std::vector<uint8_t> pixels;
+};
+std::array<CardImage, NumLairKinds> cardImages;
+
+/**
+ * Monster frames are wide and mostly empty and big ones are far taller than a card, so this trims the
+ * empty space and shrinks what is left, keeping its proportions.
+ */
+void BuildCardImage(size_t kind, int areaWidth, int areaHeight)
 {
-	for (size_t i = 0; i < LevelMonsterTypeCount; i++) {
-		const CMonster &monsterType = LevelMonsterTypes[i];
-		if (monsterType.type != type)
-			continue;
-		const OptionalClxSpriteList sprites = monsterType.getAnimData(MonsterGraphic::Stand).spritesForDirection(Direction::South);
-		if (sprites && sprites->numSprites() > 0) {
-			// Monster frames are wide and mostly empty; the body stands in the lower middle.
-			DrawCentred(area, (*sprites)[0], 12);
-		}
+	CardImage &image = cardImages[kind];
+	image.built = true;
+	const OptionalClxSpriteList sprites = KindPortrait(kind);
+	if (!sprites || sprites->numSprites() == 0)
 		return;
+	const ClxSprite sprite = (*sprites)[0];
+	const int width = sprite.width();
+	const int height = sprite.height();
+	OwnedSurface canvas(width, height);
+	for (int y = 0; y < height; y++)
+		std::memset(canvas.at(0, y), 0, width);
+	ClxDraw(canvas, { 0, height }, sprite);
+
+	int left = width;
+	int right = -1;
+	int top = height;
+	int bottom = -1;
+	for (int y = 0; y < height; y++) {
+		const uint8_t *row = canvas.at(0, y);
+		for (int x = 0; x < width; x++) {
+			if (row[x] == 0)
+				continue;
+			left = std::min(left, x);
+			right = std::max(right, x);
+			top = std::min(top, y);
+			bottom = std::max(bottom, y);
+		}
+	}
+	if (right < 0)
+		return;
+	const int bodyWidth = right - left + 1;
+	const int bodyHeight = bottom - top + 1;
+	// Whole-number maths: a fraction `scaleTop / scaleBottom`, never enlarging.
+	int scaleTop = 1;
+	int scaleBottom = 1;
+	if (bodyWidth * areaHeight > bodyHeight * areaWidth) {
+		if (bodyWidth > areaWidth) {
+			scaleTop = areaWidth;
+			scaleBottom = bodyWidth;
+		}
+	} else if (bodyHeight > areaHeight) {
+		scaleTop = areaHeight;
+		scaleBottom = bodyHeight;
+	}
+	image.width = std::max(bodyWidth * scaleTop / scaleBottom, 1);
+	image.height = std::max(bodyHeight * scaleTop / scaleBottom, 1);
+	image.pixels.resize(static_cast<size_t>(image.width) * image.height);
+	for (int y = 0; y < image.height; y++) {
+		const uint8_t *row = canvas.at(left, top + y * scaleBottom / scaleTop);
+		for (int x = 0; x < image.width; x++)
+			image.pixels[static_cast<size_t>(y) * image.width + x] = row[x * scaleBottom / scaleTop];
+	}
+}
+
+void DrawKindPortrait(const Surface &area, size_t kind)
+{
+	if (kind >= NumLairKinds)
+		return;
+	if (!cardImages[kind].built)
+		BuildCardImage(kind, area.w(), area.h());
+	const CardImage &image = cardImages[kind];
+	const int offsetX = (area.w() - image.width) / 2;
+	const int offsetY = area.h() - image.height;
+	for (int y = 0; y < image.height; y++) {
+		uint8_t *out = area.at(offsetX, offsetY + y);
+		const uint8_t *row = &image.pixels[static_cast<size_t>(y) * image.width];
+		for (int x = 0; x < image.width; x++) {
+			if (row[x] != 0)
+				out[x] = row[x];
+		}
 	}
 }
 
@@ -629,18 +738,14 @@ void DrawPortrait(const Surface &area, const Tool &tool)
 {
 	switch (tool.type) {
 	case ToolType::Build:
-		if (IsKindMustered(tool.index))
-			DrawMonsterPortrait(area, BuildKinds[tool.index].type);
-		else if (IsLairKind(tool.index))
-			DrawString(area, "?", { { 0, (area.h() - 30) / 2 }, { area.w(), 30 } }, { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | UiFlags::ColorWhite }); // its sprites aren't loaded
+		if (IsLairKind(tool.index))
+			DrawKindPortrait(area, tool.index);
 		else
-			DrawSpellPortrait(area, SpellID::RuneOfFire);
+			DrawSpellPortrait(area, TrapKinds[tool.index - NumLairKinds].icon);
 		return;
-	case ToolType::Spell: {
-		constexpr std::array<SpellID, NumSpellKinds> Icons { SpellID::Nova, SpellID::FireWall, SpellID::Guardian, SpellID::StoneCurse };
-		DrawSpellPortrait(area, Icons[tool.index]);
+	case ToolType::Spell:
+		DrawSpellPortrait(area, SpellKinds[tool.index].icon);
 		return;
-	}
 	case ToolType::LockDoor:
 		DrawCentred(area, GetInvItemSprite(CURSOR_FIRSTITEM + ICURS_LARGE_SHIELD));
 		return;
@@ -677,11 +782,10 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 		DrawHalfTransparentRectTo(out, portrait.position.x, portrait.position.y, portrait.size.width, shade);
 	}
 
-	DrawString(out, text.hotkey, { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	// A little wider than the card: the longest names would wrap onto the cost line.
-	DrawString(out, text.name, { rect.position + Displacement { -2, PortraitHeight + 3 }, { rect.size.width + 4, 12 } },
+	DrawString(out, FitText(text.hotkey, portrait.size.width - 6), { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, FitText(text.name, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
-	DrawString(out, text.cost, { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
+	DrawString(out, FitText(text.cost, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 
 	uint8_t frame = PAL16_GRAY + 8;
@@ -711,11 +815,11 @@ void DrawCardBar(const Surface &out)
 		const bool selected = static_cast<size_t>(currentTab) == i;
 		FillRect(out, tab.position.x, tab.position.y, tab.size.width, tab.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		DrawFrame(out, tab, selected ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
-		DrawString(out, BarTabNames[i], { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
+		DrawString(out, FitText(BarTabNames[i], tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (selected ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 
-	const std::vector<Tool> cards = TabCards(currentTab);
+	const std::vector<Tool> &cards = TabCards(currentTab);
 	const int first = ScrollOf(currentTab);
 	const std::optional<Tool> hovered = CardAt(UiMouse());
 	for (int slot = 0; slot < VisibleCardCount() && first + slot < static_cast<int>(cards.size()); slot++) {
@@ -729,32 +833,37 @@ void DrawCardBar(const Surface &out)
 void DrawSpellBar(const Surface &out)
 {
 	const std::optional<size_t> hovered = SpellSlotAt(UiMouse());
-	for (size_t i = 0; i < NumSpellKinds; i++) {
+	for (size_t i = 0; i < NumSpellSlots; i++) {
 		const Rectangle slot = SpellSlotRect(i);
-		const Tool tool { ToolType::Spell, i };
-		const CardText text = DescribeCard(tool);
-		const bool armed = currentTool.type == ToolType::Spell && currentTool.index == i;
-
 		FillRect(out, slot.position.x, slot.position.y, slot.size.width, slot.size.height, 0);
 		const Rectangle icon { slot.position + Displacement { 2, 2 }, { slot.size.width - 4, slot.size.height - 4 } };
-		DrawPortrait(out.subregion(icon.position.x, icon.position.y, icon.size.width, icon.size.height), tool);
-		if (!text.ready)
-			DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, icon.size.height);
-		if (State.spellCooldown[MyPlayerId] > 0) {
-			const int cooldownTicks = SpellKinds[i].cooldownTicks;
-			const int shade = icon.size.height * std::min(State.spellCooldown[MyPlayerId], cooldownTicks) / std::max(cooldownTicks, 1);
-			DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, shade);
+		const std::optional<size_t> spell = equippedSpells[i];
+		bool armed = false;
+		bool ready = true;
+		if (spell) {
+			const Tool tool { ToolType::Spell, *spell };
+			const CardText text = DescribeCard(tool);
+			ready = text.ready;
+			armed = currentTool.type == ToolType::Spell && currentTool.index == *spell;
+			DrawPortrait(out.subregion(icon.position.x, icon.position.y, icon.size.width, icon.size.height), tool);
+			if (!text.ready)
+				DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, icon.size.height);
+			if (State.spellCooldown[MyPlayerId] > 0) {
+				const int cooldownTicks = SpellKinds[*spell].cooldownTicks;
+				const int shade = icon.size.height * std::min(State.spellCooldown[MyPlayerId], cooldownTicks) / std::max(cooldownTicks, 1);
+				DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, shade);
+			}
+			DrawString(out, std::to_string(SpellManaCost(*spell)), { icon.position + Displacement { 0, icon.size.height - 14 }, { icon.size.width - 2, 14 } },
+			    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (text.ready ? UiFlags::ColorBlue : UiFlags::ColorRed) });
 		}
-		DrawString(out, text.hotkey, { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
-		DrawString(out, std::to_string(SpellKinds[i].manaCost), { icon.position + Displacement { 0, icon.size.height - 14 }, { icon.size.width - 2, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (text.ready ? UiFlags::ColorBlue : UiFlags::ColorRed) });
+		DrawString(out, KeyLabel(KeeperAction::Spell, i), { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
 
 		uint8_t frame = PAL16_GRAY + 8;
 		if (armed)
 			frame = PAL16_YELLOW + 2;
 		else if (hovered == i)
 			frame = PAL16_GRAY;
-		else if (!text.ready)
+		else if (!ready)
 			frame = PAL16_RED + 6;
 		DrawFrame(out, slot, frame);
 		if (armed)
@@ -826,7 +935,7 @@ void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
 			summary += fmt::format("{}{} {}", summary.empty() ? "" : ", ", kinds[i], BuildKinds[i].name);
 	}
 	summary += "\nRight-click: rally around a point. Shift+right-click: add a waypoint.";
-	DrawString(out, WordWrapString(summary, textWidth), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+	DrawString(out, FitLines(summary, textWidth, 70, 13), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
 }
 
@@ -862,7 +971,7 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 	}
 	DrawString(out, state, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	if (!help.empty())
-		DrawString(out, WordWrapString(help, textWidth), { textPos + Displacement { 0, 32 }, { textWidth, 52 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+		DrawString(out, FitLines(help, textWidth, 52, 13), { textPos + Displacement { 0, 32 }, { textWidth, 52 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 
 	DrawSellButton(out, fmt::format("{}sell for {}g{}", SellKeyPrefix(), RefundFor(ref), State.phase == Phase::Raid ? " (half)" : ""), CanSell(ref));
 }
@@ -894,8 +1003,8 @@ void DrawInfoPanel(const Surface &out)
 
 	std::optional<Tool> shown = CardAt(UiMouse());
 	if (!shown) {
-		if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot)
-			shown = Tool { ToolType::Spell, *slot };
+		if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot && equippedSpells[*slot])
+			shown = Tool { ToolType::Spell, *equippedSpells[*slot] };
 	}
 	if (!shown && currentTool.type != ToolType::None)
 		shown = currentTool;
@@ -917,11 +1026,12 @@ void DrawInfoPanel(const Surface &out)
 		return;
 	}
 	const CardText text = DescribeCard(*shown);
-	DrawString(out, text.name, { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	DrawString(out, FitText(text.name, textWidth * 2 / 3), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	if (!text.hotkey.empty())
-		DrawString(out, fmt::format("[{}]", text.hotkey), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+		DrawString(out, FitText(fmt::format("[{}]", text.hotkey), textWidth / 3), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	DrawString(out, text.cost, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
-	DrawString(out, WordWrapString(text.description, textWidth), { textPos + Displacement { 0, 32 }, { textWidth, info.size.height - 44 } },
+	const int textBottom = info.position.y + info.size.height - 8 - (textPos.y + 32);
+	DrawString(out, FitLines(text.description, textWidth, textBottom, 13), { textPos + Displacement { 0, 32 }, { textWidth, textBottom } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 }
 
@@ -958,19 +1068,43 @@ void DrawLine(const Surface &out, Point a, Point b, uint8_t color, int maxY)
 	}
 }
 
+/**
+ * DrawOverlays runs twice: its floor markers go in the world view between the floor and what stands
+ * on it (walls hide them, and the view isn't zoomed yet), and its text goes over everything in the HUD.
+ */
+enum class OverlayPass : uint8_t {
+	Floor,
+	Text,
+};
+OverlayPass overlayPass = OverlayPass::Text;
+
+int OverlayZoom()
+{
+	return overlayPass == OverlayPass::Floor ? 1 : ZoomFactor();
+}
+
 /** Screen position of the centre of a tile's floor diamond. */
 Point TileCenter(Point tile)
 {
-	const int zoom = ZoomFactor();
+	const int zoom = OverlayZoom();
 	const Point halfCenter = GetScreenPosition(tile) + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT / 2 };
 	return { halfCenter.x * zoom, halfCenter.y * zoom };
+}
+
+/** A line along the floor between two tiles' centres. */
+void DrawFloorLine(const Surface &out, Point from, Point to, uint8_t color)
+{
+	if (overlayPass == OverlayPass::Floor)
+		DrawLine(out, TileCenter(from), TileCenter(to), color, out.h());
 }
 
 /** Outlines a tile's floor diamond (optionally grown by `radius` tiles). */
 void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius = 0)
 {
-	const int zoom = ZoomFactor();
-	const int maxY = ScreenHudTop();
+	if (overlayPass != OverlayPass::Floor)
+		return;
+	const int zoom = OverlayZoom();
+	const int maxY = out.h();
 	const int hw = TILE_WIDTH / 2 * (radius * 2 + 1) * zoom;
 	const int hh = TILE_HEIGHT / 2 * (radius * 2 + 1) * zoom;
 	const Point center = TileCenter(tile);
@@ -986,6 +1120,8 @@ void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius =
 
 void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
 {
+	if (overlayPass != OverlayPass::Text)
+		return;
 	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
 	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
@@ -1082,6 +1218,17 @@ void DrawToolPreview(const Surface &out)
 			else
 				DrawWorldLabel(out, tile, "No hero in reach", UiFlags::ColorRed);
 			return;
+		case MissileID::LightningWallControl:
+			DrawFireWallPreview(out, tile);
+			return;
+		case MissileID::Apocalypse:
+			DrawTileDiamond(out, tile, PAL16_ORANGE + 2, 8);
+			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
+			return;
+		case MissileID::ChainLightning:
+			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellKinds[currentTool.index].spellLevel + State.spellLevels[currentTool.index] + 2, MaxCrawlRadius));
+			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
+			return;
 		case MissileID::Guardian:
 			DrawTileDiamond(out, tile, PAL16_BLUE + 6, 6); // shoots heroes within 6 tiles
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
@@ -1106,12 +1253,12 @@ void DrawPatrolRoute(const Surface &out, const Lair &lair)
 	Point from = post;
 	for (size_t i = 0; i < lair.routeCount; i++) {
 		const Point waypoint = lair.route[i];
-		DrawLine(out, TileCenter(from), TileCenter(waypoint), PAL16_BLUE + 6, ScreenHudTop());
+		DrawFloorLine(out, from, waypoint, PAL16_BLUE + 6);
 		DrawTileDiamond(out, waypoint, PAL16_BLUE + 2);
 		DrawWorldLabel(out, waypoint, std::to_string(i + 1), UiFlags::ColorBlue);
 		from = waypoint;
 	}
-	DrawLine(out, TileCenter(from), TileCenter(post), PAL16_BLUE + 6, ScreenHudTop());
+	DrawFloorLine(out, from, post, PAL16_BLUE + 6);
 }
 
 /** One selected structure: highlighted, with a lair's monster, rally point and patrol route. */
@@ -1126,7 +1273,7 @@ void DrawSelectedStructure(const Surface &out, StructureRef ref)
 	if (const Monster *monster = LairMonster(ref.slot); monster != nullptr)
 		DrawTileDiamond(out, monster->position.tile, PAL16_YELLOW + 4);
 	if (lair.hasRally) {
-		DrawLine(out, TileCenter(position), TileCenter(lair.rally), PAL16_BLUE + 4, ScreenHudTop());
+		DrawFloorLine(out, position, lair.rally, PAL16_BLUE + 4);
 		DrawTileDiamond(out, lair.rally, PAL16_BLUE + 2);
 		DrawWorldLabel(out, lair.rally, "Rally point", UiFlags::ColorBlue);
 	}
@@ -1327,12 +1474,11 @@ void BuyUpgradeCard(size_t index)
 /** A card was clicked or its slot key pressed: buy an upgrade, arm a tool, or say why not. */
 void ActivateCard(const Tool &card)
 {
-	if (card.type == ToolType::Upgrade)
+	if (card.type == ToolType::Upgrade) {
 		BuyUpgradeCard(card.index);
-	else if (card.type == ToolType::Build && IsLairKind(card.index) && !IsKindMustered(card.index))
-		SetFeedback(IsKindUnlocked(card.index) ? "Not mustered for this keep" : "Not unlocked yet");
-	else
+	} else {
 		SelectTool(card.type, card.index);
+	}
 }
 
 /** Shift+right-click with lairs selected: add a waypoint to each one's patrol, spread out like a rally. */
@@ -1374,6 +1520,24 @@ std::optional<KeepSetup> GameOverContinue()
 	if (IsJoinedGame())
 		return std::nullopt;
 	return ContinueSetup(State.phase == Phase::Victory);
+}
+
+void LoadSpellBar()
+{
+	equippedSpells = {};
+	const std::array<int8_t, NumSpellSlots> &chosen = ProfileSpellBar();
+	size_t used = 0;
+	for (const int8_t spell : chosen) {
+		if (spell >= 0 && IsSpellAvailable(static_cast<size_t>(spell)))
+			equippedSpells[used++] = static_cast<size_t>(spell);
+	}
+	// In someone else's game the player's choices may not exist there: fill up from what does.
+	if (used == 0) {
+		for (size_t spell = 0; spell < NumSpellKinds && used < NumSpellSlots; spell++) {
+			if (IsSpellAvailable(spell))
+				equippedSpells[used++] = spell;
+		}
+	}
 }
 
 std::string GameOverContinueLabel(const KeepSetup &next)
@@ -1438,17 +1602,20 @@ void TogglePossession()
 /** Casts spell `index` at `tile` if the master can; says why not otherwise. */
 bool TryCastSpell(size_t index, Point tile)
 {
-	const SpellKind &spell = SpellKinds[index];
 	const size_t me = MyPlayerId;
 	if (IsGameOver()) {
 		SetFeedback("The siege is over");
+		return false;
+	}
+	if (State.phase != Phase::Raid) {
+		SetFeedback("Spells can only be cast during a raid");
 		return false;
 	}
 	if (State.spellCooldown[me] > 0) {
 		SetFeedback(fmt::format("Gathering power... {}", FormatTicks(State.spellCooldown[me])));
 		return false;
 	}
-	if (State.mana[me] < spell.manaCost * ManaScale) {
+	if (State.mana[me] < SpellManaCost(index) * ManaScale) {
 		SetFeedback("Not enough mana");
 		return false;
 	}
@@ -1537,7 +1704,7 @@ void OnLevelLoaded()
 	ApplyAmbientLight();
 	ResetGame(entrance, FindVault(entrance));
 	ResetUnits();
-	AnnounceRankUnlocks();
+	LoadSpellBar();
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1545,6 +1712,14 @@ void OnLevelLoaded()
 	tickCounter = 0;
 	lastCameraTicks = SDL_GetTicks();
 	NoteMapLevelLoaded();
+	ClearTabCards();
+	// Built during the load rather than as cards scroll into view, which would stutter.
+	if (!IsEditorActive()) {
+		for (const size_t kind : MusterKinds()) {
+			if (!cardImages[kind].built)
+				BuildCardImage(kind, CardWidth - 4, PortraitHeight);
+		}
+	}
 	EditorOnLevelLoaded();
 }
 
@@ -1552,6 +1727,7 @@ void OnGameEnded()
 {
 	EditorOnGameEnded();
 	ForgetMapCache();
+	SaveProfile();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1570,14 +1746,18 @@ void Tick()
 	}
 
 	// Remote masters arrive later than us; park every body on the keep level, every tick (cheap, idempotent).
+	const auto masterLevel = static_cast<uint8_t>(1 + MasterLevelsPerCampaignLevel * (CurrentLevelNumber() - 1));
 	for (Player &player : Players) {
-		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && !IsBot(player))
+		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && !IsBot(player)) {
 			ParkPlayer(player);
+			// Many spells scale with the caster's level as well as the spell's.
+			if (player.getCharacterLevel() != masterLevel)
+				player.setCharacterLevel(masterLevel);
+		}
 	}
 	RevealKeep();
 	if (IsEditorActive())
 		return; // a map being edited has no raid to simulate
-	MapNetTick();
 
 	GameTick();
 	UpdateUnitMarkers();
@@ -1687,19 +1867,23 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 {
 	switch (action) {
 	case KeeperAction::CardSlot: {
-		const std::vector<Tool> cards = TabCards(currentTab);
+		const std::vector<Tool> &cards = TabCards(currentTab);
 		const size_t card = static_cast<size_t>(ScrollOf(currentTab)) + index;
 		if (static_cast<int>(index) < VisibleCardCount() && card < cards.size())
 			ActivateCard(cards[card]);
 		return;
 	}
 	case KeeperAction::Spell:
-		if (index >= NumSpellKinds)
+		if (index >= NumSpellSlots)
 			return;
+		if (!equippedSpells[index]) {
+			SetFeedback("No spell in that slot: equip one from the Spellbook");
+			return;
+		}
 		if (MyPossessed() == nullptr && !IsMouseOverUi())
-			TryCastSpell(index, cursPosition);
+			TryCastSpell(*equippedSpells[index], cursPosition);
 		else
-			SelectTool(ToolType::Spell, index);
+			SelectTool(ToolType::Spell, *equippedSpells[index]);
 		return;
 	case KeeperAction::LockDoor:
 	case KeeperAction::Bait:
@@ -1844,7 +2028,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		}
 	}
 	if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot) {
-		SelectTool(ToolType::Spell, *slot);
+		if (equippedSpells[*slot])
+			SelectTool(ToolType::Spell, *equippedSpells[*slot]);
 		return true;
 	}
 	{
@@ -1865,8 +2050,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			if (Contains(TabRect(i), UiMouse()))
 				currentTab = static_cast<BarTab>(i);
 		}
-		// The Bestiary is long: its arrows page through it.
-		const int scrollStep = currentTab == BarTab::Bestiary ? VisibleCardCount() : 1;
+		// Long tabs (the Bestiary, a late-game Lairs tab): the arrows page through them.
+		const int scrollStep = static_cast<int>(TabCards(currentTab).size()) > 2 * VisibleCardCount() ? VisibleCardCount() : 1;
 		if (Contains(LeftArrowRect(), UiMouse()))
 			ScrollOf(currentTab) -= scrollStep;
 		if (Contains(RightArrowRect(), UiMouse()))
@@ -1953,22 +2138,15 @@ void DrawPlacementGhost(const Surface &out, Point tile, Point targetBufferPositi
 {
 	if (!IsActive() || currentTool.type != ToolType::Build || !IsLairKind(currentTool.index) || tile != cursPosition || MyPossessed() != nullptr || IsMouseOverUi())
 		return;
-	const _monster_id type = BuildKinds[currentTool.index].type;
-	for (size_t i = 0; i < LevelMonsterTypeCount; i++) {
-		const CMonster &monsterType = LevelMonsterTypes[i];
-		if (monsterType.type != type)
-			continue;
-		const OptionalClxSpriteList sprites = monsterType.getAnimData(MonsterGraphic::Stand).spritesForDirection(Direction::South);
-		if (!sprites || sprites->numSprites() == 0)
-			return;
-		const ClxSprite sprite = (*sprites)[0];
-		const Point position = targetBufferPosition + Displacement { -CalculateSpriteTileCenterX(sprite.width()), 0 };
-		if (CanBuildAt(currentTool.index, tile))
-			ClxDrawBlended(out, position, sprite);
-		else
-			ClxDrawBlendedTRN(out, position, sprite, GetInfravisionTRN()); // red: can't go here
+	const OptionalClxSpriteList sprites = KindPortrait(currentTool.index);
+	if (!sprites || sprites->numSprites() == 0)
 		return;
-	}
+	const ClxSprite sprite = (*sprites)[0];
+	const Point position = targetBufferPosition + Displacement { -CalculateSpriteTileCenterX(sprite.width()), 0 };
+	if (CanBuildAt(currentTool.index, tile))
+		ClxDrawBlended(out, position, sprite);
+	else
+		ClxDrawBlendedTRN(out, position, sprite, GetInfravisionTRN()); // red: can't go here
 }
 
 namespace {
@@ -2013,6 +2191,15 @@ void DrawScaledUi(const Surface &out, void (*drawUi)(const Surface &) = DrawUi)
 }
 
 } // namespace
+
+void DrawFloorOverlays(const Surface &out)
+{
+	if (!IsActive() || IsEditorActive())
+		return;
+	overlayPass = OverlayPass::Floor;
+	DrawOverlays(out);
+	overlayPass = OverlayPass::Text;
+}
 
 void DrawHud(const Surface &out)
 {
@@ -2118,7 +2305,7 @@ void DrawUi(const Surface &out)
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
 		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + (IsJoinedGame() ? " The host chooses what is next." : ""),
+		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (IsJoinedGame() ? " The host chooses what is next." : ""),
 		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 		const std::optional<KeepSetup> next = GameOverContinue();
 		const int count = next ? 2 : 1;

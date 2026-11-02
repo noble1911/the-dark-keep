@@ -200,6 +200,7 @@ void InitMonsterTRN(CMonster &monst)
 
 void InitMonster(Monster &monster, Direction rd, size_t typeIndex, Point position)
 {
+	EnsureMonsterTypeLoaded(typeIndex); // [DARK KEEP] every monster comes through here
 	monster.direction = rd;
 	monster.position.tile = position;
 	monster.position.future = position;
@@ -1583,6 +1584,8 @@ void MonsterPetrified(Monster &monster)
 
 std::optional<size_t> GetRandomSkeletonTypeIndex()
 {
+	if (currlevel == keeper::KeepLevel && !setlevel) // [DARK KEEP] skeleton rooms and sarcophagi would use the lair roster
+		return {};
 	int32_t typeCount = 0;
 	size_t skeletonIndexes[SkeletonTypes.size()];
 	for (size_t i = 0; i < LevelMonsterTypeCount; i++) {
@@ -3324,7 +3327,8 @@ tl::expected<size_t, std::string> AddMonsterType(_monster_id type, placeflag pla
 			}
 		}
 
-		RETURN_IF_ERROR(InitMonsterSND(monsterType));
+		if (!keeper::IsDeferredMonsterType(typeIndex)) // [DARK KEEP]
+			RETURN_IF_ERROR(InitMonsterSND(monsterType));
 	}
 
 	monsterType.placeFlags |= placeflag;
@@ -3448,6 +3452,7 @@ void InitLevelMonsters()
 
 tl::expected<void, std::string> GetLevelMTypes()
 {
+	keeper::ClearDeferredMonsterTypes(); // [DARK KEEP]
 	RETURN_IF_ERROR(AddMonsterType(MT_GOLEM, PLACE_SPECIAL));
 	if (currlevel == keeper::KeepLevel && !setlevel) { // [DARK KEEP] lair roster + heroes only
 		keeper::AddHeroMonsterTypes();
@@ -3649,6 +3654,8 @@ tl::expected<void, std::string> InitAllMonsterGFX()
 	using LevelMonsterTypeIndices = StaticVector<size_t, 8>;
 	std::vector<LevelMonsterTypeIndices> monstersBySprite(GetNumMonsterSprites());
 	for (size_t i = 0; i < LevelMonsterTypeCount; ++i) {
+		if (keeper::IsDeferredMonsterType(i)) // [DARK KEEP] loaded when first spawned
+			continue;
 		monstersBySprite[static_cast<size_t>(LevelMonsterTypes[i].data().spriteId)].emplace_back(i);
 	}
 	size_t totalUniqueBytes = 0;
@@ -3684,6 +3691,21 @@ tl::expected<void, std::string> InitAllMonsterGFX()
 		}
 	}
 	return {};
+}
+
+void EnsureMonsterTypeLoaded(size_t typeIndex) // [DARK KEEP]
+{
+	if (HeadlessMode || typeIndex >= LevelMonsterTypeCount || !keeper::IsDeferredMonsterType(typeIndex))
+		return;
+	CMonster &monsterType = LevelMonsterTypes[typeIndex];
+	if (monsterType.animData != nullptr)
+		return;
+	tl::expected<void, std::string> result = InitMonsterSND(monsterType);
+	if (result.has_value())
+		result = InitMonsterGFX(monsterType);
+	if (!result.has_value())
+		app_fatal(result.error());
+	monsterType.corpseId = AddCorpseType(monsterType);
 }
 
 void WeakenNaKrul()
@@ -4346,7 +4368,7 @@ void ProcessMonsters()
 		}
 
 		while (true) {
-			if ((monster.flags & MFLAG_SEARCH) == 0 || keeper::HoldsPost(monster) || !AiPlanPath(monster)) { // [DARK KEEP] no hunting a stale enemy position
+			if (((monster.flags & MFLAG_SEARCH) == 0 && !keeper::HuntsEnemy(monster)) || keeper::HoldsPost(monster) || !AiPlanPath(monster)) { // [DARK KEEP] no hunting a stale enemy position
 				if (keeper::IsActive() && keeper::IsPossessed(monster)) // [DARK KEEP] a master is in control
 					keeper::PossessedAi(monster);
 				else if (keeper::IsActive() && keeper::ShouldGuard(monster)) // [DARK KEEP] idle keep monsters hold their lair
@@ -4425,6 +4447,7 @@ bool LineClearMovingMissile(Point startPoint, Point endPoint)
 
 tl::expected<void, std::string> SyncMonsterAnim(Monster &monster)
 {
+	EnsureMonsterTypeLoaded(monster.levelType); // [DARK KEEP]
 #ifdef _DEBUG
 	// fix for saves with debug monsters having type originally not on the level
 	CMonster &monsterType = LevelMonsterTypes[monster.levelType];

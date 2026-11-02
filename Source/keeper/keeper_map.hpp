@@ -116,7 +116,6 @@ std::vector<std::byte> SerializeMap(const KeepMap &map);
 tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size);
 
 /** File names of the player's own maps, sorted. */
-std::vector<std::string> ListMapFiles();
 /** A file name for a map name: only letters, digits, spaces, '-' and '_' survive. */
 std::string MapFileName(std::string_view name);
 /** Resolves `path` as given, then under the maps folder, then under the assets folder. */
@@ -162,12 +161,6 @@ bool IsLevelFromMap();
 void ReloadKeepLevel();
 /** A game ended: the next one reads its map from disk, which may have changed. */
 void ForgetMapCache();
-
-// ---- co-op -----------------------------------------------------------------------------------
-
-/** Host: offers the map to joiners and streams it to those who lack it. Joiner: applies it. */
-void MapNetTick();
-size_t HandleMapCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);
 
 } // namespace keeper
 } // namespace devilution

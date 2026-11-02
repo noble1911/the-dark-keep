@@ -14,6 +14,8 @@
 
 namespace devilution {
 
+struct CMonster;
+
 static constexpr unsigned MaxCorpses = 31;
 
 struct Corpse {
@@ -38,6 +40,8 @@ extern Corpse Corpses[MaxCorpses];
 extern int8_t stonendx;
 
 void InitCorpses();
+/** [DARK KEEP] Gives a type loaded after the level started a corpse. @return its id, 0 if the table is full. */
+int8_t AddCorpseType(const CMonster &monsterType);
 void AddCorpse(Point tilePosition, int8_t dv, Direction ddir);
 void MoveLightsToCorpses();
 

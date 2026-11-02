@@ -175,6 +175,14 @@ void mainmenu_loop()
 		keeper::ApplyAutoStartSetup();
 
 	do {
+		// [DARK KEEP] Between maps: spend Renown, then on to the map that was chosen.
+		if (const std::optional<keeper::KeepSetup> next = keeper::TakePostMapSetup(); next) {
+			keeper::UiKeeperScreen();
+			keeper::SetCurrentSetup(*next);
+			if (!InitSinglePlayerMenu())
+				done = true;
+			continue;
+		}
 		_mainmenu_selections menu = MAINMENU_NONE;
 		if (demo::IsRunning() || keeper::AutoStart)
 			menu = MAINMENU_SINGLE_PLAYER;
@@ -191,6 +199,9 @@ void mainmenu_loop()
 			if ((keeper::AutoStart || demo::IsRunning() || keeper::UiCampaignLevelSelect()) && !InitSinglePlayerMenu())
 				done = true;
 			keeper::AutoStart = false;
+			break;
+		case MAINMENU_KEEPER: // [DARK KEEP]
+			keeper::UiKeeperScreen();
 			break;
 		case MAINMENU_CUSTOM_MAP: // [DARK KEEP]
 			if (keeper::UiCustomMapSelect() && !InitSinglePlayerMenu())

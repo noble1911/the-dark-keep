@@ -63,8 +63,8 @@ const std::array<ActionInfo, 14> SimpleActions { {
 	{ KeeperAction::CameraDown, "KeeperCameraDown", N_("Keep: camera down"), N_("Moves the view down."), 'S' },
 } };
 
-/** Spell hotkeys, in SpellKinds order. A roster of more spells than this has unbound extras. */
-constexpr std::array<uint32_t, NumSpellKinds> SpellDefaults { 'Z', 'X', 'C', 'F' };
+/** Spell bar hotkeys, by slot. */
+constexpr std::array<uint32_t, NumSpellSlots> SpellDefaults { 'Z', 'X', 'C', 'F', 'Q', 'B' };
 
 bool CanUseKeeperKeys()
 {
@@ -147,11 +147,11 @@ void AddKeymapActions()
 		    CanUseKeeperKeys,
 		    static_cast<unsigned>(i + 1));
 	}
-	for (size_t i = 0; i < NumSpellKinds; i++) {
+	for (size_t i = 0; i < NumSpellSlots; i++) {
 		options.Keymapper.AddAction(
 		    "KeeperSpell{}",
-		    N_("Keep: spell {}"),
-		    N_("Casts this spell at the cursor."),
+		    N_("Keep: spell slot {}"),
+		    N_("Casts the spell in this slot of the spell bar at the cursor."),
 		    SpellDefaults[i],
 		    [i] { PerformKeeperAction(KeeperAction::Spell, i); },
 		    nullptr,

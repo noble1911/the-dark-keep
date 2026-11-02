@@ -12,6 +12,7 @@
 #include "engine/path.h"
 #include "engine/points_in_rectangle_range.hpp"
 #include "engine/random.hpp"
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #include "items.h"
 #include "levels/tile_properties.hpp"
 #include "levels/trigs.h"
@@ -710,7 +711,8 @@ void Theme_GoatShrine(int t)
 	for (int yy = themey - 1; yy <= themey + 1; yy++) {
 		for (int xx = themex - 1; xx <= themex + 1; xx++) {
 			if (dTransVal[xx][yy] == themes[t].ttval && IsTileNotSolid({ xx, yy }) && (xx != themex || yy != themey)) {
-				AddMonster({ xx, yy }, Direction::SouthWest, themeVar1, true);
+				if (currlevel != keeper::KeepLevel || setlevel) // [DARK KEEP] the keep starts empty
+					AddMonster({ xx, yy }, Direction::SouthWest, themeVar1, true);
 			}
 		}
 	}

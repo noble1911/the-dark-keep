@@ -391,8 +391,6 @@ const bool *liveDecorate = nullptr;
 /** The map file behind the current level, if any. */
 std::optional<KeepMap> fileMap;
 std::string fileMapPath;
-std::vector<std::byte> fileMapBytes;
-uint32_t fileMapCrc = 0;
 /** What PrepareMapLevel couldn't load, for NoteMapLevelLoaded. */
 std::string mapLoadError;
 bool levelFromMap = false;
@@ -414,8 +412,6 @@ void ForgetFileMap()
 {
 	fileMap.reset();
 	fileMapPath.clear();
-	fileMapBytes.clear();
-	fileMapCrc = 0;
 }
 
 tl::expected<void, std::string> LoadFileMap(const std::string &path)
@@ -435,8 +431,6 @@ tl::expected<void, std::string> LoadFileMap(const std::string &path)
 		return tl::make_unexpected("it has no entrance or no vault");
 	fileMap = std::move(*map);
 	fileMapPath = path;
-	fileMapBytes = std::move(*bytes);
-	fileMapCrc = Crc32(fileMapBytes.data(), fileMapBytes.size());
 	return {};
 }
 
@@ -519,134 +513,6 @@ std::optional<Point> FindStairsTrigger(MapTileset tileset, Point stairs, const S
 		}
 	}
 	return std::nullopt;
-}
-
-// ---- co-op ---------------------------------------------------------------------------------------
-
-constexpr size_t ChunkSize = 180;
-constexpr int OfferIntervalTicks = 20;
-
-enum class MapMessage : uint8_t {
-	/** Host: this is my map. Everyone. */
-	Offer,
-	/** Joiner: I don't have it, please send it. */
-	Want,
-	/** Host: part of the map. */
-	Chunk,
-	/** Joiner: I am playing it. */
-	Have,
-};
-
-#pragma pack(push, 1)
-struct TCmdKeeperMap {
-	_cmd_id bCmd;
-	MapMessage kind;
-	uint32_t crc;
-	uint16_t total;
-	uint16_t offset;
-	uint16_t length;
-};
-#pragma pack(pop)
-
-/** Host side. */
-std::array<bool, MAX_PLRS> joinerHasMap {};
-bool joinerWantsMap = false;
-size_t chunkOffset = 0;
-int offerCountdown = 0;
-
-/** Joiner side. */
-uint32_t incomingCrc = 0;
-std::vector<std::byte> incomingBytes;
-std::vector<bool> incomingChunks;
-bool mapAwaitingReload = false;
-
-void SendMapMessage(MapMessage kind, uint32_t crc, uint16_t total = 0, uint16_t offset = 0, const std::byte *data = nullptr, size_t length = 0)
-{
-	std::array<std::byte, sizeof(TCmdKeeperMap) + ChunkSize> packet;
-	TCmdKeeperMap header;
-	header.bCmd = CMD_KEEPER_MAP;
-	header.kind = kind;
-	header.crc = Swap32LE(crc);
-	header.total = Swap16LE(total);
-	header.offset = Swap16LE(offset);
-	header.length = Swap16LE(static_cast<uint16_t>(length));
-	std::memcpy(packet.data(), &header, sizeof(header));
-	if (length > 0)
-		std::memcpy(packet.data() + sizeof(header), data, length);
-	NetSendHiPri(MyPlayerId, packet.data(), sizeof(header) + length);
-}
-
-std::string ReceivedMapPath(uint32_t crc)
-{
-	const std::string folder = MapsFolder() + "received" + DIRECTORY_SEPARATOR_STR;
-	RecursivelyCreateDir(folder.c_str());
-	return fmt::format("{}{:08x}.dkmap", folder, crc);
-}
-
-/** The bytes are good and on disk: play that file on the next tick. */
-void AdoptReceivedMap(const std::string &path)
-{
-	KeepSetup setup = CurrentSetup();
-	setup.mode = GameMode::CustomMap;
-	setup.mapFile = path;
-	SetCurrentSetup(setup);
-	mapAwaitingReload = true;
-	incomingBytes.clear();
-	incomingChunks.clear();
-}
-
-/** Joiner: the host offers `crc`. */
-void OnMapOffer(uint32_t crc, size_t total)
-{
-	if (levelFromMap && fileMap && fileMapCrc == crc) {
-		SendMapMessage(MapMessage::Have, crc);
-		return;
-	}
-	if (mapAwaitingReload)
-		return;
-	if (crc == incomingCrc && !incomingBytes.empty()) {
-		SendMapMessage(MapMessage::Want, crc); // the host may have stopped streaming if a packet went missing
-		return;
-	}
-	if (total == 0 || total > MaxMapFileSize)
-		return;
-
-	// A map we've been sent before, or played?
-	const std::string path = ReceivedMapPath(crc);
-	if (FileExists(path)) {
-		const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
-		if (bytes.has_value() && Crc32(bytes->data(), bytes->size()) == crc && ParseMap(bytes->data(), bytes->size()).has_value()) {
-			AdoptReceivedMap(path);
-			return;
-		}
-	}
-	incomingCrc = crc;
-	incomingBytes.assign(total, std::byte {});
-	incomingChunks.assign((total + ChunkSize - 1) / ChunkSize, false);
-	SendMapMessage(MapMessage::Want, crc);
-}
-
-void OnMapChunk(uint32_t crc, size_t total, size_t offset, const std::byte *data, size_t length)
-{
-	if (crc != incomingCrc || total != incomingBytes.size() || incomingBytes.empty() || offset % ChunkSize != 0 || length == 0 || length > ChunkSize || offset + length > total)
-		return;
-	std::memcpy(incomingBytes.data() + offset, data, length);
-	incomingChunks[offset / ChunkSize] = true;
-	if (std::find(incomingChunks.begin(), incomingChunks.end(), false) != incomingChunks.end())
-		return;
-
-	if (Crc32(incomingBytes.data(), incomingBytes.size()) != crc || !ParseMap(incomingBytes.data(), incomingBytes.size()).has_value()) {
-		EventPlrMsg("The host's map could not be read.", UiFlags::ColorRed);
-		incomingBytes.clear();
-		incomingChunks.clear();
-		return;
-	}
-	const std::string path = ReceivedMapPath(crc);
-	if (const tl::expected<void, std::string> written = WriteMapBytes(path, incomingBytes); !written.has_value()) {
-		EventPlrMsg(fmt::format("Could not save the host's map: {}", written.error()), UiFlags::ColorRed);
-		return;
-	}
-	AdoptReceivedMap(path);
 }
 
 } // namespace
@@ -831,19 +697,6 @@ tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size)
 	return map;
 }
 
-std::vector<std::string> ListMapFiles()
-{
-	std::vector<std::string> names;
-	const std::string folder = MapsFolder();
-	for (std::string &file : ListFiles(folder.c_str())) {
-		constexpr std::string_view Suffix = ".dkmap";
-		if (file.size() > Suffix.size() && std::string_view(file).substr(file.size() - Suffix.size()) == Suffix)
-			names.push_back(std::move(file));
-	}
-	std::sort(names.begin(), names.end());
-	return names;
-}
-
 std::string MapFileName(std::string_view name)
 {
 	std::string file;
@@ -900,12 +753,13 @@ tl::expected<void, std::string> WriteMapBytes(const std::string &path, const std
 		RemoveFile(temporary.c_str());
 		return tl::make_unexpected("the disk may be full");
 	}
-	// RenameFile can't replace an existing file on Windows.
+	// RenameFile can't replace an existing file on Windows, and the copy doesn't report failure
+	// (a locked file, say), so read it back. On failure the new bytes stay in the temporary file.
 	CopyFileOverwrite(temporary.c_str(), path.c_str());
+	const tl::expected<std::vector<std::byte>, std::string> saved = ReadMapBytes(path);
+	if (!saved.has_value() || *saved != bytes)
+		return tl::make_unexpected("the file couldn't be replaced; is it open somewhere else?");
 	RemoveFile(temporary.c_str());
-	std::uintmax_t size = 0;
-	if (!GetFileSize(path.c_str(), &size) || size != bytes.size())
-		return tl::make_unexpected("the file couldn't be replaced");
 	return {};
 }
 
@@ -1136,12 +990,6 @@ void NoteMapLevelLoaded()
 		EventPlrMsg(mapLoadError, UiFlags::ColorRed);
 		mapLoadError.clear();
 	}
-	if (IsHost()) {
-		joinerHasMap.fill(false);
-		joinerWantsMap = false;
-		chunkOffset = 0;
-		offerCountdown = 0;
-	}
 }
 
 void ForgetMapCache()
@@ -1160,91 +1008,6 @@ void ReloadKeepLevel()
 	// Saving the level on the way out marks it visited again, so PrepareMapLevel clears this later.
 	wantFreshLevel = true;
 	StartNewLvl(*MyPlayer, WM_DIABNEXTLVL, KeepLevel);
-}
-
-// ---- co-op ----------------------------------------------------------------------------------------------
-
-void MapNetTick()
-{
-	if (!gbIsMultiplayer || MyPlayer == nullptr)
-		return;
-
-	if (mapAwaitingReload) {
-		if (!MyPlayer->_pLvlChanging) {
-			mapAwaitingReload = false;
-			ReloadKeepLevel();
-		}
-		return;
-	}
-
-	if (!IsHost() || !fileMap || fileMapBytes.empty())
-		return;
-
-	bool everyoneHasIt = true;
-	for (size_t i = 0; i < MAX_PLRS; i++) {
-		if (i == MyPlayerId)
-			continue;
-		if (!Players[i].plractive)
-			joinerHasMap[i] = false;
-		else if (!joinerHasMap[i])
-			everyoneHasIt = false;
-	}
-	if (everyoneHasIt) {
-		joinerWantsMap = false;
-		return;
-	}
-
-	if (--offerCountdown <= 0) {
-		offerCountdown = OfferIntervalTicks;
-		SendMapMessage(MapMessage::Offer, fileMapCrc, static_cast<uint16_t>(fileMapBytes.size()));
-	}
-	if (joinerWantsMap) {
-		const size_t length = std::min(ChunkSize, fileMapBytes.size() - chunkOffset);
-		SendMapMessage(MapMessage::Chunk, fileMapCrc, static_cast<uint16_t>(fileMapBytes.size()), static_cast<uint16_t>(chunkOffset), fileMapBytes.data() + chunkOffset, length);
-		chunkOffset += length;
-		if (chunkOffset >= fileMapBytes.size()) {
-			chunkOffset = 0;
-			joinerWantsMap = false; // anyone still short of a chunk asks again at the next offer
-		}
-	}
-}
-
-size_t HandleMapCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
-{
-	if (maxCmdSize < sizeof(TCmdKeeperMap))
-		return maxCmdSize;
-	TCmdKeeperMap header;
-	std::memcpy(&header, cmd, sizeof(header));
-	const size_t length = Swap16LE(header.length);
-	const size_t size = sizeof(header) + length;
-	if (size > maxCmdSize || length > ChunkSize)
-		return maxCmdSize;
-	// Dropped while a level loads: the offer repeats, and missed chunks get asked for again.
-	if (&player == MyPlayer || !gbIsMultiplayer || gbBufferMsgs == 1 || !IsActive())
-		return size;
-
-	const uint32_t crc = Swap32LE(header.crc);
-	const size_t total = Swap16LE(header.total);
-	const auto *data = reinterpret_cast<const std::byte *>(cmd) + sizeof(header);
-	switch (header.kind) {
-	case MapMessage::Offer:
-		if (!IsHost())
-			OnMapOffer(crc, total);
-		break;
-	case MapMessage::Want:
-		if (IsHost() && fileMap && crc == fileMapCrc)
-			joinerWantsMap = true;
-		break;
-	case MapMessage::Chunk:
-		if (!IsHost())
-			OnMapChunk(crc, total, Swap16LE(header.offset), data, length);
-		break;
-	case MapMessage::Have:
-		if (IsHost() && fileMap && crc == fileMapCrc && player.getId() < MAX_PLRS)
-			joinerHasMap[player.getId()] = true;
-		break;
-	}
-	return size;
 }
 
 } // namespace devilution::keeper

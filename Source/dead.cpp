@@ -9,6 +9,7 @@
 
 #include "diablo.h"
 #include "headless_mode.hpp"
+#include "keeper/keeper_heroes.hpp" // [DARK KEEP]
 #include "levels/gendung.h"
 #include "lighting.h"
 #include "monster.h"
@@ -46,6 +47,18 @@ void MoveLightToCorpse(Monster &monster)
 }
 } // namespace
 
+/** [DARK KEEP] The next free slot in Corpses. */
+int8_t nextCorpse = 0;
+
+int8_t AddCorpseType(const CMonster &monsterType)
+{
+	if (static_cast<unsigned>(nextCorpse) >= MaxCorpses)
+		return 0; // corpse ids are 5 bits: this type just leaves no corpse
+	InitDeadAnimationFromMonster(Corpses[nextCorpse], monsterType);
+	Corpses[nextCorpse].translationPaletteIndex = 0;
+	return ++nextCorpse;
+}
+
 void InitCorpses()
 {
 	int8_t mtypes[MaxMonsters] = {};
@@ -54,7 +67,7 @@ void InitCorpses()
 
 	for (size_t i = 0; i < LevelMonsterTypeCount; i++) {
 		CMonster &monsterType = LevelMonsterTypes[i];
-		if (mtypes[monsterType.type] != 0)
+		if (mtypes[monsterType.type] != 0 || keeper::IsDeferredMonsterType(i)) // [DARK KEEP] those get theirs when loaded
 			continue;
 
 		InitDeadAnimationFromMonster(Corpses[nd], monsterType);
@@ -88,10 +101,13 @@ void InitCorpses()
 	}
 
 	assert(static_cast<unsigned>(nd) <= MaxCorpses);
+	nextCorpse = nd; // [DARK KEEP]
 }
 
 void AddCorpse(Point tilePosition, int8_t dv, Direction ddir)
 {
+	if (dv == 0) // [DARK KEEP] a type past the end of the corpse table
+		return;
 	dCorpse[tilePosition.x][tilePosition.y] = (dv & 0x1F) + (static_cast<int>(ddir) << 5);
 }
 

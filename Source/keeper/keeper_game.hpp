@@ -57,7 +57,28 @@ enum class BuildKind : uint8_t {
 	LastLair = NumLairKinds - 1,
 	FireTrap,
 };
-constexpr size_t NumBuildKinds = NumLairKinds + 1;
+
+/** Trap types, in build-kind order after the lairs. Trap::kind and the trap levels index this. */
+struct TrapKind {
+	std::string_view name;
+	int cost;
+	int unlockRank;
+	int rearmTicks;
+	/** Damage at level 1: base + perWave * raid number, in whole hit points. */
+	int baseDamage;
+	int damagePerWave;
+	SpellID icon;
+	std::string_view flavor;
+};
+constexpr size_t NumTrapKinds = 4;
+constexpr size_t SnareTrapKind = 3;
+constexpr std::array<TrapKind, NumTrapKinds> TrapKinds { {
+	{ "Fire Trap", 80, 1, 8 * 20, 20, 5, SpellID::RuneOfFire, "Breathes fire at heroes who walk past and leaves a burning wall." },
+	{ "Arrow Trap", 50, 1, 3 * 20, 8, 3, SpellID::TrapDisarm, "A hidden bow: light damage, but ready again almost at once." },
+	{ "Shock Trap", 120, 6, 6 * 20, 15, 6, SpellID::RuneOfLight, "Looses a bolt of lightning at the hero who set it off." },
+	{ "Snare", 100, 11, 12 * 20, 0, 0, SpellID::RuneOfStone, "No damage: it holds the hero in place for your monsters to finish." },
+} };
+constexpr size_t NumBuildKinds = NumLairKinds + NumTrapKinds;
 
 struct BuildInfo {
 	std::string_view name;
@@ -80,12 +101,24 @@ struct SpellKind {
 	std::string_view name;
 	MissileID missile;
 	int manaCost;
+	/** The engine's spell level when this spell is at level 1. */
 	int spellLevel;
 	/** Cooldown in game ticks (per master). */
 	int cooldownTicks;
+	int unlockRank;
+	SpellID icon;
+	std::string_view flavor;
 };
-constexpr size_t NumSpellKinds = 4;
+constexpr size_t NumSpellKinds = 11;
+/** The spell bar: what a master has equipped from the Spellbook. */
+constexpr size_t NumSpellSlots = 6;
 extern const std::array<SpellKind, NumSpellKinds> SpellKinds;
+
+/** Like spell levels in the base game: every spell and trap type levels up on its own, with Renown. */
+constexpr int MaxKeepLevel = 15;
+/** A spell's mana cost at its level: it falls as the spell levels up, as in the base game. */
+int SpellManaCost(size_t spell);
+int SpellManaCostAt(size_t spell, int level);
 
 constexpr int LockDoorCost = 50;
 constexpr int BaitCost = 60;
@@ -121,6 +154,8 @@ struct Trap {
 	Point position;
 	/** Ticks until the trap can fire again (also used while it is being summoned). */
 	int cooldown = 0;
+	/** Index into TrapKinds. */
+	uint8_t kind = 0;
 };
 
 struct DoorLock {
@@ -152,6 +187,9 @@ struct KeepState {
 	int goldLost = 0;
 	std::array<int, 4> mana {};
 	std::array<int, 4> spellCooldown {};
+	/** Levels of every spell and trap type in this game (see GameSpellLevel). 0 = not available. */
+	std::array<uint8_t, NumSpellKinds> spellLevels {};
+	std::array<uint8_t, NumTrapKinds> trapLevels {};
 	std::array<Lair, MaxLairs> lairs {};
 	std::array<Trap, MaxTraps> traps {};
 	std::array<DoorLock, MaxLocks> locks {};
@@ -249,6 +287,8 @@ bool IsHero(const Monster &monster);
 bool AreHostile(const Monster &a, const Monster &b);
 /** True if a wall of fire burns on `tile` (heroes step out of it and won't walk into it). */
 bool IsBurning(Point tile);
+/** A living hero (monster or bot) stands on `tile`. */
+bool IsHeroAt(Point tile);
 
 /** Pays the keep (bounties, tribute, dropped loot). */
 void AddVaultGold(int amount);

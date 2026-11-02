@@ -495,7 +495,9 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 	if (mid != 0) {
 		Monster &monster = Monsters[std::abs(mid) - 1];
 		if (onlyHitWalking.has_value() ? (monster.isWalking() && CheckCanHitOnlyWalking(missile, monster.position, *onlyHitWalking)) : (mid > 0 || monster.mode == MonsterMode::Petrified)) {
-			if (missile.IsTrap()
+			if (missile.IsTrap() && keeper::IsActive() && !keeper::IsHero(monster)) {
+				// [DARK KEEP] the keep's traps pass by the keep's monsters
+			} else if (missile.IsTrap()
 			    || (missile._micaster == TARGET_PLAYERS && keeper::IsActive() && keeper::AreHostile(monster, Monsters[missile._misource])) // [DARK KEEP]
 			    || (missile._micaster == TARGET_PLAYERS && (                                     // or was fired by a monster and
 			            monster.isPlayerMinion() != Monsters[missile._misource].isPlayerMinion() //  the monsters are on opposing factions
@@ -2996,6 +2998,8 @@ void ProcessArrow(Missile &missile)
 	case MissileSource::Trap:
 		mind = currlevel;
 		maxd = 2 * currlevel;
+		if (keeper::IsActive() && missile._midam > 0) // [DARK KEEP] keep traps set their own damage
+			mind = maxd = missile._midam;
 		break;
 	}
 	MoveMissileAndCheckMissileCol(missile, GetMissileData(missile._mitype).damageType(), mind, maxd, true, false);
@@ -3395,6 +3399,8 @@ void ProcessLightningControl(Missile &missile)
 	if (missile.IsTrap()) {
 		// BUGFIX: damage of missile should be encoded in missile struct; monster can be dead before missile arrives.
 		dam = GenerateRnd(currlevel) + 2 * currlevel;
+		if (keeper::IsActive() && missile._midam > 0) // [DARK KEEP] keep traps set their own damage
+			dam = missile._midam << 6;
 	} else if (missile._micaster == TARGET_MONSTERS) {
 		// BUGFIX: damage of missile should be encoded in missile struct; player can be dead/have left the game before missile arrives.
 		dam = (GenerateRnd(2) + GenerateRnd(Players[missile._misource].getCharacterLevel()) + 2) << 6;
@@ -3623,7 +3629,7 @@ void ProcessChainLightning(Missile &missile)
 	const int rad = std::min<int>(missile._mispllvl + 3, MaxCrawlRadius);
 	Crawl(1, rad, [&](Displacement displacement) {
 		const Point target = position + displacement;
-		if (InDungeonBounds(target) && dMonster[target.x][target.y] > 0) {
+		if (InDungeonBounds(target) && (keeper::IsActive() ? keeper::IsHeroAt(target) : dMonster[target.x][target.y] > 0)) { // [DARK KEEP] heroes, not the keep's monsters
 			dir = GetDirection(position, target);
 			AddMissile(position, target, dir, MissileID::LightningControl, TARGET_MONSTERS, id, 1, missile._mispllvl);
 		}
@@ -3902,10 +3908,15 @@ void ProcessApocalypse(Missile &missile)
 	for (int j = missile.var2; j < missile.var3; j++) {
 		for (int k = missile.var4; k < missile.var5; k++) {
 			const int mid = dMonster[k][j] - 1;
-			if (mid < 0)
-				continue;
-			if (Monsters[mid].isPlayerMinion())
-				continue;
+			if (keeper::IsActive()) { // [DARK KEEP] heroes, not the keep's monsters
+				if (!keeper::IsHeroAt(PointOf { k, j }))
+					continue;
+			} else {
+				if (mid < 0)
+					continue;
+				if (Monsters[mid].isPlayerMinion())
+					continue;
+			}
 			if (TileHasAny(PointOf { k, j }, TileProperties::Solid))
 				continue;
 			if (gbIsHellfire && !LineClearMissile(missile.position.tile, { k, j }))

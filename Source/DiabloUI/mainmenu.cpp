@@ -52,6 +52,7 @@ void MainmenuLoad(const char *name)
 {
 	// [DARK KEEP] The dungeon master's menu.
 	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Campaign"), MAINMENU_SINGLE_PLAYER));
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Keeper"), MAINMENU_KEEPER));
 	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Custom Map"), MAINMENU_CUSTOM_MAP));
 	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Multiplayer"), MAINMENU_MULTIPLAYER));
 	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Map Editor"), MAINMENU_MAP_EDITOR));

@@ -424,10 +424,6 @@ enum _cmd_id : uint8_t {
 	//
 	// body (keeper::TCmdKeeperState)
 	CMD_KEEPER_STATE,
-	// [DARK KEEP] The host handing its map to joiners.
-	//
-	// body (keeper::TCmdKeeperMap + data)
-	CMD_KEEPER_MAP,
 	// Fake command; set current player for succeeding mega pkt buffer messages.
 	//
 	// body (TFakeCmdPlr)

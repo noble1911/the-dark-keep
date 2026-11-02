@@ -14,6 +14,8 @@
  */
 #include "keeper/keeper_raid.hpp"
 
+#include "keeper/keeper_profile.hpp"
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -349,6 +351,10 @@ void NoteRaidEnded(Phase outcome, int tribute)
 	current.outcome = outcome;
 	current.tribute = tribute;
 	finished = current;
+	if (outcome == Phase::Defeat)
+		ProfileNoteDefeat();
+	else
+		ProfileNoteRaidSurvived(current.wave);
 	raidActive = false;
 	summaryVisible = true;
 }
@@ -358,6 +364,7 @@ void NoteHeroSlain(int bounty, int recovered)
 	if (!raidActive)
 		return;
 	current.slain++;
+	ProfileNoteHeroSlain(current.wave);
 	current.bounties += bounty;
 	current.goldRecovered += recovered;
 }
@@ -387,8 +394,10 @@ void NoteGoldRecovered(int amount)
 
 void NoteKeepMonsterLost()
 {
-	if (raidActive)
+	if (raidActive) {
 		current.monstersLost++;
+		ProfileNoteMonsterLost();
+	}
 }
 
 } // namespace devilution::keeper

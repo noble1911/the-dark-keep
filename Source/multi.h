@@ -45,6 +45,10 @@ struct GameData {
 	uint8_t keeperRank;
 	uint8_t keeperReserved;
 	uint32_t keeperSeed;
+	// [DARK KEEP] The host's unlocks: a bit per lair kind, and a level per spell and trap type (0 = not owned).
+	uint8_t keeperKinds[14];
+	uint8_t keeperSpells[11];
+	uint8_t keeperTraps[4];
 
 	void swapLE();
 };

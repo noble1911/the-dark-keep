@@ -91,6 +91,8 @@ std::array<std::array<std::optional<OwnedClxSpriteListOrSheet>, 5>, NumHeroClass
 
 constexpr int HeroSight = 6;
 constexpr int GuardRadius = 8;
+/** A keep monster goes after a hero it can see this far from its post, then gives up and walks back. */
+constexpr int KeepMonsterChase = 12;
 constexpr int SpawnIntervalTicks = 15;
 
 /** Trap and bait masks hold one bit per slot. */
@@ -725,17 +727,33 @@ bool InitHeroGFX(CMonster &monsterType)
 	return true;
 }
 
+namespace {
+
+/** Level monster types from here on are lair kinds, loaded on demand. */
+size_t firstDeferredType = SIZE_MAX;
+
+} // namespace
+
 void AddHeroMonsterTypes()
 {
-	// The raid can't run without these, so they go first. AddMonsterType doesn't check MaxLvlMTypes.
+	// The raid can't run without these, so they go first and are always loaded.
 	for (const _monster_id type : HeroMonsterIds)
 		(void)AddMonsterType(type, PLACE_SPECIAL);
 	(void)AddMonsterType(BossMonsterId, PLACE_SPECIAL);
 	ChooseMuster();
-	for (const size_t kind : MusterKinds()) {
-		if (LevelMonsterTypeCount < MaxLvlMTypes)
-			(void)AddMonsterType(BuildKinds[kind].type, PLACE_SPECIAL);
-	}
+	firstDeferredType = LevelMonsterTypeCount;
+	for (const size_t kind : MusterKinds())
+		(void)AddMonsterType(BuildKinds[kind].type, PLACE_SPECIAL);
+}
+
+bool IsDeferredMonsterType(size_t typeIndex)
+{
+	return typeIndex >= firstDeferredType;
+}
+
+void ClearDeferredMonsterTypes()
+{
+	firstDeferredType = SIZE_MAX;
 }
 
 void OnMonsterInit(Monster &monster)
@@ -816,40 +834,67 @@ void UpdateEnemy(Monster &monster)
 	const Point anchor = hero || Roaming[monster.getId()] ? position : Homes[monster.getId()];
 	const int range = hero ? HeroSight : GuardRadius;
 
+	// The Lord holds its ground near the vault: its death can lose the map, so it can't be lured off.
+	const int chaseRange = IsBoss(monster) ? range : KeepMonsterChase;
+	// Keep monsters answer to anything near their post, and anything they can actually see. What's in
+	// sight comes first: otherwise the nearest hero behind a wall hides the one in the open.
+	const auto canSee = [&](Point tile, int distance) {
+		return distance <= 1 || LineClearMissile(position, tile);
+	};
+	const auto isBetter = [](bool seen, int distance, bool bestSeen, int bestDistance) {
+		return (seen && !bestSeen) || (seen == bestSeen && distance < bestDistance);
+	};
+
 	int best = -1;
 	int bestDistance = 0;
+	bool bestSeen = false;
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned otherId = ActiveMonsters[i];
 		const Monster &other = Monsters[otherId];
 		if (&other == &monster || !IsAliveMonster(other) || !AreHostile(monster, other))
 			continue;
-		if (other.position.tile.WalkingDistance(anchor) > range)
+		const Point tile = other.position.tile;
+		const int distance = tile.WalkingDistance(position);
+		const bool nearPost = tile.WalkingDistance(anchor) <= range;
+		if (hero && !nearPost)
 			continue;
 		if (hero && (other.flags & MFLAG_HIDDEN) != 0)
 			continue; // invisible ambushers (and fading Counselors) can't be seen
-		const int distance = other.position.tile.WalkingDistance(position);
-		if (hero && distance > 1 && !LineClearMissile(position, other.position.tile))
+		if (!nearPost && tile.WalkingDistance(anchor) > chaseRange)
 			continue;
-		if (best == -1 || distance < bestDistance) {
+		const bool seen = canSee(tile, distance);
+		if ((hero || !nearPost) && !seen)
+			continue;
+		if (best == -1 || isBetter(seen, distance, bestSeen, bestDistance)) {
 			best = static_cast<int>(otherId);
 			bestDistance = distance;
+			bestSeen = seen;
 		}
 	}
 
 	if (!hero) {
 		int bestBot = -1;
 		int bestBotDistance = 0;
+		bool bestBotSeen = false;
 		for (size_t i = 0; i < MaxBots; i++) {
 			const Player &bot = Players[FirstBotId + i];
-			if (!IsLivingBot(bot) || bot.position.tile.WalkingDistance(anchor) > range)
+			if (!IsLivingBot(bot))
 				continue;
-			const int distance = bot.position.tile.WalkingDistance(position);
-			if (bestBot == -1 || distance < bestBotDistance) {
+			const Point tile = bot.position.tile;
+			const int distance = tile.WalkingDistance(position);
+			const bool nearPost = tile.WalkingDistance(anchor) <= range;
+			if (!nearPost && tile.WalkingDistance(anchor) > chaseRange)
+				continue;
+			const bool seen = canSee(tile, distance);
+			if (!nearPost && !seen)
+				continue;
+			if (bestBot == -1 || isBetter(seen, distance, bestBotSeen, bestBotDistance)) {
 				bestBot = static_cast<int>(FirstBotId + i);
 				bestBotDistance = distance;
+				bestBotSeen = seen;
 			}
 		}
-		if (bestBot != -1 && (best == -1 || bestBotDistance < bestDistance)) {
+		if (bestBot != -1 && (best == -1 || isBetter(bestBotSeen, bestBotDistance, bestSeen, bestDistance))) {
 			const Player &bot = Players[bestBot];
 			monster.flags &= ~(MFLAG_NO_ENEMY | MFLAG_TARGETS_MONSTER);
 			monster.enemy = static_cast<uint8_t>(bestBot);
@@ -1160,6 +1205,11 @@ void SetMonsterRoaming(size_t monsterId, bool roaming)
 bool ShouldGuard(const Monster &monster)
 {
 	return !IsHero(monster) && (monster.flags & MFLAG_NO_ENEMY) != 0 && monster.type().type != MT_GOLEM;
+}
+
+bool HuntsEnemy(const Monster &monster)
+{
+	return IsActive() && !IsHero(monster) && !IsBoss(monster) && !IsPossessed(monster) && monster.type().type != MT_GOLEM && (monster.flags & MFLAG_NO_ENEMY) == 0;
 }
 
 bool HoldsPost(const Monster &monster)

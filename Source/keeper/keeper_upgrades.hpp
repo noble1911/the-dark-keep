@@ -29,14 +29,11 @@ enum class UpgradeId : uint8_t {
 	MonsterHealth,
 	MonsterDamage,
 	MonsterArmor,
-	TrapDamage,
-	TrapRearm,
-	SpellPower,
 	ManaRegen,
 	LordHealth,
 	LordDamage,
 };
-constexpr size_t NumUpgrades = 9;
+constexpr size_t NumUpgrades = 6;
 
 struct UpgradeInfo {
 	/** Short enough for a card. */
@@ -73,15 +70,14 @@ void RequestBuyUpgrade(UpgradeId id);
 void ResetUpgrades();
 /** Raises a tier, updates the living monsters and tells the player (a purchase). */
 void ApplyUpgradeTier(UpgradeId id, int tier);
+/** The same with no announcement: for catching a joiner up, when nobody just bought anything. */
+void SetUpgradeTierQuietly(UpgradeId id, int tier);
 /** Catches up with the host's snapshot quietly (a client that joined late or missed a purchase). */
 void SyncUpgradeTiers(const std::array<uint8_t, NumUpgrades> &tiers);
 
 /** Remembers a freshly created monster's own stats, then upgrades it (from OnMonsterInit). */
 void OnKeepMonsterInit(Monster &monster);
 
-int UpgradedTrapDamage(int baseDamage);
-int UpgradedTrapRearmTicks(int baseTicks);
-int UpgradedSpellLevel(int baseLevel);
 int UpgradedManaRegen(int baseRegen);
 
 } // namespace keeper
