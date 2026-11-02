@@ -1578,7 +1578,8 @@ bool IsMouseOverUi()
 	const Surface ui = UiHitSurface();
 	const std::optional<Rectangle> roster = RaidRosterRect(ui);
 	const std::optional<Rectangle> summary = RaidSummaryRect(ui, HudRect().position.y);
-	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
+	const std::optional<Rectangle> scoutCard = ScoutCardRect(ui, HudRect().position.y);
+	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse())) || (scoutCard && Contains(*scoutCard, UiMouse()));
 }
 
 void UseToolAt(Point tile)
@@ -1881,6 +1882,9 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::RoutePreview:
 		ToggleRoutePreview();
 		return;
+	case KeeperAction::ScoutCard:
+		ToggleScoutCard();
+		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
 	case KeeperAction::CameraRight:
@@ -2010,6 +2014,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			DismissRaidSummary();
 			return true;
 		}
+		if (OnScoutCardClick(ui, HudRect().position.y, UiMouse()))
+			return true;
 		if (const std::optional<Point> heroTile = OnRaidRosterClick(ui, UiMouse()); heroTile) {
 			CenterCameraOn(*heroTile);
 			return true;
@@ -2244,12 +2250,15 @@ void DrawUi(const Surface &out)
 	DrawInspectPanel(out, hud.position.x + 6, top);
 	DrawRaidRoster(out, UiMouse());
 	DrawRaidSummary(out, top);
+	DrawScoutCard(out, top, UiMouse());
 	DrawMasters(out);
 	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();
 	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	if (State.phase != Phase::Raid && !IsGameOver() && !IsScoutCardOn())
+		scout += fmt::format("  -  {}: scout card", KeyLabel(KeeperAction::ScoutCard));
 	UiFlags scoutColor = UiFlags::ColorGold;
 	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
 		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;

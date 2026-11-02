@@ -13,6 +13,8 @@
 #include <vector>
 
 #include "engine/point.hpp"
+#include "engine/rectangle.hpp"
+#include "engine/surface.hpp"
 
 namespace devilution::keeper {
 
@@ -42,5 +44,16 @@ void ToggleRoutePreview();
 bool IsRoutePreviewOn();
 /** The current estimate. Worked out again only when a lock, or the hovered door, has changed. */
 const RoutePreview &GetRoutePreview(std::optional<Point> hoverDoor);
+
+// ---- scout card ---------------------------------------------------------------------
+
+/** The player wants the card (N). It only shows while preparing, once the raid summary is out of the way. */
+bool IsScoutCardOn();
+void ToggleScoutCard();
+/** Where the card is in UI pixels, top right of the view, when it's showing. */
+std::optional<Rectangle> ScoutCardRect(const Surface &out, int hudTop);
+void DrawScoutCard(const Surface &out, int hudTop, Point mouse);
+/** @return true if the click was on the card. */
+bool OnScoutCardClick(const Surface &out, int hudTop, Point mouse);
 
 } // namespace devilution::keeper

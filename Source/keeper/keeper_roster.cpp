@@ -495,12 +495,19 @@ OptionalClxSpriteList KindPortrait(size_t kind)
 
 KindImage MakeKindImage(size_t kind, int maxWidth, int maxHeight)
 {
+	const OptionalClxSpriteList sprites = KindPortrait(kind);
+	if (!sprites || sprites->numSprites() == 0) {
+		KindImage image;
+		image.built = true;
+		return image;
+	}
+	return MakeSpriteImage((*sprites)[0], maxWidth, maxHeight);
+}
+
+KindImage MakeSpriteImage(ClxSprite sprite, int maxWidth, int maxHeight)
+{
 	KindImage image;
 	image.built = true;
-	const OptionalClxSpriteList sprites = KindPortrait(kind);
-	if (!sprites || sprites->numSprites() == 0)
-		return image;
-	const ClxSprite sprite = (*sprites)[0];
 	const int width = sprite.width();
 	const int height = sprite.height();
 	OwnedSurface canvas(width, height);

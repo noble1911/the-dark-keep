@@ -16,6 +16,7 @@
 
 #include <function_ref.hpp>
 
+#include "engine/clx_sprite.hpp"
 #include "engine/displacement.hpp"
 #include "engine/point.hpp"
 #include "keeper/keeper_campaign.hpp"
@@ -139,6 +140,26 @@ std::optional<HeroSummary> GetHeroSummary(const Monster &monster);
 
 /** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
 std::string DescribeWave(uint8_t wave);
+
+/** What scouting tells about one hero of a coming raid. */
+struct ScoutedHero {
+	HeroClassKind cls = HeroClassKind::Warrior;
+	/** A full hero with gear and potions (a bot), rather than a lesser one (a monster). */
+	bool full = false;
+	bool champion = false;
+	int level = 0;
+	int life = 0;
+	int minDamage = 0;
+	int maxDamage = 0;
+	int armor = 0;
+	int potions = 0;
+};
+/** Every hero of the raid about to start (State.wave), as the code that spawns them would make them. Prep only. */
+std::vector<ScoutedHero> ScoutParty();
+/** Heroes who take the bait from furthest away are the greediest (0: never fooled). */
+int BaitSightOf(HeroClassKind cls);
+/** The class's standing sprite facing south, once the keep has loaded them. */
+std::optional<ClxSprite> HeroPortrait(HeroClassKind cls);
 
 /** Recomputes the vault/entrance distance fields and drops the cached routes (after level load, or when locks change). */
 void RebuildPaths();

@@ -200,6 +200,11 @@ void LearnSpell(Player &bot, SpellID spell, uint8_t level)
 	bot._pSplLvl[static_cast<int8_t>(spell)] = std::max(bot._pSplLvl[static_cast<int8_t>(spell)], level);
 }
 
+int BotFireboltLevel()
+{
+	return std::min(1 + State.wave / 2, 15);
+}
+
 void QueueSpell(Player &bot, SpellID spell)
 {
 	// Bots never run dry: they are heroes on a mission, not mana accountants.
@@ -628,6 +633,39 @@ std::optional<size_t> FreeBotSlot()
 	return std::nullopt;
 }
 
+std::optional<ScoutedHero> ScoutBot(HeroClassKind cls)
+{
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		Player &bot = Players[FirstBotId + i];
+		if (bot.plractive || PendingSpawn[i])
+			continue;
+		const uint32_t rngState = GetLCGEngineState();
+		CreatePlayer(bot, ToHeroClass(cls));
+		SetRndSeed(rngState);
+		const bool champion = State.wave >= NumWaves();
+		ScaleBot(bot, champion);
+		ScoutedHero hero;
+		hero.cls = cls;
+		hero.full = true;
+		hero.champion = champion;
+		hero.level = bot.getCharacterLevel();
+		hero.life = bot._pMaxHP >> 6;
+		if (cls == HeroClassKind::Sorcerer) {
+			// Sorcerers fight with Firebolt: this is its damage at the level SpawnBot teaches.
+			hero.minDamage = bot._pMagic / 8 + BotFireboltLevel() + 1;
+			hero.maxDamage = hero.minDamage + 9;
+		} else {
+			hero.minDamage = bot._pIMinDam + bot._pDamageMod;
+			hero.maxDamage = bot._pIMaxDam + bot._pDamageMod;
+		}
+		hero.armor = bot.GetArmor();
+		hero.potions = BotPotionsBase + State.wave / BotRaidsPerPotion;
+		bot = {};
+		return hero;
+	}
+	return std::nullopt;
+}
+
 void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 {
 	if (slot >= MaxBots)
@@ -654,7 +692,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	const bool champion = State.wave >= NumWaves();
 	ScaleBot(bot, champion);
 	if (cls == HeroClassKind::Sorcerer)
-		LearnSpell(bot, SpellID::Firebolt, static_cast<uint8_t>(std::min(1 + State.wave / 2, 15)));
+		LearnSpell(bot, SpellID::Firebolt, static_cast<uint8_t>(BotFireboltLevel()));
 	LearnSpell(bot, SpellID::TownPortal, 1);
 
 	InitPlayerGFX(bot);

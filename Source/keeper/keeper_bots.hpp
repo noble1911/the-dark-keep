@@ -46,6 +46,11 @@ bool SimulatesLocally(const Player &player);
 
 /** A free bot slot (host side), if any. */
 std::optional<size_t> FreeBotSlot();
+/**
+ * What a full hero of this class will be in the raid about to start: builds one for real in an unused bot slot
+ * and reads it. Nothing is left on the map. nullopt while every slot is in use (only during a raid).
+ */
+std::optional<ScoutedHero> ScoutBot(HeroClassKind cls);
 /** Every client: brings bot `slot` into the keep as a hero of class `cls` at `tile`. */
 void SpawnBot(size_t slot, HeroClassKind cls, Point tile);
 /** Every client: removes all bots (end of raid, new game). */

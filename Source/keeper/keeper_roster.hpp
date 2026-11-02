@@ -107,6 +107,8 @@ struct KindImage {
 };
 /** Trims away the empty space of a monster's frame and shrinks what is left, keeping its proportions. */
 KindImage MakeKindImage(size_t kind, int maxWidth, int maxHeight);
+/** The same for any sprite. */
+KindImage MakeSpriteImage(ClxSprite sprite, int maxWidth, int maxHeight);
 /** Draws it at the bottom middle of `area`, whose size should be what it was made for. */
 void DrawKindImage(const Surface &area, const KindImage &image);
 /** The kind's standing sprites facing south. Only the last kind asked for stays loaded. */

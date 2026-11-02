@@ -502,21 +502,36 @@ bool FollowField(Monster &monster, const DistanceField &field)
 	return true;
 }
 
-void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
+struct HeroBody {
+	int life;
+	int minDamage;
+	int maxDamage;
+	int armor;
+};
+
+/** A monster hero of this raid, in whole hit points. The scout card shows the same numbers. */
+HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	const HeroStatLine &stats = HeroStats[static_cast<size_t>(cls)];
 	int hp = stats.lifeBase + stats.lifePerRaid * wave;
-	monster.minDamage = static_cast<uint8_t>(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10);
-	monster.maxDamage = static_cast<uint8_t>(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10);
-	monster.armorClass = static_cast<uint8_t>(stats.armorBase + stats.armorPerRaid * wave);
 	if (champion)
 		hp = hp * 3 / 2;
-	hp = ScaleByHeroStrength(hp);
-	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
-	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
-	monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(monster.armorClass), 255));
-	monster.maxHitPoints = hp << 6;
+	return {
+		ScaleByHeroStrength(hp),
+		std::min(ScaleByHeroStrength(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleByHeroStrength(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleArmorByHeroStrength(stats.armorBase + stats.armorPerRaid * wave), 255),
+	};
+}
+
+void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
+{
+	const HeroBody body = MakeHeroBody(cls, champion);
+	monster.minDamage = static_cast<uint8_t>(body.minDamage);
+	monster.maxDamage = static_cast<uint8_t>(body.maxDamage);
+	monster.armorClass = static_cast<uint8_t>(body.armor);
+	monster.maxHitPoints = body.life << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
 }
@@ -1218,6 +1233,46 @@ std::string DescribeWave(uint8_t wave)
 		first = false;
 	}
 	return text;
+}
+
+std::vector<ScoutedHero> ScoutParty()
+{
+	std::vector<ScoutedHero> scouted;
+	const bool champion = State.wave >= NumWaves();
+	size_t fullHeroes = 0;
+	for (const HeroClassKind cls : PartyForWave(State.wave)) {
+		if (fullHeroes < MaxBots) {
+			if (std::optional<ScoutedHero> hero = ScoutBot(cls); hero) {
+				scouted.push_back(*hero);
+				fullHeroes++;
+				continue;
+			}
+		}
+		const HeroBody body = MakeHeroBody(cls, champion);
+		scouted.push_back({ cls, false, champion, MonstersData[HeroMonsterIds[static_cast<size_t>(cls)]].level, body.life, body.minDamage, body.maxDamage, body.armor, 0 });
+	}
+	return scouted;
+}
+
+int BaitSightOf(HeroClassKind cls)
+{
+	switch (cls) {
+	case HeroClassKind::Warrior:
+		return WarriorBaitSight;
+	case HeroClassKind::Rogue:
+		return RogueBaitSight;
+	case HeroClassKind::Sorcerer:
+		break;
+	}
+	return SorcererBaitSight;
+}
+
+std::optional<ClxSprite> HeroPortrait(HeroClassKind cls)
+{
+	const std::optional<OwnedClxSpriteListOrSheet> &stand = HeroSprites[static_cast<size_t>(cls)][0];
+	if (!stand)
+		return std::nullopt;
+	return (*stand).sheet()[static_cast<size_t>(Direction::South)][0];
 }
 
 /** One step back towards the monster's post: a real path when it is far (rally points can be across the keep). */
