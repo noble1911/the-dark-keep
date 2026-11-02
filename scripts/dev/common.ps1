@@ -61,7 +61,14 @@ function Start-TestGame([string]$ProfileDir, [string[]]$GameArgs, [switch]$Windo
     $env:SDL_AUDIODRIVER = 'dummy'
     if (-not $Windowed) { $env:SDL_VIDEODRIVER = 'dummy' }
     # The exe's full path in the arguments is what Get-OwnGames recognises.
-    $process = Start-Process -FilePath $script:Exe -WorkingDirectory $script:ExeDir -ArgumentList $a -WindowStyle Minimized -PassThru
+    if ($env:DK_CDB) {
+        # Crash hunting: runs under cdb, which logs a symbolized stack to $ProfileDir\cdb.log on an access violation.
+        $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+        $debugArgs = @('-G', '-hd', '-lines', '-logo', "`"$ProfileDir\cdb.log`"", '-c', '"sxe -c \"kn 40; q\" av; sxd eh; g"', "`"$script:Exe`"") + ($a | ForEach-Object { "`"$_`"" })
+        $process = Start-Process -FilePath $cdb -WorkingDirectory $script:ExeDir -ArgumentList $debugArgs -WindowStyle Hidden -PassThru
+    } else {
+        $process = Start-Process -FilePath $script:Exe -WorkingDirectory $script:ExeDir -ArgumentList $a -WindowStyle Minimized -PassThru
+    }
     $env:SDL_VIDEODRIVER = $savedVideo; $env:SDL_AUDIODRIVER = $savedAudio
     $process
 }

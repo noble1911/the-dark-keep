@@ -495,7 +495,7 @@ void DrawDetails(const Surface &out, const Rectangle &area, Point mouse)
 	DrawString(out, wrapped, { { x, y }, { inner, buttonsTop - statusHeight - y - 4 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 14 });
 	if (!status.empty()) {
 		DrawString(out, WordWrapString(status, inner), { { x, buttonsTop - statusHeight }, { inner, statusHeight } },
-		    { .flags = UiFlags::FontSize12 | (canAct ? UiFlags::ColorGold : UiFlags::ColorRed), .lineHeight = 14 });
+		    { .flags = UiFlags::FontSize12 | (canAct || selected.tab == Tab::Monsters && OwnsKind(selected.index) ? UiFlags::ColorGold : UiFlags::ColorRed), .lineHeight = 14 });
 	}
 
 	int buttonY = buttonsTop;
@@ -608,6 +608,8 @@ bool HandleEvent(SDL_Event &event)
 
 void UiKeeperScreen()
 {
+	// UiPollAndRender draws and sends events to the last menu's items: the main menu has freed its own.
+	UiInitList_clear();
 	LoadPaletteAndInitBlending("levels\\l1data\\l1_1.pal");
 	UpdateSystemPalette(logical_palette);
 	UiRestartFadeIn();
