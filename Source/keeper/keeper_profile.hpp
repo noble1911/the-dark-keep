@@ -95,6 +95,8 @@ void ProfileNoteDefeat();
 int MapXpEarned();
 /** Writes the file, unless a test flag or an editor test run is in play. */
 void SaveProfile();
+/** The last save didn't reach the disk: the player should know their progress won't last. */
+bool ProfileSaveFailed();
 
 } // namespace keeper
 } // namespace devilution

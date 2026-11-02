@@ -436,6 +436,8 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	}
 
 	const Rectangle respec { { x, area.position.y + area.size.height - ButtonHeight - 8 }, { inner, ButtonHeight } };
+	if (ProfileSaveFailed())
+		DrawString(out, WordWrapString("Your progress can't be saved: check the save folder.", inner), { { x, respec.position.y - 44 }, { inner, 42 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed, .lineHeight = 14 });
 	if (Button(out, respec, confirmRespec ? "Click again to respec" : "Respec (free)", true, mouse)) {
 		if (confirmRespec) {
 			RespecProfile();

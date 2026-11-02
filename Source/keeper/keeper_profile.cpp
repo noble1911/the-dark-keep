@@ -72,6 +72,7 @@ Profile profile;
 bool loaded = false;
 /** A profile from a newer build is never overwritten. */
 bool writable = true;
+bool saveFailed = false;
 
 /** The host's unlocks, while in someone else's game. */
 bool usingHost = false;
@@ -592,6 +593,7 @@ void SaveProfile()
 	const std::string path = ProfilePath();
 	const std::string temp = path + ".tmp";
 	FILE *file = OpenFile(temp.c_str(), "wb");
+	saveFailed = true; // until it has all gone through
 	if (file == nullptr) {
 		LogError("Cannot write keeper profile {}", temp);
 		return;
@@ -626,6 +628,15 @@ void SaveProfile()
 	if (FileExists(path))
 		RemoveFile(path.c_str());
 	RenameFile(temp.c_str(), path.c_str());
+	// A read-only file stays as it was, and with it the old progress.
+	saveFailed = FileExists(temp);
+	if (saveFailed)
+		LogError("Cannot replace keeper profile {}", path);
+}
+
+bool ProfileSaveFailed()
+{
+	return saveFailed;
 }
 
 } // namespace devilution::keeper
