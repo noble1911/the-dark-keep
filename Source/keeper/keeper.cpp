@@ -35,6 +35,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_units.hpp"
 #include "levels/dun_tile.hpp"
 #include "levels/gendung.h"
@@ -54,6 +55,7 @@ namespace devilution::keeper {
 bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
+int TestRank = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -234,9 +236,10 @@ constexpr int ArrowWidth = 12;
 enum class BarTab : uint8_t {
 	Lairs,
 	Traps,
+	Bestiary,
 };
-constexpr size_t NumBarTabs = 2;
-constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks" };
+constexpr size_t NumBarTabs = 3;
+constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Bestiary" };
 
 BarTab currentTab = BarTab::Lairs;
 /** First visible card of each tab. */
@@ -248,10 +251,12 @@ std::vector<Tool> TabCards(BarTab tab)
 	std::vector<Tool> cards;
 	switch (tab) {
 	case BarTab::Lairs:
-		for (size_t i = 0; i < NumBuildKinds; i++) {
-			if (IsLairKind(i))
-				cards.push_back({ ToolType::Build, i });
-		}
+		for (const size_t kind : MusterKinds())
+			cards.push_back({ ToolType::Build, kind });
+		break;
+	case BarTab::Bestiary:
+		for (const size_t kind : BestiaryKinds())
+			cards.push_back({ ToolType::Build, kind });
 		break;
 	case BarTab::Traps:
 		for (size_t i = 0; i < NumBuildKinds; i++) {
@@ -273,6 +278,26 @@ BarTab TabOf(const Tool &tool)
 	default:
 		return BarTab::Traps;
 	}
+}
+
+/** What the number keys select: this level's lairs in card order, then the trap. */
+std::vector<Tool> NumberKeyCards()
+{
+	std::vector<Tool> cards = TabCards(BarTab::Lairs);
+	cards.push_back({ ToolType::Build, static_cast<size_t>(BuildKind::FireTrap) });
+	return cards;
+}
+
+/** The number key shown on a build card (empty if it has none). */
+std::string NumberKeyLabel(size_t kind)
+{
+	constexpr size_t NumNumberKeys = 9;
+	const std::vector<Tool> cards = NumberKeyCards();
+	for (size_t i = 0; i < NumNumberKeys && i < cards.size(); i++) {
+		if (cards[i].index == kind)
+			return std::to_string(i + 1);
+	}
+	return {};
 }
 
 // ---- UI scale ------------------------------------------------------------------
@@ -478,15 +503,6 @@ void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
 
 // ---- cards -------------------------------------------------------------------
 
-constexpr std::array<std::string_view, NumBuildKinds> BuildFlavor {
-	"Slow, tough shamblers that soak up punishment.",
-	"Cowardly little demons. Cheap enough to place in swarms.",
-	"Skeleton axemen that hold the line.",
-	"Skeleton archers that shoot from range.",
-	"A hulking brute that hits very hard.",
-	"Breathes fire at heroes who walk past. Rearms after a few seconds; Rogues may spot and disarm it.",
-};
-
 constexpr std::array<std::string_view, NumSpellKinds> SpellFlavor {
 	"A ring of lightning bursts out around the target. Hurts heroes, never your monsters.",
 	"A wall of fire across a corridor.",
@@ -511,14 +527,21 @@ CardText DescribeCard(const Tool &tool)
 	case ToolType::Build: {
 		const BuildInfo &kind = BuildKinds[tool.index];
 		text.name = std::string(kind.name);
-		text.hotkey = std::to_string(tool.index + 1);
+		text.hotkey = NumberKeyLabel(tool.index);
 		text.cost = fmt::format("{}g", kind.cost);
 		text.ready = State.vaultGold >= kind.cost;
-		if (IsLairKind(tool.index)) {
-			text.ready = text.ready && SupplyUsed() + kind.supply <= SupplyCap();
-			text.description = fmt::format("Pop {}. {} Places one monster; if slain it returns after the raid.", kind.supply, BuildFlavor[tool.index]);
+		if (!IsLairKind(tool.index)) {
+			text.description = std::string(KindFlavor(tool.index));
+		} else if (!IsKindUnlocked(tool.index)) {
+			text.ready = false;
+			text.cost = fmt::format("Rank {}", UnlockRankOf(tool.index));
+			text.description = fmt::format("{}. {}\nUnlocks at rank {}.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index), UnlockRankOf(tool.index));
+		} else if (!IsKindMustered(tool.index)) {
+			text.ready = false;
+			text.description = fmt::format("{}. {}\nUnlocked, but a keep can only muster so many kinds: not on this level.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index));
 		} else {
-			text.description = std::string(BuildFlavor[tool.index]);
+			text.ready = text.ready && SupplyUsed() + kind.supply <= SupplyCap();
+			text.description = fmt::format("Pop {}  Life {}  Hit {}-{}\n{} Places one monster; if slain it returns after the raid.", kind.supply, KindLife(tool.index), KindMinDamage(tool.index), KindMaxDamage(tool.index), KindFlavor(tool.index));
 		}
 		break;
 	}
@@ -584,8 +607,10 @@ void DrawPortrait(const Surface &area, const Tool &tool)
 {
 	switch (tool.type) {
 	case ToolType::Build:
-		if (IsLairKind(tool.index))
+		if (IsKindMustered(tool.index))
 			DrawMonsterPortrait(area, BuildKinds[tool.index].type);
+		else if (IsLairKind(tool.index))
+			DrawString(area, "?", { { 0, (area.h() - 30) / 2 }, { area.w(), 30 } }, { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | UiFlags::ColorWhite }); // its sprites aren't loaded
 		else
 			DrawSpellPortrait(area, SpellID::RuneOfFire);
 		return;
@@ -628,7 +653,8 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 	}
 
 	DrawString(out, text.hotkey, { portrait.position + Displacement { 3, 1 }, { 20, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	DrawString(out, text.name, { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
+	// A little wider than the card: the longest names would wrap onto the cost line.
+	DrawString(out, text.name, { rect.position + Displacement { -2, PortraitHeight + 3 }, { rect.size.width + 4, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
 	DrawString(out, text.cost, { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
@@ -827,7 +853,8 @@ void DrawInfoPanel(const Surface &out)
 	}
 	const CardText text = DescribeCard(*shown);
 	DrawString(out, text.name, { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	DrawString(out, fmt::format("[{}]", text.hotkey), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+	if (!text.hotkey.empty())
+		DrawString(out, fmt::format("[{}]", text.hotkey), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	DrawString(out, text.cost, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 	DrawString(out, WordWrapString(text.description, textWidth), { textPos + Displacement { 0, 32 }, { textWidth, info.size.height - 44 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
@@ -1270,6 +1297,7 @@ void OnLevelLoaded()
 	ApplyAmbientLight();
 	ResetGame(entrance, FindVault(entrance));
 	ResetUnits();
+	AnnounceRankUnlocks();
 	CenterCameraOn(entrance);
 	currentTool = {};
 	tickCounter = 0;
@@ -1403,9 +1431,10 @@ bool OnKeyDown(SDL_Keycode key)
 
 	if (key >= SDLK_1 && key <= SDLK_9) {
 		const size_t index = static_cast<size_t>(key - SDLK_1);
-		if (index < NumBuildKinds) {
-			SelectTool(ToolType::Build, index);
-			RevealCard({ ToolType::Build, index });
+		const std::vector<Tool> cards = NumberKeyCards();
+		if (index < cards.size()) {
+			SelectTool(cards[index].type, cards[index].index);
+			RevealCard(cards[index]);
 		}
 		return true;
 	}
@@ -1525,12 +1554,18 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			if (Contains(TabRect(i), UiMouse()))
 				currentTab = static_cast<BarTab>(i);
 		}
+		// The Bestiary is long: its arrows page through it.
+		const int scrollStep = currentTab == BarTab::Bestiary ? VisibleCardCount() : 1;
 		if (Contains(LeftArrowRect(), UiMouse()))
-			ScrollOf(currentTab)--;
+			ScrollOf(currentTab) -= scrollStep;
 		if (Contains(RightArrowRect(), UiMouse()))
-			ScrollOf(currentTab)++;
-		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
-			SelectTool(card->type, card->index);
+			ScrollOf(currentTab) += scrollStep;
+		if (const std::optional<Tool> card = CardAt(UiMouse()); card) {
+			if (card->type == ToolType::Build && IsLairKind(card->index) && !IsKindMustered(card->index))
+				SetFeedback(IsKindUnlocked(card->index) ? "Not mustered for this keep" : "Not unlocked yet");
+			else
+				SelectTool(card->type, card->index);
+		}
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
 		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && SelectedStructure())

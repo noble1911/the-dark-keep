@@ -36,6 +36,7 @@ namespace devilution {
 // Exported from monster.cpp for the keeper's hero AI.
 void KeeperStartMeleeAttack(Monster &monster);
 void KeeperStartRangedAttack(Monster &monster, MissileID missileType, int dam);
+bool KeeperStartOwnRangedAttack(Monster &monster);
 void KeeperAiDelay(Monster &monster, int len);
 
 namespace keeper {
@@ -495,6 +496,7 @@ void RegisterHeroMonsterData()
 	BossMonsterId = AddCustomMonsterData(std::move(boss), bossSprites);
 
 	heroDataRegistered = true;
+	InitRoster();
 }
 
 bool IsHeroType(_monster_id type)
@@ -544,13 +546,15 @@ bool InitHeroGFX(CMonster &monsterType)
 
 void AddHeroMonsterTypes()
 {
-	for (size_t i = 0; i < NumBuildKinds; i++) {
-		if (IsLairKind(i))
-			(void)AddMonsterType(BuildKinds[i].type, PLACE_SPECIAL);
-	}
+	// The raid can't run without these, so they go first. AddMonsterType doesn't check MaxLvlMTypes.
 	for (const _monster_id type : HeroMonsterIds)
 		(void)AddMonsterType(type, PLACE_SPECIAL);
 	(void)AddMonsterType(BossMonsterId, PLACE_SPECIAL);
+	ChooseMuster();
+	for (const size_t kind : MusterKinds()) {
+		if (LevelMonsterTypeCount < MaxLvlMTypes)
+			(void)AddMonsterType(BuildKinds[kind].type, PLACE_SPECIAL);
+	}
 }
 
 void OnMonsterInit(Monster &monster)
@@ -559,6 +563,17 @@ void OnMonsterInit(Monster &monster)
 	if (id >= MaxMonsters)
 		return;
 	Homes[id] = monster.position.tile;
+	// The engine wakes a monster when a player sees it. There are no players to see it here, and a
+	// monster that picks a hero as its first enemy would otherwise stay asleep until hit.
+	if (currlevel == KeepLevel && !setlevel) {
+		monster.activeForTicks = UINT8_MAX;
+		if (monster.ai == MonsterAIID::Gargoyle) {
+			// The engine starts these as stone statues until a player comes near. Lairs want them awake.
+			monster.flags &= ~MFLAG_ALLOW_SPECIAL;
+			monster.mode = MonsterMode::Stand;
+			monster.changeAnimationData(MonsterGraphic::Stand);
+		}
+	}
 	if (IsBoss(monster)) {
 		Heroes[id] = {};
 		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : 600) << 6;
@@ -626,6 +641,8 @@ void UpdateEnemy(Monster &monster)
 			continue;
 		if (other.position.tile.WalkingDistance(anchor) > range)
 			continue;
+		if (hero && (other.flags & MFLAG_HIDDEN) != 0)
+			continue; // invisible ambushers (and fading Counselors) can't be seen
 		const int distance = other.position.tile.WalkingDistance(position);
 		if (hero && distance > 1 && !LineClearMissile(position, other.position.tile))
 			continue;
@@ -794,11 +811,6 @@ std::optional<size_t> PossessorOf(const Monster &monster)
 	return std::nullopt;
 }
 
-bool IsRangedKeepMonster(const Monster &monster)
-{
-	return monster.data().ai == MonsterAIID::SkeletonRanged;
-}
-
 } // namespace
 
 bool CanPossess(const Monster &monster)
@@ -862,10 +874,8 @@ void PossessedAi(Monster &monster)
 			monster.flags |= MFLAG_TARGETS_MONSTER;
 			monster.enemyPosition = target.position.tile;
 			const int distance = position.WalkingDistance(target.position.tile);
-			if (IsRangedKeepMonster(monster) && distance <= 7 && LineClearMissile(position, target.position.tile)) {
-				KeeperStartRangedAttack(monster, MissileID::Arrow, 4);
+			if (distance >= 2 && distance <= 7 && LineClearMissile(position, target.position.tile) && KeeperStartOwnRangedAttack(monster))
 				return;
-			}
 			if (distance < 2) {
 				KeeperStartMeleeAttack(monster);
 				return;
@@ -939,6 +949,11 @@ void SetMonsterHome(size_t monsterId, Point tile)
 bool ShouldGuard(const Monster &monster)
 {
 	return !IsHero(monster) && (monster.flags & MFLAG_NO_ENEMY) != 0 && monster.type().type != MT_GOLEM;
+}
+
+bool HoldsPost(const Monster &monster)
+{
+	return IsActive() && (IsPossessed(monster) || ShouldGuard(monster));
 }
 
 void GuardAi(Monster &monster)
@@ -1284,7 +1299,7 @@ int CarryCapacity(HeroClassKind cls)
 
 bool IsKeepTarget(const Monster &monster)
 {
-	return IsAliveMonster(monster) && !IsHero(monster) && monster.type().type != MT_GOLEM;
+	return IsAliveMonster(monster) && !IsHero(monster) && monster.type().type != MT_GOLEM && (monster.flags & MFLAG_HIDDEN) == 0;
 }
 
 std::optional<Point> PortalPosition()

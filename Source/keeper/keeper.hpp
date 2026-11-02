@@ -93,6 +93,8 @@ extern bool AutoStart;
 extern int TestLordHitPoints;
 /** @brief Dev/test flag (--keeper-start-wave <n>): the first raid (0 = normal). */
 extern int TestStartWave;
+/** @brief Dev/test flag (--keeper-rank <n>): overrides CampaignRank() for the roster (0 = normal). Pass it on every client. */
+extern int TestRank;
 
 /** @brief Dev/test flags for co-op (--keeper-host / --keeper-join <ip>): skip menus, TCP game. */
 enum class AutoNetMode : uint8_t {

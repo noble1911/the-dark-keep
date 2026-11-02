@@ -22,6 +22,7 @@
 #include "engine/point.hpp"
 #include "tables/monstdat.h"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_roster.hpp"
 #include "tables/spelldat.h"
 
 namespace devilution {
@@ -47,17 +48,16 @@ enum class Phase : uint8_t {
 
 std::string_view PhaseName(Phase phase);
 
-/** Everything a master can place from the build row. */
+/**
+ * Everything a master can place from the build row: the lair kinds of the roster (keeper_roster.hpp),
+ * then the trap. Kind indexes aren't stable and only some kinds are loaded per level: use IsLairKind(),
+ * BuildKind::FireTrap, MusterKinds() and IsKindMustered() rather than assuming a list.
+ */
 enum class BuildKind : uint8_t {
-	Zombies,
-	Fallen,
-	Skeletons,
-	Archers,
-	Overlord,
+	LastLair = NumLairKinds - 1,
 	FireTrap,
-	LastLair = Overlord,
 };
-constexpr size_t NumBuildKinds = 6;
+constexpr size_t NumBuildKinds = NumLairKinds + 1;
 
 struct BuildInfo {
 	std::string_view name;
@@ -68,7 +68,8 @@ struct BuildInfo {
 	/** Lairs only: room the monster takes up in the keep (see SupplyCap). */
 	uint8_t supply;
 };
-extern const std::array<BuildInfo, NumBuildKinds> BuildKinds;
+/** Defined in keeper_roster.cpp; prices are computed from the monster data when it loads. */
+extern std::array<BuildInfo, NumBuildKinds> BuildKinds;
 
 constexpr bool IsLairKind(size_t kind)
 {

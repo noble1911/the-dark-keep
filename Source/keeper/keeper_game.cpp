@@ -29,15 +29,6 @@
 
 namespace devilution::keeper {
 
-const std::array<BuildInfo, NumBuildKinds> BuildKinds { {
-	{ "Zombie", 40, MT_NZOMBIE, 1, 1 },
-	{ "Fallen", 35, MT_RFALLSP, 1, 1 },
-	{ "Bones", 65, MT_WSKELAX, 1, 2 },
-	{ "Archer", 100, MT_WSKELBW, 1, 2 },
-	{ "Brute", 260, MT_FAT, 1, 4 },
-	{ "Trap", 80, MT_INVALID, 0, 0 },
-} };
-
 const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Nova", MissileID::Nova, 35, 6, 20 * 6 },
 	{ "Wall", MissileID::FireWallControl, 25, 4, 20 * 4 },
@@ -696,6 +687,8 @@ bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
 	};
 	if (kind >= BuildKinds.size())
 		return fail("Unknown structure");
+	if (IsLairKind(kind) && !IsKindMustered(kind))
+		return fail(IsKindUnlocked(kind) ? "Not mustered for this keep" : "Not unlocked yet");
 	if (IsSiegeOver())
 		return fail("The siege is over");
 	if (!InDungeonBounds(tile) || !IsTileWalkable(tile) || IsObjectAtPosition(tile))

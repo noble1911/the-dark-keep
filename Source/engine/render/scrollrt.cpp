@@ -767,6 +767,11 @@ void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBuffe
 
 	const auto &monster = Monsters[mi];
 	if ((monster.flags & MFLAG_HIDDEN) != 0) {
+		// [DARK KEEP] Heroes can't see a hidden monster, but its master can: draw it as a ghost.
+		if (keeper::IsActive() && monster.animInfo.sprites) {
+			const ClxSprite ghost = monster.animInfo.currentSprite();
+			ClxDrawBlended(out, targetBufferPosition + monster.getRenderingOffset(ghost), ghost);
+		}
 		return;
 	}
 	// [DARK KEEP] Never dereference a monster with no animation loaded.

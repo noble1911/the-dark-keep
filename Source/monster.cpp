@@ -4346,7 +4346,7 @@ void ProcessMonsters()
 		}
 
 		while (true) {
-			if ((monster.flags & MFLAG_SEARCH) == 0 || !AiPlanPath(monster)) {
+			if ((monster.flags & MFLAG_SEARCH) == 0 || keeper::HoldsPost(monster) || !AiPlanPath(monster)) { // [DARK KEEP] no hunting a stale enemy position
 				if (keeper::IsActive() && keeper::IsPossessed(monster)) // [DARK KEEP] a master is in control
 					keeper::PossessedAi(monster);
 				else if (keeper::IsActive() && keeper::ShouldGuard(monster)) // [DARK KEEP] idle keep monsters hold their lair
@@ -4652,9 +4652,15 @@ void MissToMonst(Missile &missile, Point position)
 	if (target == nullptr)
 		return;
 
+	if (keeper::IsActive() && !keeper::AreHostile(monster, *target)) // [DARK KEEP] a charge stopped by a friend doesn't hurt it
+		return;
+
 	MonsterAttackMonster(monster, *target, 500, monster.minDamageSpecial, monster.maxDamageSpecial);
 
 	if (IsAnyOf(monster.type().type, MT_NSNAKE, MT_RSNAKE, MT_BSNAKE, MT_GSNAKE))
+		return;
+
+	if (keeper::IsActive()) // [DARK KEEP] the code below moves the charger and clears the target's tile: charges happen constantly here
 		return;
 
 	const Point newPosition = oldPosition + GetDirection(missile.position.start, oldPosition);
@@ -5084,6 +5090,42 @@ void KeeperStartRangedAttack(Monster &monster, MissileID missileType, int dam)
 void KeeperAiDelay(Monster &monster, int len)
 {
 	AiDelay(monster, len);
+}
+
+/** Possession: fires the shot the monster's own AI would. @return false if it has none. */
+bool KeeperStartOwnRangedAttack(Monster &monster)
+{
+	switch (monster.ai) {
+	case MonsterAIID::SkeletonRanged:
+		StartRangedAttack(monster, MissileID::Arrow, 4);
+		return true;
+	case MonsterAIID::GoatRanged:
+	case MonsterAIID::Succubus:
+	case MonsterAIID::FireBat:
+	case MonsterAIID::Torchant:
+	case MonsterAIID::Lich:
+	case MonsterAIID::ArchLich:
+	case MonsterAIID::Psychorb:
+	case MonsterAIID::Necromorb:
+		StartRangedAttack(monster, GetMissileType(monster.ai), 0);
+		return true;
+	case MonsterAIID::Acid:
+	case MonsterAIID::Magma:
+	case MonsterAIID::Storm:
+	case MonsterAIID::BoneDemon:
+		StartRangedSpecialAttack(monster, GetMissileType(monster.ai), 0);
+		return true;
+	case MonsterAIID::Mega:
+		StartRangedSpecialAttack(monster, MissileID::InfernoControl, 0);
+		return true;
+	case MonsterAIID::Counselor: {
+		constexpr MissileID MissileTypes[4] = { MissileID::Firebolt, MissileID::ChargedBolt, MissileID::LightningControl, MissileID::Fireball };
+		StartRangedAttack(monster, MissileTypes[monster.intelligence], RandomIntBetween(monster.minDamage, monster.maxDamage));
+		return true;
+	}
+	default:
+		return false;
+	}
 }
 
 } // namespace devilution
