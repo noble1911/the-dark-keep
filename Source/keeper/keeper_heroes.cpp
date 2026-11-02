@@ -20,6 +20,7 @@
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -205,6 +206,9 @@ bool CanStepDiagonal(Point from, Displacement step)
 
 void BuildFieldAvoiding(DistanceField &field, Point target, tl::function_ref<bool(Point)> isShut)
 {
+#ifdef KEEPER_DEVCTL
+	const DevPerfScope perf(DevPerfCounter::Field);
+#endif
 	for (auto &column : field)
 		column.fill(Unreachable);
 	if (!InDungeonBounds(target))
@@ -296,6 +300,9 @@ Point GoalTile(HeroGoal goal)
 
 void BuildRoute(DistanceField &field, Point target, uint16_t traps)
 {
+#ifdef KEEPER_DEVCTL
+	const DevPerfScope perf(DevPerfCounter::Route);
+#endif
 	static DistanceField tileCost;
 	for (auto &column : tileCost)
 		column.fill(1);

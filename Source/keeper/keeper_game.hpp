@@ -284,6 +284,8 @@ void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
 void RequestCastSpell(size_t spell, Point tile);
 void RequestStartRaid();
+/** Index into GameSpeeds (keeper_flow.hpp). The host names a turn and every client switches on it. */
+void RequestGameSpeed(size_t level);
 /** After a defeat: the vault goes back to the raid's start and the raid comes again (see ClearLostRaid in keeper_game.cpp). */
 void RequestRetryRaid();
 /** The defeat screen offers the retry: the host's to choose, like the whole-level one. */

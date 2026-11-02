@@ -34,6 +34,7 @@
 #include "init.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_editor.hpp"
+#include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
@@ -430,6 +431,20 @@ Rectangle ReadyButtonRect()
 {
 	const Rectangle status = StatusRect();
 	return { { status.position.x, status.position.y + status.size.height - 24 }, { StatusWidth, 20 } };
+}
+
+/** The speed toggle, at the right of the phase line. */
+Rectangle SpeedButtonRect()
+{
+	const Rectangle status = StatusRect();
+	return { { status.position.x + status.size.width - 20, status.position.y + 3 }, { 20, 15 } };
+}
+
+/** The phase line up to the speed toggle: clicking the clock holds it. */
+Rectangle PhaseLineRect()
+{
+	const Rectangle status = StatusRect();
+	return { { status.position.x, status.position.y + 3 }, { status.size.width - 22, 15 } };
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -1551,6 +1566,16 @@ bool IsMouseOverUi()
 	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
 }
 
+void ToggleHeldTimer()
+{
+	if (!CanHoldPrepTimer()) {
+		SetFeedback("Masters decide together in co-op: the timer keeps running");
+		return;
+	}
+	TogglePrepTimerHold();
+	SetFeedback(IsPrepTimerHeld() ? "Timer held: the raid waits until you open the gates" : "Timer running");
+}
+
 void UseToolAt(Point tile)
 {
 	switch (currentTool.type) {
@@ -1645,6 +1670,7 @@ void OnGameEnded()
 	ForgetMapCache();
 	SaveProfile();
 	LobbyOnGameEnded();
+	OnGameEndedSpeed();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1848,6 +1874,12 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::Sell:
 		SellSelected();
 		return;
+	case KeeperAction::CycleSpeed:
+		CycleGameSpeed();
+		return;
+	case KeeperAction::HoldTimer:
+		ToggleHeldTimer();
+		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
 	case KeeperAction::CameraRight:
@@ -2014,6 +2046,10 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			ScrollOf(currentTab) += scrollStep;
 		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
 			ActivateCard(*card);
+		if (Contains(SpeedButtonRect(), UiMouse()))
+			CycleGameSpeed();
+		if (Contains(PhaseLineRect(), UiMouse()) && CanHoldPrepTimer() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
+			ToggleHeldTimer();
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
 		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && !Selection().empty())
@@ -2197,8 +2233,12 @@ void DrawUi(const Surface &out)
 	// Status column: phase, raid, vault, heroes, mana.
 	std::string phaseLine = std::string(PhaseName(State.phase));
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
-		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
+		phaseLine += IsPrepTimerHeld() ? std::string("  held") : fmt::format("  {}", FormatTicks(State.phaseTicks));
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+	const Rectangle speedButton = SpeedButtonRect();
+	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);
+	DrawString(out, fmt::format("{}x", GameSpeedMultiplier()), { speedButton.position + Displacement { 0, 1 }, { speedButton.size.width, 14 } },
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (GameSpeedLevel() > 0 ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	DrawString(out, fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
 	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
@@ -2257,6 +2297,13 @@ void DrawUi(const Surface &out)
 		const Rectangle line { { (out.w() - width) / 2, top - 22 }, { width, 18 } };
 		DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
+	}
+
+	if (PauseMode != 0 && !gmenu_is_active()) {
+		const std::string line = "Paused: orders still work";
+		const int width = GetLineWidth(line) + 16;
+		DrawHalfTransparentRectTo(out, (out.w() - width) / 2, 2, width, 18);
+		DrawString(out, line, { { (out.w() - width) / 2, 4 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	if (IsGameOver()) {

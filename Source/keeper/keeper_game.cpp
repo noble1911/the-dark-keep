@@ -16,7 +16,9 @@
 #include "gamemenu.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_editor.hpp"
+#include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -148,6 +150,8 @@ enum class Action : uint8_t {
 	BotEscaped,
 	HeroEscaped,
 	RequestRetryRaid,
+	RequestSpeed,
+	SetSpeed,
 };
 
 #pragma pack(push, 1)
@@ -176,6 +180,7 @@ struct TCmdKeeperState {
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
 	std::array<int32_t, MaxBots> botHitPoints;
 	int32_t retryGold;
+	uint8_t speedLevel;
 };
 #pragma pack(pop)
 
@@ -201,6 +206,23 @@ int restartCountdown = 0;
 int joinerRestartWait = 0;
 /** Host: goldLost when the raid began, to go back to on a retry. */
 int retryGoldLost = 0;
+
+/**
+ * Turns ahead the host names for a speed change: long enough for the word to reach everyone first (a
+ * high-priority message goes out within two ticks, a turn is eight). One arriving late just switches at
+ * once; clients stay in step regardless, as none can run a turn ahead of the turns it has from the others.
+ */
+constexpr uint32_t SpeedSwitchLeadTurns = 2;
+/** A speed change the host has announced, waiting for its turn. */
+struct PendingSpeed {
+	bool active = false;
+	uint8_t level = 0;
+	uint16_t atTurn = 0;
+	uint8_t sender = 0;
+};
+PendingSpeed pendingSpeed;
+/** State snapshots that disagreed with this client's speed in a row. One can be from just before the switch. */
+int speedMismatches = 0;
 
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
@@ -233,6 +255,7 @@ void BroadcastState()
 	for (size_t i = 0; i < MaxBots; i++)
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	cmd.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.retryGold)));
+	cmd.speedLevel = static_cast<uint8_t>(GameSpeedLevel());
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -486,6 +509,37 @@ void NoteRaidBuilding(int cost)
 {
 	if (State.phase == Phase::Raid)
 		State.retryGold -= cost;
+}
+
+void AnnounceSpeed()
+{
+	Announce(fmt::format("Game speed: {}x", GameSpeedMultiplier()));
+}
+
+void HostRequestSpeed(uint8_t level)
+{
+	if (level >= GameSpeeds.size())
+		return;
+	if (!gbIsMultiplayer) {
+		ApplyGameSpeedLevel(level);
+		AnnounceSpeed();
+		return;
+	}
+	Send(Action::SetSpeed, level, 0, {}, static_cast<uint16_t>(multi_last_turn_from(MyPlayerId) + SpeedSwitchLeadTurns));
+}
+
+void UpdatePendingSpeed()
+{
+	if (!pendingSpeed.active)
+		return;
+	const auto turnsLeft = static_cast<int16_t>(pendingSpeed.atTurn - static_cast<uint16_t>(multi_last_turn_from(pendingSpeed.sender)));
+	if (turnsLeft > 0)
+		return;
+	pendingSpeed.active = false;
+	speedMismatches = 0;
+	ApplyGameSpeedLevel(pendingSpeed.level);
+	DevNoteSpeedSwitch(pendingSpeed.level, multi_last_turn_from(pendingSpeed.sender));
+	AnnounceSpeed();
 }
 
 void HostRetryRaid()
@@ -1268,6 +1322,9 @@ void ResetGame(Point entrance, Point vault)
 	restartChosen = false;
 	restartCountdown = 0;
 	joinerRestartWait = 0;
+	pendingSpeed = {};
+	speedMismatches = 0;
+	OnKeepLoadedSpeed();
 	ResetHeroes();
 	ResetRaidStats();
 }
@@ -1289,6 +1346,8 @@ void GameTick()
 	if (awaitingKeepSnapshot && --keepSnapshotTimeout <= 0)
 		awaitingKeepSnapshot = false;
 
+	UpdatePendingSpeed();
+
 	// Mana regenerates for every master, on every client (snapshots correct any drift).
 	const int manaRegen = UpgradedManaRegen(ManaRegenPerTick);
 	for (size_t i = 0; i < State.mana.size(); i++) {
@@ -1297,7 +1356,8 @@ void GameTick()
 			State.spellCooldown[i]--;
 	}
 
-	if (State.phaseTicks > 0)
+	const bool prep = State.phase == Phase::Setup || State.phase == Phase::Breather;
+	if (State.phaseTicks > 0 && !(prep && IsPrepTimerHeld()))
 		State.phaseTicks--;
 
 	// Possession drains mana (2/s net); an empty pool breaks the link. Every client runs this.
@@ -1713,6 +1773,11 @@ void RequestStartRaid()
 	Send(Action::RequestStartRaid);
 }
 
+void RequestGameSpeed(size_t level)
+{
+	Send(Action::RequestSpeed, static_cast<uint8_t>(level));
+}
+
 void RequestRetryRaid()
 {
 	if (CanRetryRaid())
@@ -1796,6 +1861,12 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
 			State.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGold)));
+			// A joiner who wasn't there for the change, or missed it. Waits for a second word: this one may have left the host before the switch.
+			speedMismatches = message.speedLevel != GameSpeedLevel() && !pendingSpeed.active ? speedMismatches + 1 : 0;
+			if (speedMismatches >= 2) {
+				speedMismatches = 0;
+				ApplyGameSpeedLevel(message.speedLevel);
+			}
 			for (size_t i = 0; i < 4; i++)
 				State.mana[i] = Swap16LE(message.mana[i]) * ManaScale;
 			// Before the Lord's health below, which is capped by a maximum these can raise.
@@ -1829,6 +1900,14 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::RequestStartRaid:
 		if (IsHost() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			StartRaid();
+		break;
+	case Action::RequestSpeed:
+		if (IsHost())
+			HostRequestSpeed(message.a);
+		break;
+	case Action::SetSpeed:
+		if (message.a < GameSpeeds.size())
+			pendingSpeed = { true, message.a, Swap16LE(message.w), static_cast<uint8_t>(player.getId()) };
 		break;
 	case Action::RequestRetryRaid:
 		if (IsHost())

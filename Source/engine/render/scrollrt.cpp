@@ -1461,7 +1461,7 @@ void DrawView(const Surface &out, Point startPosition)
 	if (MyPlayerIsDead) {
 		RedBack(out);
 		DrawDeathText(out);
-	} else if (PauseMode != 0) {
+	} else if (PauseMode != 0 && !keeper::IsActive()) { // [DARK KEEP] the keep says so itself, clear of the view: pausing is for planning
 		gmenu_draw_pause(out);
 	}
 	if (IsDiabloMsgAvailable()) {

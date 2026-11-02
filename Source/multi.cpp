@@ -5,6 +5,7 @@
  */
 #include "multi.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -241,6 +242,9 @@ void MonsterSeeds()
 		Monsters[i].aiSeed = seed + i;
 }
 
+/** [DARK KEEP] The latest turn number heard from each player: turns arrive in lockstep, so every client reads the same one at the same point in the game. */
+std::array<uint32_t, MAX_PLRS> lastTurnFrom {};
+
 void HandleTurnUpperBit(uint8_t pnum)
 {
 	uint8_t i;
@@ -262,6 +266,8 @@ void ParseTurn(uint8_t pnum, uint32_t turn)
 	if ((turn & 0x80000000) != 0)
 		HandleTurnUpperBit(pnum);
 	uint32_t absTurns = turn & 0x7FFFFFFF;
+	if (absTurns != 0) // [DARK KEEP] 0 is the network thread's keep-alive
+		lastTurnFrom[pnum] = absTurns;
 	if (sgbSentThisCycle < gdwTurnsInTransit + absTurns) {
 		if (absTurns >= 0x7FFFFFFF)
 			absTurns &= 0xFFFF;
@@ -707,6 +713,11 @@ void multi_send_msg_packet(uint32_t pmask, const std::byte *data, size_t size)
 			}
 		}
 	}
+}
+
+uint32_t multi_last_turn_from(uint8_t pnum) // [DARK KEEP]
+{
+	return lastTurnFrom[pnum];
 }
 
 void multi_msg_countdown()

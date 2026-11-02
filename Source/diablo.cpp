@@ -229,6 +229,9 @@ void FreeGame()
 bool ProcessInput()
 {
 	if (PauseMode == 2) {
+		// [DARK KEEP] Pausing to plan: the cursor still has to know what it points at.
+		if (keeper::IsActive() && !gmenu_is_active())
+			CheckCursMove();
 		return false;
 	}
 
@@ -453,7 +456,8 @@ void RightMouseDown(bool isShiftHeld)
 {
 	LastPlayerAction = PlayerActionType::None;
 
-	if (gmenu_is_active() || sgnTimeoutCurs != CURSOR_NONE || PauseMode == 2 || MyPlayer->_pInvincible) {
+	// [DARK KEEP] a paused keep still takes orders: pausing to plan is the point
+	if (gmenu_is_active() || sgnTimeoutCurs != CURSOR_NONE || (PauseMode == 2 && !keeper::IsActive()) || MyPlayer->_pInvincible) {
 		return;
 	}
 
@@ -963,8 +967,12 @@ void RunGameLoop(interface_mode uMsg)
 		if (game_loop(gbGameLoopStartup))
 			diablo_color_cyc_logic();
 		gbGameLoopStartup = false;
-		if (drawGame)
+		if (drawGame) {
+#ifdef KEEPER_DEVCTL
+			const keeper::DevPerfScope perf(keeper::DevPerfCounter::Draw); // [DARK KEEP]
+#endif
 			DrawAndBlit();
+		}
 #ifdef GPERF_HEAP_FIRST_GAME_ITERATION
 		if (run_game_iteration++ == 0)
 			HeapProfilerDump("first_game_iteration");
@@ -3539,7 +3547,12 @@ bool game_loop(bool bStartup)
 			return false;
 		}
 		TimeoutCursor(false);
-		GameLogic();
+		{
+#ifdef KEEPER_DEVCTL
+			const keeper::DevPerfScope perf(keeper::DevPerfCounter::Logic); // [DARK KEEP]
+#endif
+			GameLogic();
+		}
 		ClearLastSentPlayerCmd();
 
 		if (!gbRunGame || !gbIsMultiplayer || demo::IsRunning() || demo::IsRecording() || !nthread_has_500ms_passed())
