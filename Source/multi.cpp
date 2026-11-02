@@ -51,6 +51,7 @@
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
 #include "keeper/keeper_campaign.hpp" // [DARK KEEP]
+#include "keeper/keeper_lobby.hpp" // [DARK KEEP]
 
 namespace devilution {
 
@@ -589,6 +590,7 @@ bool InitMulti(GameData *gameData)
 			gbSelectProvider = true; // the others are gone: fall back to the menus
 	}
 	if (!connected) {
+	keeper::LobbyForgetPicks(); // [DARK KEEP] the menus can lead to a different host
 	while (true) {
 		if (gbSelectProvider && !UiSelectProvider(gameData)) {
 			return false;

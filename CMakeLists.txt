@@ -407,6 +407,14 @@ endif()
 
 # Must be included after `BIN_TARGET` and `libdevilutionx` are defined.
 include(Assets)
+
+# [DARK KEEP] Headless builder for the campaign's .dkmap files: see scripts/dev/dkmap.
+option(DARK_KEEP_MAP_TOOL "Build dkmap_tool" OFF)
+if(DARK_KEEP_MAP_TOOL)
+  add_executable(dkmap_tool scripts/dev/dkmap/dkmap_tool.cpp)
+  target_link_dependencies(dkmap_tool PRIVATE libdevilutionx)
+  set_relative_file_macro(dkmap_tool)
+endif()
 include(Mods)
 
 if(EMSCRIPTEN)

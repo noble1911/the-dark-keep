@@ -37,10 +37,12 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/dun_tile.hpp"
@@ -101,8 +103,8 @@ struct Tool {
 };
 
 Tool currentTool;
-/** The spell bar for this game: the profile's choice, less anything a host's game doesn't have. */
-std::array<std::optional<size_t>, NumSpellSlots> equippedSpells;
+/** The spell bar for this game: the profile's choice, less anything a host's game doesn't have, or a joiner's picks. */
+SpellBar equippedSpells;
 
 const Monster *MyPossessed();
 void LoadSpellBar();
@@ -209,15 +211,6 @@ void SetZoom(bool zoomed)
 	GetOptions().Graphics.zoom.SetValue(zoomed);
 	CalcViewportGeometry();
 	CancelBoxDrag(); // the box is in screen pixels, which no longer mean the same place
-}
-
-Point FindVault(Point fallback)
-{
-	for (int i = 0; i < numtrigs; i++) {
-		if (trigs[i]._tmsg == WM_DIABNEXTLVL)
-			return trigs[i].position;
-	}
-	return fallback;
 }
 
 // ---- HUD layout ------------------------------------------------------------
@@ -457,6 +450,14 @@ Rectangle SpellSlotRect(size_t i)
 	return { { left + static_cast<int>(i) * (SpellSlotSize + SpellSlotGap), info.position.y - SpellSlotSize - 8 }, { SpellSlotSize, SpellSlotSize } };
 }
 
+/** All the slots together. */
+Rectangle SpellBarRect()
+{
+	const Rectangle first = SpellSlotRect(0);
+	const Rectangle last = SpellSlotRect(NumSpellSlots - 1);
+	return { first.position, { last.position.x + last.size.width - first.position.x, first.size.height } };
+}
+
 std::optional<size_t> SpellSlotAt(Point p)
 {
 	for (size_t i = 0; i < NumSpellSlots; i++) {
@@ -498,42 +499,6 @@ std::string FormatTicks(int ticks)
 {
 	const int seconds = (ticks + 19) / 20;
 	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
-}
-
-void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
-{
-	DrawHorizontalLine(out, rect.position, rect.size.width, color);
-	DrawHorizontalLine(out, rect.position + Displacement { 0, rect.size.height - 1 }, rect.size.width, color);
-	DrawVerticalLine(out, rect.position, rect.size.height, color);
-	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
-}
-
-/** Cuts `text` down until it fits in `width` pixels, marking the cut. */
-std::string FitText(std::string_view text, int width)
-{
-	std::string fitted(text);
-	if (GetLineWidth(fitted) <= width)
-		return fitted;
-	while (!fitted.empty() && GetLineWidth(fitted + ".") > width)
-		fitted.pop_back();
-	while (!fitted.empty() && fitted.back() == ' ')
-		fitted.pop_back();
-	return fitted + ".";
-}
-
-/** Word-wraps `text` to at most `height` pixels of lines, marking any cut. */
-std::string FitLines(std::string_view text, int width, int height, int lineHeight)
-{
-	const std::string wrapped = WordWrapString(text, width);
-	const int maxLines = std::max(height / lineHeight, 1);
-	size_t end = 0;
-	for (int line = 0; line < maxLines; line++) {
-		end = wrapped.find('\n', end);
-		if (end == std::string::npos)
-			return wrapped;
-		end++;
-	}
-	return FitText(wrapped.substr(0, end - 1) + "...", width * maxLines);
 }
 
 // ---- cards -------------------------------------------------------------------
@@ -596,7 +561,7 @@ CardText DescribeCard(const Tool &tool)
 				text.hotkey = KeyLabel(KeeperAction::Spell, slot);
 		}
 		text.cost = fmt::format("{} mana", SpellManaCost(tool.index));
-		text.ready = State.mana[me] >= SpellManaCost(tool.index) * ManaScale && State.spellCooldown[me] == 0;
+		text.ready = State.mana[me] >= SpellManaCostScaled(tool.index) && State.spellCooldown[me] == 0;
 		text.description = fmt::format("Level {}. {} Your spells share a {}s recovery.", State.spellLevels[tool.index], spell.flavor, spell.cooldownTicks / 20);
 		break;
 	}
@@ -1149,7 +1114,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::ChainLightning:
-			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellKinds[currentTool.index].spellLevel + State.spellLevels[currentTool.index] + 2, MaxCrawlRadius));
+			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellEngineLevel(currentTool.index) + 3, MaxCrawlRadius));
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::Guardian:
@@ -1437,12 +1402,18 @@ constexpr int GameOverButtonWidth = 240;
 constexpr int GameOverButtonHeight = 20;
 constexpr int GameOverButtonGap = 12;
 
+/** The next setup, worked out once when the game ends: the banner asks every frame, and it reads a map. */
+std::optional<std::pair<bool, std::optional<KeepSetup>>> setupAfterGame;
+
 /** What the "continue" button starts: only the game's creator gets one. */
 std::optional<KeepSetup> GameOverContinue()
 {
 	if (IsJoinedGame())
 		return std::nullopt;
-	return ContinueSetup(State.phase == Phase::Victory);
+	const bool won = State.phase == Phase::Victory;
+	if (!setupAfterGame || setupAfterGame->first != won)
+		setupAfterGame.emplace(won, ContinueSetup(won));
+	return setupAfterGame->second;
 }
 
 void LoadSpellBar()
@@ -1538,7 +1509,7 @@ bool TryCastSpell(size_t index, Point tile)
 		SetFeedback(fmt::format("Gathering power... {}", FormatTicks(State.spellCooldown[me])));
 		return false;
 	}
-	if (State.mana[me] < SpellManaCost(index) * ManaScale) {
+	if (State.mana[me] < SpellManaCostScaled(index)) {
 		SetFeedback("Not enough mana");
 		return false;
 	}
@@ -1549,7 +1520,7 @@ bool TryCastSpell(size_t index, Point tile)
 /** True if the mouse is over the HUD or one of the panels floating above it. */
 bool IsMouseOverUi()
 {
-	if (UiMouse().y >= HudRect().position.y || SpellSlotAt(UiMouse()))
+	if (UiMouse().y >= HudRect().position.y || SpellSlotAt(UiMouse()) || LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	const std::optional<Rectangle> inspect = InspectPanelRect(HudRect().position.x + 6, HudRect().position.y);
 	if (inspect && Contains(*inspect, UiMouse()))
@@ -1615,6 +1586,7 @@ void OnLevelLoaded()
 	if (!active)
 		return;
 
+	setupAfterGame.reset();
 	// ViewPosition was set by the level generator to the up-stairs arrival point.
 	const Point entrance = ViewPosition;
 
@@ -1628,6 +1600,7 @@ void OnLevelLoaded()
 	ResetGame(entrance, FindVault(entrance));
 	ResetUnits();
 	LoadSpellBar();
+	LobbyOnLevelLoaded(equippedSpells);
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1651,6 +1624,7 @@ void OnGameEnded()
 	EditorOnGameEnded();
 	ForgetMapCache();
 	SaveProfile();
+	LobbyOnGameEnded();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1663,6 +1637,7 @@ void Tick()
 
 	// The host chose what comes next: leave, then StartGame's loop brings this client into it.
 	if (TakeRestartRequest()) {
+		LobbyNoteRematch();
 		gamemenu_exit_game(false);
 		ReturnToMainMenu = false;
 		return;
@@ -1683,6 +1658,7 @@ void Tick()
 		return; // a map being edited has no raid to simulate
 
 	GameTick();
+	LobbyTick();
 	UpdateUnitMarkers();
 
 	tickCounter++;
@@ -1805,7 +1781,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		if (index >= NumSpellSlots)
 			return;
 		if (!equippedSpells[index]) {
-			SetFeedback("No spell in that slot: equip one from the Spellbook");
+			SetFeedback(std::string(EmptySpellSlotMessage()));
 			return;
 		}
 		if (MyPossessed() == nullptr && !IsMouseOverUi())
@@ -1866,6 +1842,8 @@ bool OnKeyDown(SDL_Keycode key)
 		ChooseGameOverContinue();
 		return true;
 	}
+	if (key == SDLK_ESCAPE && LobbyOnEscape())
+		return true;
 	if (DispatchBoundKey(static_cast<uint32_t>(key)))
 		return true;
 
@@ -1941,6 +1919,11 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
+	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
+		if (currentTool.type == ToolType::Spell && std::find(equippedSpells.begin(), equippedSpells.end(), currentTool.index) == equippedSpells.end())
+			currentTool = {}; // it just came off the bar
+		return true;
+	}
 	if (IsGameOver()) {
 		const int width = UiHitSurface().w();
 		const int top = HudRect().position.y;
@@ -2032,6 +2015,8 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
+	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
+		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
 		const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
 		if (shift ? AddPatrolWaypoint(cursPosition) : SetRallyPoint(cursPosition))
@@ -2198,6 +2183,8 @@ void DrawUi(const Surface &out)
 	DrawInspectPanel(out, hud.position.x + 6, top);
 	DrawRaidRoster(out, UiMouse());
 	DrawRaidSummary(out, top);
+	DrawMasters(out);
+	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();

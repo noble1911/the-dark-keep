@@ -22,6 +22,7 @@
 
 #include "appfat.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "multi.h"
 #include "storm/storm_net.hpp"
@@ -35,41 +36,44 @@ namespace {
 
 // clang-format off
 /**
- * The campaign, easiest first. Balance is tuned here. Level 1's seed is the keep's original layout.
+ * The campaign, easiest first. Balance is tuned here (docs/BALANCE.md). Level 1's seed is the keep's original layout.
  * Columns: name, raids, starting gold, hero strength %, first party, party growth (1/100 hero per raid), seed.
  */
 constexpr std::array<LevelRules, NumCampaignLevels> CampaignLevels { {
-	{ "Old Cellars",       5, 1200, 100, 2,  80, KeepLevelSeed },
-	{ "Rat Warrens",       5, 1250, 105, 2,  80, 0x1F3A97C4 },
-	{ "Sunken Chapel",     5, 1300, 110, 2,  85, 0xA4C21E0B },
-	{ "Bone Pits",         6, 1350, 115, 2,  85, 0x57D0E36A },
-	{ "Black Vaults",      6, 1400, 125, 2,  90, 0xC93B7721 },
-	{ "Weeping Halls",     6, 1500, 135, 3,  80, 0x2E86F15D },
-	{ "Ashen Crypts",      7, 1600, 145, 3,  80, 0x7BA4096E },
-	{ "Iron Gaol",         7, 1700, 155, 3,  85, 0xE15C38D2 },
-	{ "Maggot Deeps",      7, 1800, 165, 3,  90, 0x39F7A640 },
-	{ "Hollow Court",      8, 1950, 180, 3,  90, 0x94D2C1B7 },
-	{ "Blood Galleries",   8, 2100, 195, 3,  95, 0x0C6E5FA9 },
-	{ "Shrouded Nave",     8, 2250, 210, 4,  85, 0xD7318B4C },
-	{ "Gallows Reach",     8, 2400, 225, 4,  90, 0x63AF02E5 },
-	{ "Cinder Keep",       9, 2600, 240, 4,  90, 0xB8E97D13 },
-	{ "Howling Stair",     9, 2800, 260, 4,  95, 0x4A15C6F8 },
-	{ "Tomb of Kings",     9, 3000, 280, 4, 100, 0xF20D93A6 },
-	{ "Silent Abbey",      9, 3200, 300, 5,  90, 0x8C7B24D1 },
-	{ "Chains of Night",  10, 3500, 325, 5,  90, 0x26E85B3F },
-	{ "Burning Sepulcre", 10, 3800, 350, 5,  95, 0xAD4F1C72 },
-	{ "Throne of Ash",    10, 4200, 400, 6, 100, 0x71C6E09B },
+	{ "Old Cellars",       5, 1500, 100, 2,  80, KeepLevelSeed },
+	{ "Rat Warrens",       5, 1500, 105, 2,  80, 0x1F3A97C4 },
+	{ "Sunken Chapel",     5, 1500, 110, 2,  85, 0xA4C21E0B },
+	{ "Bone Pits",         6, 1500, 115, 2,  85, 0x57D0E36A },
+	{ "Black Vaults",      6, 1500, 120, 2,  90, 0xC93B7721 },
+	{ "Weeping Halls",     6, 1500, 125, 3,  80, 0x2E86F15D },
+	{ "Ashen Crypts",      7, 1600, 130, 3,  80, 0x7BA4096E },
+	{ "Iron Gaol",         7, 1700, 135, 3,  85, 0xE15C38D2 },
+	{ "Maggot Deeps",      7, 1800, 140, 3,  90, 0x39F7A640 },
+	{ "Hollow Court",      8, 1950, 140, 3,  90, 0x94D2C1B7 },
+	{ "Blood Galleries",   8, 2100, 140, 3,  95, 0x0C6E5FA9 },
+	{ "Shrouded Nave",     8, 2250, 145, 4,  85, 0xD7318B4C },
+	{ "Gallows Reach",     8, 2400, 150, 4,  90, 0x63AF02E5 },
+	{ "Cinder Keep",       9, 2600, 155, 4,  90, 0xB8E97D13 },
+	{ "Howling Stair",     9, 2800, 160, 4,  95, 0x4A15C6F8 },
+	{ "Tomb of Kings",     9, 3000, 165, 4, 100, 0xF20D93A6 },
+	{ "Silent Abbey",      9, 3200, 170, 5,  90, 0x8C7B24D1 },
+	{ "Chains of Night",  10, 3500, 180, 5,  90, 0x26E85B3F },
+	{ "Burning Sepulcre", 10, 3800, 190, 5,  95, 0xAD4F1C72 },
+	{ "Throne of Ash",    10, 4200, 215, 6, 100, 0x71C6E09B },
 } };
 
 /** Custom maps and the editor have no place in the curve: these are the keep's original rules. */
-constexpr LevelRules CustomRules { "Custom Map", 7, 1200, 100, 2, 80, KeepLevelSeed };
+constexpr LevelRules CustomRules { "Custom Map", 7, 1500, 100, 2, 80, KeepLevelSeed };
 // clang-format on
+
+/**
+ * How much of a level's strength above 100% reaches armour, in percent. Monster missiles and traps hit on
+ * 90 - armour, so at the full strength every ranged monster and trap was down to its 5% floor by level 15.
+ */
+constexpr int HeroArmorStrengthPercent = 50;
 
 /** However a level's numbers are tuned, a raid never brings more heroes than this. */
 constexpr int MaxPartySize = 14;
-
-/** The map travels in the join packet, whose frame limit is 64 KiB including its headers. */
-constexpr size_t MaxMapBytes = 60000;
 
 constexpr std::string_view ProgressFileName = "campaign_progress.txt";
 constexpr std::string_view ProgressHeader = "DARKKEEP-CAMPAIGN";
@@ -155,18 +159,17 @@ void SaveProgress()
 	RenameFile(temp.c_str(), path.c_str());
 }
 
-/** Appends the file to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
-bool AppendFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
+/** Appends the map to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
+bool AppendMapFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
 {
-	FILE *file = OpenFile(path.c_str(), "rb");
-	if (file == nullptr)
+	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
+	if (!bytes.has_value() || bytes->size() > maxBytes)
 		return false;
 	const size_t start = out.size();
-	out.resize(start + maxBytes + 1);
-	const size_t got = std::fread(out.data() + start, 1, maxBytes + 1, file);
-	std::fclose(file);
-	out.resize(start + got);
-	return got <= maxBytes;
+	out.resize(start + bytes->size());
+	if (!bytes->empty())
+		std::memcpy(out.data() + start, bytes->data(), bytes->size());
+	return true;
 }
 
 uint32_t HashName(std::string_view text)
@@ -257,6 +260,11 @@ int ScaleByHeroStrength(int value)
 	return value * HeroStrengthPercent() / 100;
 }
 
+int ScaleArmorByHeroStrength(int value)
+{
+	return value * (100 + (HeroStrengthPercent() - 100) * HeroArmorStrengthPercent / 100) / 100;
+}
+
 int PartySizeForWave(int wave)
 {
 	const LevelRules &rules = CurrentRules();
@@ -269,9 +277,11 @@ KeepSetup SetupForCampaignLevel(int level)
 	setup.mode = GameMode::Campaign;
 	setup.campaignLevel = std::clamp(level, 1, NumCampaignLevels);
 	setup.seed = CampaignLevelRules(setup.campaignLevel).seed;
-	const std::string map = fmt::format("{0}keeper{1}campaign{1}level_{2:02}.dkmap", paths::AssetsPath(), DIRECTORY_SEPARATOR_STR, setup.campaignLevel);
-	if (FileExists(map))
-		setup.mapFile = map;
+	// An asset name rather than a path: it's a loose file or inside devilutionx.mpq, depending on the
+	// build. Without the map's tileset in the game data (shareware) the level stays a random Cathedral.
+	std::string map = CampaignMapAsset(setup.campaignLevel);
+	if (CanPlayMap(map))
+		setup.mapFile = std::move(map);
 	return setup;
 }
 
@@ -378,7 +388,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	wire.swapLE();
 	std::vector<char> blob(sizeof(wire));
 	std::memcpy(blob.data(), &wire, sizeof(wire));
-	if (!currentSetup.mapFile.empty() && !AppendFile(currentSetup.mapFile, blob, MaxMapBytes)) {
+	if (!currentSetup.mapFile.empty() && !AppendMapFile(currentSetup.mapFile, blob, MaxMapBytes)) {
 		SDL_SetError("Cannot send this map: it is unreadable or larger than %d bytes.", static_cast<int>(MaxMapBytes));
 		return false;
 	}

@@ -64,6 +64,36 @@ constexpr std::array<HeroClassInfo, NumHeroClasses> HeroClasses { {
 	{ "Sorcerer", "sorceror", "slt", "sln", "fm", 128, 14, "fallen\\fallen", 100 },
 } };
 
+/**
+ * A monster hero's stats at 100% strength. How strong a level's heroes are belongs to CampaignLevels: long
+ * levels already reach higher raid numbers, so growth per raid is kept gentle or the two multiply up.
+ */
+struct HeroStatLine {
+	int lifeBase;
+	int lifePerRaid;
+	int minDamageBase;
+	int maxDamageBase;
+	int armorBase;
+	int armorPerRaid;
+};
+constexpr std::array<HeroStatLine, NumHeroClasses> HeroStats { {
+	{ 33, 7, 3, 7, 11, 2 }, // Warrior
+	{ 22, 5, 2, 5, 5, 2 },  // Rogue
+	{ 17, 4, 3, 6, 3, 1 },  // Sorcerer
+} };
+constexpr int HeroMinDamagePerTenRaids = 6;
+constexpr int HeroMaxDamagePerTenRaids = 12;
+/** Gold for killing a monster hero. Heroes who run and get away pay nothing, which is a good third of them. */
+constexpr int HeroBountyBase = 30;
+constexpr int HeroBountyPerWave = 8;
+/**
+ * The Keep Lord at 100% strength. Parties gain damage faster than strength, as they grow, so his life also
+ * grows per campaign level: a few heroes leaking past the army must not end the keep at once.
+ */
+constexpr int LordLifeBase = 600;
+constexpr int LordLifePerLevel = 75;
+constexpr int LordArmorBase = 40;
+
 std::array<_monster_id, NumHeroClasses> HeroMonsterIds {};
 bool heroDataRegistered = false;
 /** The Keep Lord: a Black Knight under its own name (shares the knight's sprites). */
@@ -104,8 +134,6 @@ static_assert(MaxBaits <= 8);
 constexpr uint16_t TrapRoutePenalty = 20;
 /** Tiles from a trap that set it off (matches UpdateTraps). */
 constexpr int TrapDangerRadius = 1;
-/** A locked door is bashed only if the open way round is longer than this many extra steps. */
-constexpr uint16_t LockRoutePenalty = 40;
 /** How far away a hero with a clear view notices a trap going off. */
 constexpr int TrapWitnessRange = 8;
 constexpr int RogueDisarmPercent = 50;
@@ -148,8 +176,6 @@ std::array<bool, MaxMonsters> Roaming {};
 std::vector<HeroClassKind> pendingParty;
 int spawnCooldown = 0;
 
-constexpr uint16_t Unreachable = 0xFFFF;
-using DistanceField = std::array<std::array<uint16_t, MAXDUNY>, MAXDUNX>;
 DistanceField ToVault;
 DistanceField ToEntrance;
 DistanceField ToPortal;
@@ -163,6 +189,8 @@ std::optional<HeroClassKind> HeroClassOf(_monster_id type)
 	return std::nullopt;
 }
 
+} // namespace
+
 bool IsPassable(Point tile)
 {
 	return InDungeonBounds(tile) && IsTileWalkable(tile, /*ignoreDoors=*/true);
@@ -175,7 +203,7 @@ bool CanStepDiagonal(Point from, Displacement step)
 	return !IsTileSolid(from + Displacement { step.deltaX, 0 }) && !IsTileSolid(from + Displacement { 0, step.deltaY });
 }
 
-void BuildField(DistanceField &field, Point target)
+void BuildFieldAvoiding(DistanceField &field, Point target, tl::function_ref<bool(Point)> isShut)
 {
 	for (auto &column : field)
 		column.fill(Unreachable);
@@ -191,13 +219,25 @@ void BuildField(DistanceField &field, Point target)
 		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 			const Displacement step(dir);
 			const Point neighbour = tile + step;
-			if (!IsPassable(neighbour) || field[neighbour.x][neighbour.y] != Unreachable || !CanStepDiagonal(tile, step))
+			if (!IsPassable(neighbour) || field[neighbour.x][neighbour.y] != Unreachable || !CanStepDiagonal(tile, step) || isShut(neighbour))
 				continue;
 			field[neighbour.x][neighbour.y] = next;
 			open.push(neighbour);
 		}
 	}
 }
+
+void BuildField(DistanceField &field, Point target)
+{
+	BuildFieldAvoiding(field, target, [](Point) { return false; });
+}
+
+bool IsOpenFloor(Point tile)
+{
+	return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile);
+}
+
+namespace {
 
 uint16_t FieldAt(const DistanceField &field, Point tile)
 {
@@ -430,33 +470,17 @@ bool FollowField(Monster &monster, const DistanceField &field)
 void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
-	int hp = 0;
-	switch (cls) {
-	case HeroClassKind::Warrior:
-		hp = 30 + 10 * wave;
-		monster.minDamage = static_cast<uint8_t>(2 + wave);
-		monster.maxDamage = static_cast<uint8_t>(6 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(10 + 3 * wave);
-		break;
-	case HeroClassKind::Rogue:
-		hp = 20 + 7 * wave;
-		monster.minDamage = static_cast<uint8_t>(1 + wave);
-		monster.maxDamage = static_cast<uint8_t>(4 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(5 + 2 * wave);
-		break;
-	case HeroClassKind::Sorcerer:
-		hp = 15 + 6 * wave;
-		monster.minDamage = static_cast<uint8_t>(2 + wave);
-		monster.maxDamage = static_cast<uint8_t>(5 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(3 + wave);
-		break;
-	}
+	const HeroStatLine &stats = HeroStats[static_cast<size_t>(cls)];
+	int hp = stats.lifeBase + stats.lifePerRaid * wave;
+	monster.minDamage = static_cast<uint8_t>(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10);
+	monster.maxDamage = static_cast<uint8_t>(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10);
+	monster.armorClass = static_cast<uint8_t>(stats.armorBase + stats.armorPerRaid * wave);
 	if (champion)
 		hp = hp * 3 / 2;
 	hp = ScaleByHeroStrength(hp);
 	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
 	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
-	monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.armorClass), 255));
+	monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(monster.armorClass), 255));
 	monster.maxHitPoints = hp << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
@@ -492,7 +516,7 @@ std::optional<size_t> FindLevelMonsterType(_monster_id type)
 
 bool IsFreeFloor(Point tile)
 {
-	return InDungeonBounds(tile) && IsTileWalkable(tile) && dMonster[tile.x][tile.y] == 0 && dPlayer[tile.x][tile.y] == 0 && !IsObjectAtPosition(tile);
+	return IsOpenFloor(tile) && dMonster[tile.x][tile.y] == 0 && dPlayer[tile.x][tile.y] == 0;
 }
 
 std::string_view ClassName(const HeroState &hero)
@@ -776,11 +800,11 @@ void OnMonsterInit(Monster &monster)
 	}
 	if (IsBoss(monster)) {
 		Heroes[id] = {};
-		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : ScaleByHeroStrength(600)) << 6;
+		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : ScaleByHeroStrength(LordLifeBase + LordLifePerLevel * (CurrentLevelNumber() - 1))) << 6;
 		monster.hitPoints = monster.maxHitPoints;
 		monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(12), 255));
 		monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(24), 255));
-		monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(40), 255));
+		monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(LordArmorBase), 255));
 		OnKeepMonsterInit(monster);
 		return;
 	}
@@ -817,7 +841,7 @@ void OnMonsterDeath(Monster &monster)
 	if (id >= MaxMonsters || !Heroes[id].active)
 		return;
 	HeroState &hero = Heroes[id];
-	const int bounty = ScaleByHeroStrength(20 + 5 * State.wave);
+	const int bounty = ScaleByHeroStrength(HeroBountyBase + HeroBountyPerWave * State.wave);
 	AddVaultGold(std::max(hero.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(hero.carried, 0));
 	if (hero.carried > 0)
@@ -1257,7 +1281,7 @@ RaidStatus UpdateRaid()
 		} else if (ActiveMonsterCount < MaxMonsters) {
 			const HeroClassKind cls = pendingParty.front();
 			const std::optional<size_t> typeIndex = FindLevelMonsterType(HeroMonsterIds[static_cast<size_t>(cls)]);
-			const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.entrance, 0, 6);
+			const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.entrance, 0, HeroSpawnRadius);
 			if (tile) {
 				if (const std::optional<size_t> slot = FreeBotSlot(); slot) {
 					RequestSpawnBot(*slot, cls, *tile);

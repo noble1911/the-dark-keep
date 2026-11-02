@@ -27,6 +27,7 @@
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
 #include "monster.h"
 #include "player.h"
@@ -58,20 +59,6 @@ bool raidActive = false;
 /** The last finished raid, shown by the summary panel. */
 RaidStats finished;
 bool summaryVisible = false;
-
-// ---- shared drawing ----------------------------------------------------------------
-
-constexpr uint8_t FrameColor = PAL16_YELLOW + 4;
-
-void DrawPanel(const Surface &out, const Rectangle &rect)
-{
-	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
-	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
-	FillRect(out, rect.position.x, rect.position.y, rect.size.width, 1, FrameColor);
-	FillRect(out, rect.position.x, rect.position.y + rect.size.height - 1, rect.size.width, 1, FrameColor);
-	FillRect(out, rect.position.x, rect.position.y, 1, rect.size.height, FrameColor);
-	FillRect(out, rect.position.x + rect.size.width - 1, rect.position.y, 1, rect.size.height, FrameColor);
-}
 
 // ---- roster ------------------------------------------------------------------------
 
@@ -245,8 +232,8 @@ void DrawRaidRoster(const Surface &out, Point mouse)
 		const RosterRow &row = rows[i];
 		const Rectangle rowRect = RowRect(rect, i);
 		if (rowRect.contains(mouse)) {
-			FillRect(out, rowRect.position.x, rowRect.position.y, rowRect.size.width, 1, FrameColor);
-			FillRect(out, rowRect.position.x, rowRect.position.y + rowRect.size.height - 1, rowRect.size.width, 1, FrameColor);
+			FillRect(out, rowRect.position.x, rowRect.position.y, rowRect.size.width, 1, PanelFrameColor);
+			FillRect(out, rowRect.position.x, rowRect.position.y + rowRect.size.height - 1, rowRect.size.width, 1, PanelFrameColor);
 		}
 		const int y = rowRect.position.y;
 		DrawString(out, row.name, { { textX, y }, { NameWidth, RowHeight } }, { .flags = UiFlags::FontSize12 | row.nameColor });

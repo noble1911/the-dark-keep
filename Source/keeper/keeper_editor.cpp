@@ -115,6 +115,7 @@ enum class Modal : uint8_t {
 };
 
 struct Snapshot {
+	MapTileset tileset;
 	std::array<std::array<uint8_t, DMAXY>, DMAXX> cells;
 	Point entrance;
 	Point vault;
@@ -122,7 +123,7 @@ struct Snapshot {
 
 	bool operator==(const Snapshot &other) const
 	{
-		if (cells != other.cells || entrance != other.entrance || vault != other.vault || objects.size() != other.objects.size())
+		if (tileset != other.tileset || cells != other.cells || entrance != other.entrance || vault != other.vault || objects.size() != other.objects.size())
 			return false;
 		for (size_t i = 0; i < objects.size(); i++) {
 			if (objects[i].kind != other.objects[i].kind || objects[i].position != other.objects[i].position)
@@ -178,6 +179,8 @@ uint32_t feedbackUntil = 0;
 
 /** A test run is in progress; these bring back the editor. */
 bool testing = false;
+/** ReloadKeepLevel has been asked for and hasn't happened: the level on screen is on its way out. */
+bool levelReloading = false;
 KeepSetup setupBeforeTest;
 std::optional<Point> cameraToRestore;
 
@@ -190,17 +193,31 @@ void SetFeedback(std::string text, bool error = false)
 
 Snapshot TakeSnapshot()
 {
-	return { model.cells, model.entrance, model.vault, model.objects };
+	return { model.tileset, model.cells, model.entrance, model.vault, model.objects };
+}
+
+void ReloadLevel()
+{
+	levelReloading = true;
+	stroke.active = false;
+	ReloadKeepLevel();
 }
 
 void RestoreSnapshot(const Snapshot &snapshot)
 {
+	// The stairs in a snapshot only fit the tileset it was taken in, so the two go back together.
+	const bool sameTileset = snapshot.tileset == model.tileset;
+	model.tileset = snapshot.tileset;
 	model.cells = snapshot.cells;
 	model.entrance = snapshot.entrance;
 	model.vault = snapshot.vault;
 	model.objects = snapshot.objects;
 	dirty = true;
 	levelStale = true;
+	if (!sameTileset) {
+		cameraToRestore = ViewPosition;
+		ReloadLevel();
+	}
 }
 
 void PushUndo(const Snapshot &snapshot)
@@ -245,32 +262,9 @@ void InitNewMap()
 	redoStack.clear();
 }
 
-/** Sets up the level from the model as it stands, decorated or plain, and checks it. */
-void BuildAndValidate(bool decorate)
-{
-	ApplyLayoutToLevel(model, decorate);
-	std::memset(dObject, 0, sizeof(dObject));
-	InitObjects();
-	problems = ValidateMap(model);
-}
-
 std::string WriteModel(const std::string &path)
 {
-	RefreshLevel();
-	const bool plainIsPlayable = !HasBlockingProblem();
-	// What gets saved is the decorated level, and decoration can matter: a candlestick can plug a
-	// narrow hall. So judge the decorated level, and reroll the decoration if it's what broke the map.
-	bool playable = false;
-	for (int attempt = 0; attempt < 16 && !playable; attempt++) {
-		if (attempt > 0)
-			model.decorSeed++;
-		BakeMap(model);
-		BuildAndValidate(/*decorate=*/true);
-		playable = !HasBlockingProblem();
-		if (!plainIsPlayable)
-			break;
-	}
-	model.playable = playable;
+	BakePlayableMap(model);
 	RefreshLevel(); // back to what was on screen
 	const tl::expected<void, std::string> written = WriteMapBytes(path, SerializeMap(model));
 	return written.has_value() ? std::string() : written.error();
@@ -280,7 +274,17 @@ void Autosave()
 {
 	if (!dirty)
 		return;
-	const std::string error = WriteModel(MapsFolder() + std::string(AutosaveFile));
+	const std::string path = MapsFolder() + std::string(AutosaveFile);
+	std::string error;
+	if (IsMapTilesetLoaded(model.tileset)) {
+		error = WriteModel(path);
+	} else {
+		// The level on screen is another tileset's, so it can't be baked: keep the layout, unfinished.
+		model.playable = false;
+		const tl::expected<void, std::string> written = WriteMapBytes(path, SerializeMap(model));
+		if (!written.has_value())
+			error = written.error();
+	}
 	if (!error.empty())
 		SetFeedback(fmt::format("Autosave failed: {}", error), true);
 }
@@ -318,17 +322,19 @@ void ChangeTileset(MapTileset tileset)
 {
 	if (tileset == model.tileset)
 		return;
-	const Snapshot before = TakeSnapshot();
+	if (!IsMapTilesetInstalled(tileset)) {
+		SetFeedback(fmt::format("The game data here has no {} tiles", MapTilesetName(tileset)), true);
+		return;
+	}
+	PushUndo(TakeSnapshot());
 	model.tileset = tileset;
 	if (model.entrance.x >= 0 && !MapStairsFit(tileset, true, model.entrance))
 		model.entrance = NoMapPosition;
 	if (model.vault.x >= 0 && !MapStairsFit(tileset, false, model.vault))
 		model.vault = NoMapPosition;
-	if (!(TakeSnapshot() == before))
-		PushUndo(before);
 	dirty = true;
 	cameraToRestore = ViewPosition;
-	ReloadKeepLevel();
+	ReloadLevel();
 }
 
 void LoadMapNamed(const std::string &name)
@@ -343,11 +349,17 @@ void LoadMapNamed(const std::string &name)
 		SetFeedback(fmt::format("Could not load {}: {}", name, loaded.error()), true);
 		return;
 	}
+	if (!IsMapTilesetInstalled(loaded->tileset)) {
+		SetFeedback(fmt::format("Could not load {}: the game data here has no {} tiles", name, MapTilesetName(loaded->tileset)), true);
+		return;
+	}
 	Autosave();
 	const bool sameTileset = loaded->tileset == model.tileset;
 	model = std::move(*loaded);
-	fileName = name;
-	dirty = false;
+	// The editor's own scratch files get overwritten behind the author's back: saving asks for a name.
+	const bool scratch = name.empty() || name[0] == '_';
+	fileName = scratch ? std::string() : name;
+	dirty = scratch;
 	undoStack.clear();
 	redoStack.clear();
 	SetFeedback(fmt::format("Loaded {}", name));
@@ -356,7 +368,7 @@ void LoadMapNamed(const std::string &name)
 		CenterCamera(MapSpawnTile(model));
 	} else {
 		cameraToRestore = MapSpawnTile(model);
-		ReloadKeepLevel();
+		ReloadLevel();
 	}
 }
 
@@ -384,6 +396,11 @@ void StartTest()
 		SetFeedback(fmt::format("Could not write the test map: {}", error), true);
 		return;
 	}
+	if (!model.playable) {
+		// Every roll of the decoration plugged something. The test would quietly play a random keep.
+		SetFeedback("Can't test yet: the wall and floor variants keep blocking the way. Widen the narrow halls.", true);
+		return;
+	}
 	setupBeforeTest = CurrentSetup();
 	KeepSetup setup = setupBeforeTest;
 	setup.mode = GameMode::CustomMap;
@@ -391,7 +408,7 @@ void StartTest()
 	SetCurrentSetup(setup);
 	testing = true;
 	cameraToRestore = ViewPosition;
-	ReloadKeepLevel();
+	ReloadLevel();
 }
 
 // ---- geometry ----------------------------------------------------------------------------------
@@ -733,6 +750,8 @@ void Redo()
 
 void SelectTool(EditTool next)
 {
+	if (stroke.active)
+		FinishStroke(); // it finishes as the tool it began with
 	if (next == EditTool::Object && tool == EditTool::Object)
 		objectKind = static_cast<MapObjectKind>((static_cast<size_t>(objectKind) + 1) % NumMapObjectKinds);
 	tool = next;
@@ -1129,8 +1148,7 @@ void EditorPrepareSession()
 		if (bytes.has_value()) {
 			tl::expected<KeepMap, std::string> loaded = ParseMap(bytes->data(), bytes->size());
 			if (loaded.has_value()) {
-				model = std::move(*loaded);
-				fileName = path;
+				model = std::move(*loaded); // saving asks for a name: `path` needn't be in the maps folder
 			} else {
 				SetFeedback(fmt::format("Could not load {}: {}", path, loaded.error()), true);
 			}
@@ -1143,6 +1161,7 @@ void EditorPrepareSession()
 
 void EditorOnLevelLoaded()
 {
+	levelReloading = false;
 	if (CurrentSetup().mode != GameMode::MapEditor || gbIsMultiplayer || currlevel != KeepLevel || setlevel)
 		return;
 	// InitItems scatters loot; a map being edited has none, and nothing else clears it when walls move.
@@ -1164,6 +1183,7 @@ void EditorOnGameEnded()
 		SetCurrentSetup(setupBeforeTest);
 		testing = false;
 	}
+	levelReloading = false;
 	SetLiveMap(nullptr, nullptr);
 	sessionStarted = false;
 	modal = Modal::None;
@@ -1178,7 +1198,7 @@ void EditorBeforeGameFreed()
 
 void EditorUpdateFrame()
 {
-	if (!IsEditorActive())
+	if (!IsEditorActive() || levelReloading)
 		return;
 	if (stroke.active) {
 		const clicktype button = stroke.right ? CLICK_RIGHT : CLICK_LEFT;
@@ -1211,15 +1231,19 @@ bool IsEditorTestRun()
 
 void EditorEndTestRun()
 {
+	if (!testing || levelReloading)
+		return;
 	testing = false;
 	SetCurrentSetup(setupBeforeTest);
 	// Off with the raid while the level is still whole; the reload replaces everything else.
 	ResetGame(State.entrance, State.vault);
-	ReloadKeepLevel();
+	ReloadLevel();
 }
 
 bool EditorOnKeyDown(SDL_Keycode key)
 {
+	if (levelReloading)
+		return true;
 	if (modal == Modal::SaveName || modal == Modal::Author)
 		return HandleTextKey(key);
 	if (modal != Modal::None) {
@@ -1229,6 +1253,9 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	}
 
 	if (IsCtrlHeld()) {
+		// Whatever this does, it shouldn't happen to half a drag.
+		if (stroke.active)
+			FinishStroke();
 		switch (key) {
 		case SDLK_Z:
 			if (IsShiftHeld())
@@ -1281,6 +1308,8 @@ bool EditorOnKeyDown(SDL_Keycode key)
 		ToggleDecor();
 		return true;
 	case SDLK_F5:
+		if (stroke.active)
+			FinishStroke();
 		StartTest();
 		return true;
 	case SDLK_SPACE:
@@ -1315,6 +1344,11 @@ bool EditorOnKeyDown(SDL_Keycode key)
 
 bool EditorOnMouseDown(bool right)
 {
+	if (levelReloading)
+		return true;
+	// A press and release inside one frame: the last stroke hasn't been closed off yet.
+	if (stroke.active)
+		FinishStroke();
 	const Point mouse = UiMousePosition();
 	if (modal != Modal::None) {
 		if (!right) {
@@ -1344,6 +1378,8 @@ bool EditorOnMouseDown(bool right)
 
 bool EditorOnMouseWheel(int deltaY)
 {
+	if (levelReloading)
+		return true;
 	if (modal == Modal::LoadList || modal == Modal::TilesetList) {
 		const int maxScroll = std::max(0, static_cast<int>(modalList.size()) - ModalRows);
 		modalScroll = std::clamp(modalScroll + (deltaY > 0 ? -1 : 1), 0, maxScroll);

@@ -155,18 +155,30 @@ void RemoveBot(Player &bot)
 	Bots[SlotOf(bot)] = {};
 }
 
-/** Bot character levels gained per campaign level, and the engine's limit. */
-constexpr int LevelsPerCampaignLevel = 2;
+/**
+ * Bot character levels gained per campaign level, and the engine's limit. Level is accuracy, but also
+ * damage (strength * level), block chance and the monsters' chance to hit, so it is kept modest.
+ */
+constexpr int LevelsPerCampaignLevel = 1;
 constexpr int MaxBotLevel = 50;
+/** Stats gained per raid. Strength, dexterity and magic scale with the level's strength. */
+constexpr int BotStatsPerRaid = 2;
+/** Potions a bot carries: each heals half its life, so they count for as much as its life does. */
+constexpr int BotPotionsBase = 1;
+constexpr int BotRaidsPerPotion = 4;
+/** Gold for killing a bot. Bots who run and get away pay nothing, which is a good third of them. */
+constexpr int BotBountyBase = 45;
+constexpr int BotBountyPerWave = 15;
 
 void ScaleBot(Player &bot, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	bot.setCharacterLevel(static_cast<uint8_t>(std::min(wave * 2 - 1, 30)));
-	const int bonus = ScaleByHeroStrength(3 * (wave - 1));
+	const int bonus = ScaleByHeroStrength(BotStatsPerRaid * (wave - 1));
 	bot._pBaseStr += bonus;
 	bot._pBaseDex += bonus;
-	bot._pBaseVit += bonus;
+	// Vitality does not scale: its life is scaled below, and scaling both made bots grow on the square of the level's strength.
+	bot._pBaseVit += BotStatsPerRaid * (wave - 1);
 	bot._pBaseMag += bonus;
 	bot._pMaxHPBase = bot.calculateBaseLife();
 	if (champion)
@@ -321,7 +333,7 @@ void HandleDeath(Player &bot, BotState &state)
 	if (state.deathHandled)
 		return;
 	state.deathHandled = true;
-	const int bounty = ScaleByHeroStrength(30 + 10 * State.wave);
+	const int bounty = ScaleByHeroStrength(BotBountyBase + BotBountyPerWave * State.wave);
 	AddVaultGold(std::max(state.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(state.carried, 0));
 	if (state.carried > 0)
@@ -614,7 +626,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	BotState &state = Bots[slot];
 	state = {};
 	state.cls = cls;
-	state.potions = 2 + State.wave / 2;
+	state.potions = BotPotionsBase + State.wave / BotRaidsPerPotion;
 
 	Announce(fmt::format("{} the {} storms the keep!", bot._pName, ClassTitle(cls)));
 }

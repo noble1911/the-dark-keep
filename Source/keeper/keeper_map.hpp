@@ -56,6 +56,8 @@ enum class MapObjectKind : uint8_t {
 };
 constexpr size_t NumMapObjectKinds = 3;
 constexpr size_t MaxMapObjects = 64;
+/** A map travels in the join packet, whose frame limit is 64 KiB including its headers. */
+constexpr size_t MaxMapBytes = 60000;
 
 struct MapObject {
 	MapObjectKind kind = MapObjectKind::Barrel;
@@ -118,7 +120,9 @@ tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size);
 /** File names of the player's own maps, sorted. */
 /** A file name for a map name: only letters, digits, spaces, '-' and '_' survive. */
 std::string MapFileName(std::string_view name);
-/** Resolves `path` as given, then under the maps folder, then under the assets folder. */
+/** The asset name of a campaign level's map. */
+std::string CampaignMapAsset(int level);
+/** A campaign map's asset name goes to the asset system; anything else is a file, as given or under the maps folder. */
 tl::expected<std::vector<std::byte>, std::string> ReadMapBytes(const std::string &path);
 tl::expected<void, std::string> WriteMapBytes(const std::string &path, const std::vector<std::byte> &bytes);
 
@@ -132,6 +136,26 @@ tl::expected<void, std::string> WriteMapBytes(const std::string &path, const std
 void ApplyLayoutToLevel(const KeepMap &map, bool decorate);
 /** Fills in map.tiles and map.trans. Leaves the decorated level in `dungeon`: reapply afterwards. */
 void BakeMap(KeepMap &map);
+/**
+ * Bakes the map and judges the result, setting map.playable. What gets saved is the decorated level,
+ * and decoration can matter (a candlestick can plug a narrow hall), so this rerolls decorSeed if the
+ * decoration is what broke the map. The live map must be `map`, and the loaded tileset its own. Leaves
+ * the decorated level in place: reapply afterwards.
+ * @return map.playable
+ */
+bool BakePlayableMap(KeepMap &map);
+/** True if the tile data in memory is this tileset's, as ApplyLayoutToLevel needs. */
+bool IsMapTilesetLoaded(MapTileset tileset);
+/** True if the game data has this tileset: the shareware data, say, stops after the Cathedral's. */
+bool IsMapTilesetInstalled(MapTileset tileset);
+/** True if the map can be read, is finished, and its tileset is installed. */
+bool CanPlayMap(const std::string &path);
+/** Sets leveltype and loads the tile data, for callers with no game level (LoadGameLevel does this itself). */
+tl::expected<void, std::string> LoadMapTilesetData(MapTileset tileset);
+/** The game's stairs triggers for the level as it stands. */
+void InitMapTriggers(MapTileset tileset);
+/** The tile of the level's first down-stairs trigger, which the game takes as the vault. */
+Point FindVault(Point fallback);
 /** Where heroes appear for this map: the world tile the staircase's generator would use. */
 Point MapSpawnTile(const KeepMap &map);
 
