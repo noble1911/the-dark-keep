@@ -418,7 +418,6 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 {
 	if (kind >= BuildKinds.size() || !CanBuildAt(kind, tile))
 		return;
-	State.vaultGold -= BuildKinds[kind].cost;
 	uint8_t slot = 0xFF;
 	if (IsLairKind(kind)) {
 		const auto it = std::find_if(State.lairs.begin(), State.lairs.end(), [](const Lair &lair) { return !lair.active; });
@@ -431,6 +430,7 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 			return;
 		slot = static_cast<uint8_t>(it - State.traps.begin());
 	}
+	State.vaultGold -= BuildKinds[kind].cost;
 	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
 	BroadcastState();
 }
