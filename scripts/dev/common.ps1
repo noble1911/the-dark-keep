@@ -53,9 +53,16 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo", [switch]$NoSync) {
     }
 }
 
+function Get-CheckoutPort {
+    # Each checkout its own port: on the default one, a co-op test joins whichever checkout's host got there first.
+    $sum = 0; foreach ($c in $script:Root.ToLowerInvariant().ToCharArray()) { $sum = ($sum * 31 + [int]$c) % 20011 }
+    20000 + $sum
+}
+
 function New-TestProfile([string]$Name, [int]$Width = 1280, [int]$Height = 720) {
     # A windowed profile with its own saves. Bound to localhost, so hosting raises no firewall prompt.
     $profileDir = "$script:Root\build\test-profiles\$Name"
+    $port = Get-CheckoutPort
     New-Item -ItemType Directory -Force $profileDir | Out-Null
     Set-Content -Encoding ascii "$profileDir\diablo.ini" @"
 [Graphics]
@@ -72,6 +79,7 @@ Hellfire Intro=0
 Splash=0
 [Network]
 Bind Address=127.0.0.1
+Port=$port
 "@
     $profileDir
 }
