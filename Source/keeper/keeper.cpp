@@ -37,6 +37,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_units.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/dun_tile.hpp"
@@ -58,6 +59,7 @@ bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
 int TestCampaignLevel = 0;
+int TestRank = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -235,9 +237,10 @@ enum class BarTab : uint8_t {
 	Lairs,
 	Traps,
 	Upgrades,
+	Bestiary,
 };
-constexpr size_t NumBarTabs = 3;
-constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades" };
+constexpr size_t NumBarTabs = 4;
+constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades", "Bestiary" };
 
 BarTab currentTab = BarTab::Lairs;
 /** First visible card of each tab. */
@@ -249,10 +252,12 @@ std::vector<Tool> TabCards(BarTab tab)
 	std::vector<Tool> cards;
 	switch (tab) {
 	case BarTab::Lairs:
-		for (size_t i = 0; i < NumBuildKinds; i++) {
-			if (IsLairKind(i))
-				cards.push_back({ ToolType::Build, i });
-		}
+		for (const size_t kind : MusterKinds())
+			cards.push_back({ ToolType::Build, kind });
+		break;
+	case BarTab::Bestiary:
+		for (const size_t kind : BestiaryKinds())
+			cards.push_back({ ToolType::Build, kind });
 		break;
 	case BarTab::Traps:
 		for (size_t i = 0; i < NumBuildKinds; i++) {
@@ -485,15 +490,6 @@ void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
 
 // ---- cards -------------------------------------------------------------------
 
-constexpr std::array<std::string_view, NumBuildKinds> BuildFlavor {
-	"Slow, tough shamblers that soak up punishment.",
-	"Cowardly little demons. Cheap enough to place in swarms.",
-	"Skeleton axemen that hold the line.",
-	"Skeleton archers that shoot from range.",
-	"A hulking brute that hits very hard.",
-	"Breathes fire at heroes who walk past. Rearms after a few seconds; Rogues may spot and disarm it.",
-};
-
 constexpr std::array<std::string_view, NumSpellKinds> SpellFlavor {
 	"A ring of lightning bursts out around the target. Hurts heroes, never your monsters.",
 	"A wall of fire across a corridor.",
@@ -542,11 +538,18 @@ CardText DescribeCard(const Tool &tool)
 		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", kind.cost);
 		text.ready = State.vaultGold >= kind.cost;
-		if (IsLairKind(tool.index)) {
-			text.ready = text.ready && SupplyUsed() + kind.supply <= SupplyCap();
-			text.description = fmt::format("Pop {}. {} Places one monster; if slain it returns after the raid.", kind.supply, BuildFlavor[tool.index]);
+		if (!IsLairKind(tool.index)) {
+			text.description = std::string(KindFlavor(tool.index));
+		} else if (!IsKindUnlocked(tool.index)) {
+			text.ready = false;
+			text.cost = fmt::format("Rank {}", UnlockRankOf(tool.index));
+			text.description = fmt::format("{}. {}\nUnlocks at rank {}.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index), UnlockRankOf(tool.index));
+		} else if (!IsKindMustered(tool.index)) {
+			text.ready = false;
+			text.description = fmt::format("{}. {}\nUnlocked, but a keep can only muster so many kinds: not on this level.", FamilyName(FamilyOfKind(tool.index)), KindFlavor(tool.index));
 		} else {
-			text.description = std::string(BuildFlavor[tool.index]);
+			text.ready = text.ready && SupplyUsed() + kind.supply <= SupplyCap();
+			text.description = fmt::format("Pop {}  Life {}  Hit {}-{}\n{} Places one monster; if slain it returns after the raid.", kind.supply, KindLife(tool.index), KindMinDamage(tool.index), KindMaxDamage(tool.index), KindFlavor(tool.index));
 		}
 		break;
 	}
@@ -624,8 +627,10 @@ void DrawPortrait(const Surface &area, const Tool &tool)
 {
 	switch (tool.type) {
 	case ToolType::Build:
-		if (IsLairKind(tool.index))
+		if (IsKindMustered(tool.index))
 			DrawMonsterPortrait(area, BuildKinds[tool.index].type);
+		else if (IsLairKind(tool.index))
+			DrawString(area, "?", { { 0, (area.h() - 30) / 2 }, { area.w(), 30 } }, { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | UiFlags::ColorWhite }); // its sprites aren't loaded
 		else
 			DrawSpellPortrait(area, SpellID::RuneOfFire);
 		return;
@@ -671,7 +676,8 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 	}
 
 	DrawString(out, text.hotkey, { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	DrawString(out, text.name, { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
+	// A little wider than the card: the longest names would wrap onto the cost line.
+	DrawString(out, text.name, { rect.position + Displacement { -2, PortraitHeight + 3 }, { rect.size.width + 4, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
 	DrawString(out, text.cost, { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
@@ -1316,6 +1322,17 @@ void BuyUpgradeCard(size_t index)
 	RequestBuyUpgrade(upgrade);
 }
 
+/** A card was clicked or its slot key pressed: buy an upgrade, arm a tool, or say why not. */
+void ActivateCard(const Tool &card)
+{
+	if (card.type == ToolType::Upgrade)
+		BuyUpgradeCard(card.index);
+	else if (card.type == ToolType::Build && IsLairKind(card.index) && !IsKindMustered(card.index))
+		SetFeedback(IsKindUnlocked(card.index) ? "Not mustered for this keep" : "Not unlocked yet");
+	else
+		SelectTool(card.type, card.index);
+}
+
 /** Shift+right-click with lairs selected: add a waypoint to each one's patrol, spread out like a rally. */
 bool AddPatrolWaypoint(Point tile)
 {
@@ -1512,6 +1529,7 @@ void OnLevelLoaded()
 	ApplyAmbientLight();
 	ResetGame(entrance, FindVault(entrance));
 	ResetUnits();
+	AnnounceRankUnlocks();
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1656,10 +1674,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		const std::vector<Tool> cards = TabCards(currentTab);
 		const size_t card = static_cast<size_t>(ScrollOf(currentTab)) + index;
 		if (static_cast<int>(index) < VisibleCardCount() && card < cards.size())
-			if (cards[card].type == ToolType::Upgrade)
-				BuyUpgradeCard(cards[card].index);
-			else
-				SelectTool(cards[card].type, cards[card].index);
+			ActivateCard(cards[card]);
 		return;
 	}
 	case KeeperAction::Spell:
@@ -1828,16 +1843,14 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			if (Contains(TabRect(i), UiMouse()))
 				currentTab = static_cast<BarTab>(i);
 		}
+		// The Bestiary is long: its arrows page through it.
+		const int scrollStep = currentTab == BarTab::Bestiary ? VisibleCardCount() : 1;
 		if (Contains(LeftArrowRect(), UiMouse()))
-			ScrollOf(currentTab)--;
+			ScrollOf(currentTab) -= scrollStep;
 		if (Contains(RightArrowRect(), UiMouse()))
-			ScrollOf(currentTab)++;
-		if (const std::optional<Tool> card = CardAt(UiMouse()); card) {
-			if (card->type == ToolType::Upgrade)
-				BuyUpgradeCard(card->index);
-			else
-				SelectTool(card->type, card->index);
-		}
+			ScrollOf(currentTab) += scrollStep;
+		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
+			ActivateCard(*card);
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
 		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && !Selection().empty())

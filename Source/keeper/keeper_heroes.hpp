@@ -49,7 +49,7 @@ bool IsHeroType(_monster_id type);
 /** Loads hero sprites for a level monster type. @return true if the type is a hero type (handled). */
 bool InitHeroGFX(CMonster &monsterType);
 
-/** Adds the hero types to the level's monster types (keep level only). */
+/** Adds the hero types and this level's muster to the level's monster types (keep level only). */
 void AddHeroMonsterTypes();
 
 /** Called whenever a monster is (re)initialised on any client: applies wave stats to heroes, remembers homes. */
@@ -73,6 +73,8 @@ void SetMonsterRoaming(size_t monsterId, bool roaming);
 
 /** A keep monster with nothing to fight: it guards its lair instead of running its stock AI. */
 bool ShouldGuard(const Monster &monster);
+/** True while a monster's own path planning must stay out of the way: it guards its post, or a master drives it. */
+bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);
 
 void ResetHeroes();

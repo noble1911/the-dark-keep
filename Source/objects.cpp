@@ -51,6 +51,8 @@
 #include "utils/language.h"
 #include "utils/log.hpp"
 #include "utils/str_cat.hpp"
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_game.hpp" // [DARK KEEP]
 
 namespace devilution {
 
@@ -4317,6 +4319,8 @@ void MonstCheckDoors(const Monster &monster)
 		Object &door = *object;
 		// Doors use _oVar4 to track open/closed state, non-zero values indicate an open door
 		if (!door.isDoor() || door._oVar4 != DOOR_CLOSED)
+			continue;
+		if (keeper::IsActive() && keeper::FindLock(door.position) != nullptr) // [DARK KEEP] a master's lock holds for everyone
 			continue;
 
 		OperateDoor(door, true);

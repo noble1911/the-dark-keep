@@ -98,6 +98,8 @@ extern int TestLordHitPoints;
 extern int TestStartWave;
 /** @brief Dev/test flag (--keeper-level <n>): the campaign level to autostart or host (0 = level 1). */
 extern int TestCampaignLevel;
+/** @brief Dev/test flag (--keeper-rank <n>): overrides CampaignRank() for the roster (0 = normal). Pass it on every client. */
+extern int TestRank;
 
 /** @brief Dev/test flags for co-op (--keeper-host / --keeper-join <ip>): skip menus, TCP game. */
 enum class AutoNetMode : uint8_t {

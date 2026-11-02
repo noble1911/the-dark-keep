@@ -433,7 +433,7 @@ bool TryGoForBait(Player &bot, BotState &state)
 /** Out of potions and wounded in a fight: break off, once, and run to a healthy friend. @return true if it moved. */
 bool TryFallBack(Player &bot, BotState &state)
 {
-	if (state.fleeing || state.carried != 0 || state.potions > 0 || State.wave >= NumWaves)
+	if (state.fleeing || state.carried != 0 || state.potions > 0 || State.wave >= NumWaves())
 		return false;
 	if (state.fallBackThinks == 0) {
 		if (state.fellBack || bot._pHitPoints * 100 >= bot._pMaxHP * FallBackHealthPercent || FindTarget(bot, BotSight) == nullptr)
