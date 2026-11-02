@@ -620,7 +620,7 @@ bool TryGoForBait(Monster &monster, HeroState &hero)
 	return false;
 }
 
-/** Badly hurt heroes may lose their nerve (once): they drop any loot and run. With no friend near, they always do. */
+/** The hero drops any loot and runs. */
 void HeroStartsFleeing(HeroState &hero)
 {
 	hero.fearRolled = true;
@@ -635,6 +635,7 @@ void HeroStartsFleeing(HeroState &hero)
 	}
 }
 
+/** Badly hurt heroes may lose their nerve (once): they drop any loot and run. With no friend near, they always do. */
 void CheckFear(const Monster &monster, HeroState &hero)
 {
 	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)

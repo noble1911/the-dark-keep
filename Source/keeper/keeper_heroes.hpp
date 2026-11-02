@@ -110,9 +110,10 @@ bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);
 
 void ResetHeroes();
-/** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
+/** The host's copy of a monster hero robbed the vault, or lost its nerve: a joiner's does too. */
 void ApplyHeroLooted(size_t monsterId, int amount);
 void ApplyHeroFled(size_t monsterId);
+/** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
 void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 
 /** Host: queues the party for a wave. */
