@@ -47,8 +47,11 @@ constexpr int KindCostPerPower = 9;
 constexpr int KindCostRoundTo = 5;
 /** A family's tier always costs at least this much more than the tier below it. */
 constexpr int TierMinCostStep = 10;
-/** Pop = 1 + power / divisor, at most the maximum (which fits the first raid's cap of 16). */
-constexpr int KindPopPowerDivisor = 12;
+/**
+ * Pop = 1 + power / divisor, at most the maximum (which fits the first raid's cap of 16). Above 1 Pop, power
+ * per Pop sets what a full keep is worth: this divisor is what makes higher tiers beat a swarm of low ones.
+ */
+constexpr int KindPopPowerDivisor = 20;
 constexpr int KindMaxPop = 14;
 /** Worth more than their stats say, in percent of power. */
 constexpr int RangedPowerPercent = 125;
@@ -103,12 +106,12 @@ constexpr RosterEntry Roster[] = {
 	{ MT_YFALLSD, "Kin Blade", FallenSwords, "Hits like a much larger demon. Scares like a small one." },
 	{ MT_BFALLSD, "Dark Blade", FallenSwords, "The finest swords the Fallen ever stole." },
 
-	{ MT_WSKELAX, "Bones", SkeletonAxes, "Skeleton axemen that hold the line.", 1, 65, 2 },
+	{ MT_WSKELAX, "Bones", SkeletonAxes, "Skeleton axemen that hold the line.", 1, 40, 1 },
 	{ MT_TSKELAX, "Corpse Axe", SkeletonAxes, "A sturdier skeleton with a heavier axe." },
 	{ MT_RSKELAX, "Burning Axe", SkeletonAxes, "Burning dead: faster on its feet than it looks." },
 	{ MT_XSKELAX, "Horror Axe", SkeletonAxes, "Black bones and a practised chop." },
 
-	{ MT_WSKELBW, "Archer", SkeletonBows, "Skeleton archers that shoot from range.", 1, 100, 2 },
+	{ MT_WSKELBW, "Archer", SkeletonBows, "Skeleton archers that shoot from range.", 1, 60, 1 },
 	{ MT_TSKELBW, "Corpse Bow", SkeletonBows, "Backs away from heroes and keeps shooting." },
 	{ MT_RSKELBW, "Burning Bow", SkeletonBows, "A burning archer with a steady hand." },
 	{ MT_XSKELBW, "Horror Bow", SkeletonBows, "The deadliest skeleton archer in any crypt." },
@@ -148,7 +151,7 @@ constexpr RosterEntry Roster[] = {
 	{ MT_BACID, "Pit Beast", AcidBeasts, "A heavy brute that spits as hard as it bites." },
 	{ MT_XACID, "Lava Maw", AcidBeasts, "Its death pool keeps burning long after it's gone." },
 
-	{ MT_FAT, "Brute", Overlords, "A hulking brute that hits very hard.", 1, 260, 4 },
+	{ MT_FAT, "Brute", Overlords, "A hulking brute that hits very hard.", 1, 220, 3 },
 	{ MT_MUDMAN, "Mud Man", Overlords, "All bulk. It takes a party to bring one down." },
 	{ MT_TOAD, "Toad Demon", Overlords, "A bloated horror with a savage second attack." },
 	{ MT_FLAYED, "Flayed One", Overlords, "The largest of the brutes and the angriest." },

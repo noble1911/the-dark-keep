@@ -76,6 +76,8 @@ int HeroStrengthPercent();
 int CurrentLevelNumber();
 /** Scales a hero stat by HeroStrengthPercent(). */
 int ScaleByHeroStrength(int value);
+/** Hero and Keep Lord armour: takes only part of the level's strength (see HeroArmorStrengthPercent). */
+int ScaleArmorByHeroStrength(int value);
 /** How many heroes raid `wave` brings. */
 int PartySizeForWave(int wave);
 

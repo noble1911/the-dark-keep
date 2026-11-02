@@ -43,9 +43,9 @@ const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Fireball", MissileID::Fireball, 20, 3, 20 * 3, 5, SpellID::Fireball, "An explosion at the target, burning everything close by." },
 	{ "Chain", MissileID::ChainLightning, 30, 3, 20 * 5, 8, SpellID::ChainLightning, "Lightning leaps from the target to every hero in reach." },
 	{ "Shock Wall", MissileID::LightningWallControl, 30, 3, 20 * 5, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
-	{ "Wave", MissileID::FlameWaveControl, 35, 3, 20 * 6, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
+	{ "Wave", MissileID::FlameWaveControl, 25, 3, 20 * 4, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
 	{ "Ring", MissileID::RingOfFire, 40, 3, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
-	{ "Apocalypse", MissileID::Apocalypse, 70, 1, 20 * 20, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
+	{ "Apocalypse", MissileID::Apocalypse, 80, 1, 20 * 25, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
 } };
 
 KeepState State;
@@ -79,14 +79,23 @@ constexpr int RestartResendTicks = 4;
 /** A joiner hears the word at any point in the host's notice, so it waits all of it and a little more. */
 constexpr int RestartJoinerWaitTicks = RestartNoticeTicks + 20;
 /** Later levels start roomier: their monsters take far more Pop. */
-constexpr int SupplyPerLevel = 2;
+constexpr int SupplyPerLevel = 3;
 /** Each trap level adds this much damage, and takes this much off its rearm time down to the floor (percent). */
-constexpr int TrapDamagePerLevel = 25;
-constexpr int TrapRearmPerLevel = 6;
-constexpr int TrapRearmFloorPercent = 40;
+constexpr int TrapDamagePerLevel = 15;
+constexpr int TrapRearmPerLevel = 5;
+constexpr int TrapRearmFloorPercent = 50;
 constexpr int SnareSpellLevelBase = 2;
 /** Apocalypse's damage ignores the engine's spell level, so its level raises it directly (percent). */
-constexpr int ApocalypseDamagePerLevel = 20;
+constexpr int ApocalypseDamagePerLevel = 8;
+/**
+ * The master's character level already carries a spell's damage up the campaign, so a raise gives the
+ * engine only this fraction of a spell level: Nova and Fireball grow 12.5% per engine level, compounding.
+ */
+constexpr int RaisesPerEngineSpellLevel = 2;
+/** A Guardian's shots ignore its spell, so they are set here: base + master level * per / 10, then per raise (percent). */
+constexpr int GuardianDamageBase = 6;
+constexpr int GuardianDamagePerMasterLevel = 7;
+constexpr int GuardianDamagePerRaise = 3;
 /** A patrolling monster that hasn't moved for this long gives up on its waypoint and takes the next. */
 constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
 /** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
@@ -1009,13 +1018,15 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 	default:
 		break;
 	}
-	Missile *missile = AddMissile(src, dst, dir, kind.missile, TARGET_MONSTERS, caster, 0, kind.spellLevel + level - 1);
+	Missile *missile = AddMissile(src, dst, dir, kind.missile, TARGET_MONSTERS, caster, 0, SpellEngineLevel(spell));
 	if (missile == nullptr)
 		return;
 	if (kind.missile == MissileID::Fireball)
 		missile->duration = 1; // it would fly on until it hit something: burst where the master pointed
 	if (kind.missile == MissileID::Apocalypse)
 		missile->_midam = missile->_midam * (100 + ApocalypseDamagePerLevel * (level - 1)) / 100;
+	if (kind.missile == MissileID::Guardian)
+		missile->_midam = (GuardianDamageBase + caster.getCharacterLevel() * GuardianDamagePerMasterLevel / 10) * (100 + GuardianDamagePerRaise * (level - 1)) / 100;
 }
 
 /** Sets off a trap of its kind at a hero on `victim`, on every client. */
@@ -1265,6 +1276,11 @@ int SpellManaCostAt(size_t spell, int level)
 {
 	const int base = SpellKinds[spell].manaCost;
 	return std::max(base - (std::max(level, 1) - 1) * std::max(base / MaxKeepLevel, 1), base / 2);
+}
+
+int SpellEngineLevel(size_t spell)
+{
+	return SpellKinds[spell].spellLevel + (std::max<int>(State.spellLevels[spell], 1) - 1) / RaisesPerEngineSpellLevel;
 }
 
 int SpellManaCost(size_t spell)

@@ -64,6 +64,26 @@ constexpr std::array<HeroClassInfo, NumHeroClasses> HeroClasses { {
 	{ "Sorcerer", "sorceror", "slt", "sln", "fm", 128, 14, "fallen\\fallen", 100 },
 } };
 
+/**
+ * A monster hero's stats at 100% strength. How strong a level's heroes are belongs to CampaignLevels: long
+ * levels already reach higher raid numbers, so growth per raid is kept gentle or the two multiply up.
+ */
+struct HeroStatLine {
+	int lifeBase;
+	int lifePerRaid;
+	int minDamageBase;
+	int maxDamageBase;
+	int armorBase;
+	int armorPerRaid;
+};
+constexpr std::array<HeroStatLine, NumHeroClasses> HeroStats { {
+	{ 33, 7, 3, 7, 11, 2 }, // Warrior
+	{ 22, 5, 2, 5, 5, 2 },  // Rogue
+	{ 17, 4, 3, 6, 3, 1 },  // Sorcerer
+} };
+constexpr int HeroMinDamagePerTenRaids = 6;
+constexpr int HeroMaxDamagePerTenRaids = 12;
+
 std::array<_monster_id, NumHeroClasses> HeroMonsterIds {};
 bool heroDataRegistered = false;
 /** The Keep Lord: a Black Knight under its own name (shares the knight's sprites). */
@@ -430,33 +450,17 @@ bool FollowField(Monster &monster, const DistanceField &field)
 void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
-	int hp = 0;
-	switch (cls) {
-	case HeroClassKind::Warrior:
-		hp = 30 + 10 * wave;
-		monster.minDamage = static_cast<uint8_t>(2 + wave);
-		monster.maxDamage = static_cast<uint8_t>(6 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(10 + 3 * wave);
-		break;
-	case HeroClassKind::Rogue:
-		hp = 20 + 7 * wave;
-		monster.minDamage = static_cast<uint8_t>(1 + wave);
-		monster.maxDamage = static_cast<uint8_t>(4 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(5 + 2 * wave);
-		break;
-	case HeroClassKind::Sorcerer:
-		hp = 15 + 6 * wave;
-		monster.minDamage = static_cast<uint8_t>(2 + wave);
-		monster.maxDamage = static_cast<uint8_t>(5 + 2 * wave);
-		monster.armorClass = static_cast<uint8_t>(3 + wave);
-		break;
-	}
+	const HeroStatLine &stats = HeroStats[static_cast<size_t>(cls)];
+	int hp = stats.lifeBase + stats.lifePerRaid * wave;
+	monster.minDamage = static_cast<uint8_t>(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10);
+	monster.maxDamage = static_cast<uint8_t>(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10);
+	monster.armorClass = static_cast<uint8_t>(stats.armorBase + stats.armorPerRaid * wave);
 	if (champion)
 		hp = hp * 3 / 2;
 	hp = ScaleByHeroStrength(hp);
 	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
 	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
-	monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.armorClass), 255));
+	monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(monster.armorClass), 255));
 	monster.maxHitPoints = hp << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
@@ -780,7 +784,7 @@ void OnMonsterInit(Monster &monster)
 		monster.hitPoints = monster.maxHitPoints;
 		monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(12), 255));
 		monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(24), 255));
-		monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(40), 255));
+		monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(40), 255));
 		OnKeepMonsterInit(monster);
 		return;
 	}

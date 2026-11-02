@@ -28,8 +28,8 @@ namespace {
 // ---- balance -------------------------------------------------------------------------------
 
 /** Reaching keeper level L takes XpPerLevelStep * L * (L - 1) / 2 XP in all. */
-constexpr int XpPerLevelStep = 100;
-constexpr int RenownPerLevel = 3;
+constexpr int XpPerLevelStep = 140;
+constexpr int RenownPerLevel = 4;
 
 constexpr int HeroSlainXpBase = 10;
 constexpr int HeroSlainXpPerWave = 2;

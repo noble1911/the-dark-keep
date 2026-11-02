@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "monster.h"
@@ -129,7 +130,8 @@ int UpgradeNextCost(UpgradeId id)
 {
 	const UpgradeInfo &info = GetUpgradeInfo(id);
 	const int tier = UpgradeTier(id);
-	return tier < info.maxTier ? info.baseCost + tier * info.costStep : 0;
+	// Tiers add percentages, so they are worth as much as the army they lift, and that grows with the level.
+	return tier < info.maxTier ? ScaleByHeroStrength(info.baseCost + tier * info.costStep) : 0;
 }
 
 std::string UpgradeDescription(UpgradeId id)

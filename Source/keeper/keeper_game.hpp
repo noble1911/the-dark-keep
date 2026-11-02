@@ -73,10 +73,10 @@ struct TrapKind {
 constexpr size_t NumTrapKinds = 4;
 constexpr size_t SnareTrapKind = 3;
 constexpr std::array<TrapKind, NumTrapKinds> TrapKinds { {
-	{ "Fire Trap", 80, 1, 8 * 20, 20, 5, SpellID::RuneOfFire, "Breathes fire at heroes who walk past and leaves a burning wall." },
-	{ "Arrow Trap", 50, 1, 3 * 20, 8, 3, SpellID::TrapDisarm, "A hidden bow: light damage, but ready again almost at once." },
-	{ "Shock Trap", 120, 6, 6 * 20, 15, 6, SpellID::RuneOfLight, "Looses a bolt of lightning at the hero who set it off." },
-	{ "Snare", 100, 11, 12 * 20, 0, 0, SpellID::RuneOfStone, "No damage: it holds the hero in place for your monsters to finish." },
+	{ "Fire Trap", 100, 1, 8 * 20, 20, 5, SpellID::RuneOfFire, "Breathes fire at heroes who walk past and leaves a burning wall." },
+	{ "Arrow Trap", 75, 1, 3 * 20, 6, 2, SpellID::TrapDisarm, "A hidden bow: light damage, but ready again almost at once." },
+	{ "Shock Trap", 140, 6, 6 * 20, 4, 2, SpellID::RuneOfLight, "Looses a bolt of lightning at the hero who set it off." },
+	{ "Snare", 150, 11, 12 * 20, 0, 0, SpellID::RuneOfStone, "No damage: it holds the hero in place for your monsters to finish." },
 } };
 constexpr size_t NumBuildKinds = NumLairKinds + NumTrapKinds;
 
@@ -119,6 +119,8 @@ constexpr int MaxKeepLevel = 15;
 /** A spell's mana cost at its level: it falls as the spell levels up, as in the base game. */
 int SpellManaCost(size_t spell);
 int SpellManaCostAt(size_t spell, int level);
+/** The engine's spell level a spell casts at, for its level in this game. */
+int SpellEngineLevel(size_t spell);
 
 constexpr int LockDoorCost = 50;
 constexpr int BaitCost = 60;

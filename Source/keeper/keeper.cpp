@@ -1149,7 +1149,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::ChainLightning:
-			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellKinds[currentTool.index].spellLevel + State.spellLevels[currentTool.index] + 2, MaxCrawlRadius));
+			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellEngineLevel(currentTool.index) + 3, MaxCrawlRadius));
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::Guardian:
