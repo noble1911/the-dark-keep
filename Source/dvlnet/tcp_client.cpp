@@ -47,8 +47,9 @@ int tcp_client::join(std::string_view addrstr)
 		// Assume IPv6 address in square brackets, followed by port
 		// Example: [::1]:6113
 		size_t pos = addrstr.find(']', 1);
+		// [DARK KEEP] the brackets only mark where the port starts: the resolver wants the bare address
+		host = pos != std::string::npos ? addrstr.substr(1, pos - 1) : addrstr;
 		pos = pos != std::string::npos ? pos + 1 : addrstr.length();
-		host = addrstr.substr(0, pos);
 
 		if (pos != addrstr.length()) {
 			if (addrstr[pos] != ':') {
