@@ -281,6 +281,9 @@ void Execute(const std::string &line)
 	} else if (command == "trapfire") {
 		in >> a >> b >> c;
 		DevFireTrap(static_cast<size_t>(a), { b, c });
+	} else if (command == "sell") {
+		in >> a;
+		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
 	} else if (command == "raid") {
 		RequestStartRaid();
 	} else if (command == "gold") {
