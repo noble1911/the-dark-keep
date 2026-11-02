@@ -2349,6 +2349,8 @@ std::string PadHudPrompt(bool focused)
 	}
 	if (IsGameOver())
 		return fmt::format("{}: move   {}: press   {}: back", InputName(PadAction::Navigate), confirm, cancel);
+	if (LobbyPanelOpen())
+		return fmt::format("{}: move   {}: add or remove   {}: close", InputName(PadAction::Navigate), confirm, cancel);
 	if (focused)
 		return fmt::format("{}: move   {}: press   {}: back to the map   {} {}: tabs", InputName(PadAction::Navigate), confirm, cancel, InputName(PadAction::PrevTab), InputName(PadAction::NextTab));
 	if (MyPossessed() != nullptr)
