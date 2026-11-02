@@ -2176,9 +2176,14 @@ void DrawUi(const Surface &out)
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	DrawString(out, fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
-	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
+	// Late levels reach Raid 10/10 and Pop 100/100, which don't fit side by side with their words.
+	std::string raidLine = fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves());
+	std::string popLine = fmt::format("Pop {}/{}", supply, SupplyCap());
+	if (GetLineWidth(raidLine) + GetLineWidth(popLine) + 6 > columnWidth)
+		popLine = fmt::format("{}/{}", supply, SupplyCap());
+	DrawString(out, raidLine, { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, popLine, { { left, top + 19 }, { columnWidth, 16 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite) });
 	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 34 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	const int inFlight = GoldInFlight();
