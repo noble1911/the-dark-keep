@@ -419,6 +419,27 @@ void Execute(const std::string &line)
 	} else if (command == "sell") {
 		in >> a;
 		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
+	} else if (command == "herostate") {
+		// id carried fleeing trapsKnown: for testing what a late joiner hears.
+		int fleeing = 0;
+		int known = 0;
+		in >> a >> b >> fleeing >> known;
+		if (std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(a)); hero) {
+			hero->carried = b;
+			hero->fleeing = fleeing != 0;
+			hero->trapsKnown = static_cast<uint16_t>(known);
+			ApplyHeroSyncState(static_cast<size_t>(a), *hero);
+		}
+	} else if (command == "botstate") {
+		// slot carried fleeing potions.
+		int fleeing = 0;
+		in >> a >> b >> fleeing >> c;
+		if (std::optional<BotSyncState> bot = GetBotSyncState(static_cast<size_t>(a)); bot) {
+			bot->carried = b;
+			bot->fleeing = fleeing != 0;
+			bot->potions = c;
+			ApplyBotSyncState(static_cast<size_t>(a), *bot);
+		}
 	} else if (command == "win") {
 		DevForceVictory();
 	} else if (command == "portal") {

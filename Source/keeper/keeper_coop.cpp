@@ -157,7 +157,7 @@ void DrawCoopHostLeft(const Surface &out, int hudTop)
 	DrawPanel(out, banner);
 	DrawString(out, "The host has left, so this game is over.", { banner.position + Displacement { 0, 12 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
-	DrawString(out, fmt::format("Back to the menu in {}. What you earned is saved. (Esc: now)", FormatWait(hostLeftTicks)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
+	DrawString(out, fmt::format("Back to the menu in {}. (Esc: now)", FormatWait(hostLeftTicks)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 }
 
