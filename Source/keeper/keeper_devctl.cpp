@@ -143,6 +143,7 @@ struct RaidWatch {
 	int partyLife = 0;
 	int heroesNow = 0;
 	int keepNow = 0;
+	int closest = 9999;
 };
 RaidWatch watch;
 std::string autocast;
@@ -197,6 +198,7 @@ void WatchRaid()
 		watch.partyLife = party;
 		watch.heroesNow = heroes;
 		watch.keepNow = keep;
+		watch.closest = std::min(watch.closest, nearest);
 		if (!watch.reached && nearest <= 3) {
 			watch.reached = true;
 			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
@@ -232,8 +234,8 @@ void WatchRaid()
 		return;
 	}
 	watch.inRaid = false;
-	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
-	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
+	Output(fmt::format("raidend wave={} closest={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
+	    watch.wave, watch.closest, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
 }
 
 void WriteMonsters()
@@ -414,7 +416,11 @@ void Execute(const std::string &line)
 		RequestPlaceBait({ a, b });
 	} else if (command == "lock") {
 		in >> a >> b;
-		RequestLockDoor({ a, b });
+		std::string_view reason;
+		if (!CanLockDoorAt({ a, b }, &reason))
+			Output(fmt::format("lock {},{} refused: {}", a, b, reason));
+		else
+			RequestLockDoor({ a, b });
 	} else if (command == "sell") {
 		in >> a;
 		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });

@@ -32,6 +32,7 @@
 #include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
@@ -64,6 +65,7 @@ bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
 int TestCampaignLevel = 0;
+std::string TestCustomMap;
 int TestRank = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
@@ -568,11 +570,12 @@ CardText DescribeCard(const Tool &tool)
 		break;
 	}
 	case ToolType::LockDoor:
-		text.name = "Lock";
+		text.name = UsesBarricades() ? "Barricade" : "Lock";
 		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", LockDoorCost);
 		text.ready = State.vaultGold >= LockDoorCost;
-		text.description = "Bars a door. Heroes have to bash it down; Warriors do it fastest.";
+		text.description = UsesBarricades() ? "Bars a neck, wall to wall. No doors here, so heroes bash it down or go round."
+		                                    : "Bars a door. Heroes have to bash it down; Warriors do it fastest.";
 		break;
 	case ToolType::Bait:
 		text.name = "Bait";
@@ -1090,6 +1093,13 @@ void DrawToolPreview(const Surface &out)
 	}
 	case ToolType::LockDoor: {
 		const bool ok = CanLockDoorAt(tile, &reason);
+		if (UsesBarricades()) {
+			for (const Point at : BarricadeLine(tile))
+				DrawTileDiamond(out, at, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
+			if (!ok)
+				DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+			return;
+		}
 		const Object *door = FindDoorAt(tile);
 		DrawTileDiamond(out, door != nullptr ? door->position : tile, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 		if (!ok)
@@ -1272,7 +1282,7 @@ void DrawOverlays(const Surface &out)
 		if (!lock.active)
 			continue;
 		DrawTileDiamond(out, lock.position, PAL16_RED + 2);
-		DrawWorldLabel(out, lock.position, fmt::format("Locked ({})", lock.strength), UiFlags::ColorRed);
+		DrawWorldLabel(out, lock.position, fmt::format("{} ({})", UsesBarricades() ? "Barred" : "Locked", lock.strength), UiFlags::ColorRed);
 	}
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {

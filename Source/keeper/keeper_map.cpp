@@ -67,6 +67,7 @@ struct TilesetInfo {
 	StairsShape down;
 	/** Each InitLxTriggers's dPiece values, so a hostile tile grid can't overflow trigs[]. */
 	std::array<uint16_t, 4> triggerPieces;
+	/** Real door objects. Caves': fenced gates. */
 	bool doors;
 	bool arches;
 };
@@ -84,7 +85,7 @@ const std::array<TilesetInfo, NumMapTilesets> Tilesets = { {
 	{ "Caves", DTYPE_CAVES, "levels\\l3data\\l3.til",
 		{ 3, 4, "######......", { 1, 3 } },
 		{ 4, 3, "##..##..##..", { 3, 1 } },
-		{ 170, 167, 548, 0 }, false, false },
+		{ 170, 167, 548, 0 }, true, false },
 	{ "Hell", DTYPE_HELL, "levels\\l4data\\l4.til",
 		{ 4, 5, "....................", { 6, 6 } },
 		{ 5, 5, ".........................", { 7, 5 } },
@@ -223,6 +224,25 @@ void BuildCatacombs(const KeepMap &map, const CellGrid &grid, bool decorate)
 	KeeperL2Build(layout, map.entrance, map.vault, decorate);
 }
 
+void BuildCavesOrNest(const KeepMap &map, const CellGrid &grid, bool decorate)
+{
+	// A cave's walls aren't cells, so a door isn't in one: the cell is floor, and a fence crosses the cave there.
+	CellGrid floorPlan = grid;
+	uint8_t gates[DMAXX][DMAXY] = {};
+	if (map.tileset == MapTileset::Caves) {
+		for (int x = 0; x < DMAXX; x++) {
+			for (int y = 0; y < DMAXY; y++) {
+				if (static_cast<MapCell>(grid[x][y]) == MapCell::Door) {
+					floorPlan[x][y] = static_cast<uint8_t>(MapCell::Floor);
+					gates[x][y] = 1;
+				}
+			}
+		}
+	}
+	SetMaskFromCells(floorPlan);
+	KeeperL3Build(map.entrance, map.vault, gates, decorate);
+}
+
 void BuildDungeonGrid(const KeepMap &map, bool decorate)
 {
 	const CellGrid grid = EffectiveCells(map);
@@ -239,8 +259,7 @@ void BuildDungeonGrid(const KeepMap &map, bool decorate)
 		break;
 	case MapTileset::Caves:
 	case MapTileset::Nest:
-		SetMaskFromCells(grid);
-		KeeperL3Build(map.entrance, map.vault, decorate);
+		BuildCavesOrNest(map, grid, decorate);
 		break;
 	case MapTileset::Hell:
 		SetMaskFromCells(grid);
@@ -276,6 +295,19 @@ void RunPass3(MapTileset tileset)
 		KeeperL4Pass3();
 		break;
 	}
+}
+
+bool HasDoorObject(Point cell)
+{
+	const Point first = cell.megaToWorld();
+	for (int dx = 0; dx < 2; dx++) {
+		for (int dy = 0; dy < 2; dy++) {
+			const Object *object = FindObjectAtPosition(first + Displacement { dx, dy });
+			if (object != nullptr && object->isDoor())
+				return true;
+		}
+	}
+	return false;
 }
 
 // ---- the file --------------------------------------------------------------------------------
@@ -834,8 +866,21 @@ bool CanPlayMap(const std::string &path)
 	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
 	if (!bytes.has_value())
 		return false;
-	const tl::expected<KeepMap, std::string> map = ParseMap(bytes->data(), bytes->size());
-	return map.has_value() && map->playable && IsMapTilesetInstalled(map->tileset);
+	return CheckMapBytes(bytes->data(), bytes->size()).has_value();
+}
+
+tl::expected<void, std::string> CheckMapBytes(const std::byte *data, size_t size)
+{
+	const tl::expected<KeepMap, std::string> map = ParseMap(data, size);
+	if (!map.has_value())
+		return tl::make_unexpected(map.error());
+	if (!map->playable)
+		return tl::make_unexpected("it is unfinished");
+	if (!HasPosition(map->entrance) || !HasPosition(map->vault))
+		return tl::make_unexpected("it has no entrance or no vault");
+	if (!IsMapTilesetInstalled(map->tileset))
+		return tl::make_unexpected(fmt::format("the game data here has no {} tiles", Info(map->tileset).name));
+	return CheckTilesFitLoadedTileset(*map);
 }
 
 tl::expected<void, std::string> LoadMapTilesetData(MapTileset tileset)
@@ -908,7 +953,7 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 				continue;
 			if (!(cell == MapCell::Door ? Info(map.tileset).doors : Info(map.tileset).arches))
 				unavailableOpenings++;
-			else if (!IsOpeningSound(grid, x, y))
+			else if (map.tileset == MapTileset::Caves ? !HasDoorObject({ x, y }) : !IsOpeningSound(grid, x, y))
 				badOpenings++;
 		}
 	}
@@ -956,7 +1001,7 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 	if (!TriggerCountIsSafe(map))
 		problems.push_back({ "Too many staircases" });
 	if (badOpenings > 0)
-		problems.push_back({ fmt::format("{} door(s) not in a straight wall between floors", badOpenings), false });
+		problems.push_back({ map.tileset == MapTileset::Caves ? fmt::format("{} gate(s) didn't form: put them in a straight stretch, two or more floor cells wide", badOpenings) : fmt::format("{} door(s) not in a straight wall between floors", badOpenings), false });
 	if (unavailableOpenings > 0)
 		problems.push_back({ fmt::format("{} door(s) can't be shown in {}: they'll be plain wall", unavailableOpenings, MapTilesetName(map.tileset)), false });
 	for (const MapObject &object : map.objects) {
@@ -1068,6 +1113,9 @@ bool InitMapObjects()
 		break;
 	case MapTileset::Crypt:
 		AddCryptObjects(0, 0, MAXDUNX, MAXDUNY);
+		break;
+	case MapTileset::Caves:
+		AddL3Objs(0, 0, MAXDUNX, MAXDUNY);
 		break;
 	default:
 		break;

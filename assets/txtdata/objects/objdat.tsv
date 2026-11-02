@@ -108,3 +108,4 @@ OBJ_L5LDOOR	l5door	0	0	DTYPE_CRYPT			Light,Trap	1	0	64	Bottom,Middle
 OBJ_L5RDOOR	l5door	0	0	DTYPE_CRYPT			Light,Trap	2	0	64	Bottom,Middle
 OBJ_L5LEVER	l5lever	24	24				Solid,MissilesPassThrough,Light,Trap	1	1	96	Bottom
 OBJ_L5SARC	l5sarco	21	24				Solid,MissilesPassThrough,Light,Trap	1	5	128	Bottom,Middle
+OBJ_KEEPBARRICADE	barrel	1	24				Solid,MissilesPassThrough,Light	1	9	96	Bottom,Middle

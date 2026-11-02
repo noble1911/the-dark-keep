@@ -15,6 +15,7 @@
 #include "engine/path.h"
 #include "gamemenu.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
@@ -543,11 +544,16 @@ void ApplyDoorLocked(uint8_t slot, Point doorPosition)
 {
 	if (slot >= MaxLocks || (State.locks[slot].active && State.locks[slot].position == doorPosition))
 		return;
-	Object *door = FindObjectAtPosition(doorPosition);
-	if (door == nullptr || !door->isDoor())
-		return;
-	if (!KeeperIsDoorClosed(*door))
-		KeeperOperateDoor(*door, false); // every client closes it locally
+	if (UsesBarricades()) {
+		if (!PlaceBarricade(slot, doorPosition))
+			return;
+	} else {
+		Object *door = FindObjectAtPosition(doorPosition);
+		if (door == nullptr || !door->isDoor())
+			return;
+		if (!KeeperIsDoorClosed(*door))
+			KeeperOperateDoor(*door, false); // every client closes it locally
+	}
 	DoorLock &lock = State.locks[slot];
 	lock.active = true;
 	lock.position = doorPosition;
@@ -617,6 +623,7 @@ void ApplySold(uint8_t type, uint8_t slot)
 	case StructureType::Lock:
 		if (slot < MaxLocks && State.locks[slot].active) {
 			State.locks[slot] = {};
+			RemoveBarricade(slot);
 			RebuildPaths();
 		}
 		break;
@@ -1182,6 +1189,7 @@ void OnPlayerJoinedLevel(const Player &player)
 void ResetGame(Point entrance, Point vault)
 {
 	State = {};
+	ForgetBarricades();
 	State.entrance = entrance;
 	State.vault = vault;
 	State.vaultGold = StartingGold();
@@ -1462,6 +1470,8 @@ std::optional<StructureRef> FindStructureAt(Point tile)
 		if (State.baits[i].active && State.baits[i].position == tile)
 			return StructureRef { StructureType::Bait, i };
 	}
+	if (const std::optional<size_t> barricade = BarricadeSlotAt(tile); barricade)
+		return StructureRef { StructureType::Lock, *barricade };
 	if (const Object *door = FindDoorAt(tile); door != nullptr) {
 		for (size_t i = 0; i < MaxLocks; i++) {
 			if (State.locks[i].active && State.locks[i].position == door->position)
@@ -1578,6 +1588,26 @@ bool CanLockDoorAt(Point tile, std::string_view *reason)
 	};
 	if (IsSiegeOver())
 		return fail("The siege is over");
+	if (UsesBarricades()) {
+		const std::vector<Point> line = BarricadeLine(tile);
+		if (line.empty())
+			return fail("Too wide to bar: find a neck");
+		if (BarricadeSlotAt(tile))
+			return fail("Already barred");
+		for (const Point at : line) {
+			if (BarricadeSlotAt(at))
+				return fail("Already barred");
+			if (dMonster[at.x][at.y] != 0 || dPlayer[at.x][at.y] != 0)
+				return fail("Something is in the way");
+			if (at.WalkingDistance(State.entrance) < EntranceKeepOut || at.WalkingDistance(State.vault) < VaultKeepOut)
+				return fail("Too close to the stairs");
+			if (IsHeroNear(at, 3))
+				return fail("A hero is in the way");
+		}
+		if (State.vaultGold < LockDoorCost)
+			return fail("Not enough gold");
+		return true;
+	}
 	const Object *door = FindDoorAt(tile);
 	if (door == nullptr)
 		return fail("Point at a door");

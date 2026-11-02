@@ -308,6 +308,10 @@ void ApplyAutoStartSetup()
 		currentSetup = SetupForMapEditor();
 		return;
 	}
+	if (!TestCustomMap.empty()) {
+		SetCurrentSetup(SetupForCustomMap(TestCustomMap));
+		return;
+	}
 	if (TestCampaignLevel > 0)
 		devRank = std::clamp(TestCampaignLevel, 1, NumCampaignLevels);
 	SetCurrentSetup(SetupForCampaignLevel(TestCampaignLevel > 0 ? TestCampaignLevel : 1));
@@ -408,6 +412,9 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 		// The host's bytes, under a name of our own choosing: nothing from the network names a path.
 		if (mapSize > MaxMapBytes)
 			app_fatal("The host's map is too large.");
+		// It's data from another player, and carrying on without it would be a different keep from theirs.
+		if (const tl::expected<void, std::string> usable = CheckMapBytes(mapBytes, mapSize); !usable.has_value())
+			app_fatal(fmt::format("The host's map can't be used: {}.", usable.error()));
 		setup.mapFile = ReceivedMapPath();
 		FILE *file = OpenFile(setup.mapFile.c_str(), "wb");
 		const bool written = file != nullptr && std::fwrite(mapBytes, 1, mapSize, file) == mapSize;

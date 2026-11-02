@@ -150,6 +150,8 @@ bool IsMapTilesetLoaded(MapTileset tileset);
 bool IsMapTilesetInstalled(MapTileset tileset);
 /** True if the map can be read, is finished, and its tileset is installed. */
 bool CanPlayMap(const std::string &path);
+/** Everything the game can check of a map before building it, as for one that came from another player. */
+tl::expected<void, std::string> CheckMapBytes(const std::byte *data, size_t size);
 /** Sets leveltype and loads the tile data, for callers with no game level (LoadGameLevel does this itself). */
 tl::expected<void, std::string> LoadMapTilesetData(MapTileset tileset);
 /** The game's stairs triggers for the level as it stands. */

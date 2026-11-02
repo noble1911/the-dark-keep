@@ -2191,8 +2191,64 @@ void CreateL3Dungeon(uint32_t rseed, lvl_entry entry)
 	PlaceLights();
 }
 
+// [DARK KEEP] A wooden fence right across the cave through (i, j), with a gate at (i, j): Fence(), but where the author says.
+static void KeeperPlaceFenceGate(int i, int j)
+{
+	if (dungeon[i][j] != 7)
+		return;
+	int y1 = j;
+	while (y1 >= 0 && FenceVerticalUp(i, y1))
+		y1--;
+	y1++;
+	int y2 = j;
+	while (y2 < DMAXY && FenceVerticalDown(i, y2))
+		y2++;
+	y2--;
+	int x1 = i;
+	while (x1 >= 0 && FenceHorizontalLeft(x1, j))
+		x1--;
+	x1++;
+	int x2 = i;
+	while (x2 < DMAXX && FenceHorizontalRight(x2, j))
+		x2++;
+	x2--;
+	const bool vertical = dungeon[i][y1] != 7 && dungeon[i][y2] != 7 && y2 - y1 > 1;
+	const bool horizontal = dungeon[x1][j] != 7 && dungeon[x2][j] != 7 && x2 - x1 > 1;
+	if (vertical && (!horizontal || y2 - y1 <= x2 - x1)) {
+		for (int y = y1; y <= y2; y++) {
+			if (y == j)
+				continue;
+			if (dungeon[i][y] == 7)
+				dungeon[i][y] = PickRandomlyAmong({ 137, 135 });
+			else if (dungeon[i][y] == 10)
+				dungeon[i][y] = 131;
+			else if (dungeon[i][y] == 126 || dungeon[i][y] == 129)
+				dungeon[i][y] = 133;
+			else if (dungeon[i][y] == 2)
+				dungeon[i][y] = 139;
+			else if (dungeon[i][y] == 134 || dungeon[i][y] == 136)
+				dungeon[i][y] = 138;
+		}
+	} else if (horizontal) {
+		for (int x = x1; x <= x2; x++) {
+			if (x == i)
+				continue;
+			if (dungeon[x][j] == 7)
+				dungeon[x][j] = PickRandomlyAmong({ 136, 134 });
+			else if (dungeon[x][j] == 9)
+				dungeon[x][j] = 130;
+			else if (dungeon[x][j] == 121 || dungeon[x][j] == 124)
+				dungeon[x][j] = 132;
+			else if (dungeon[x][j] == 4)
+				dungeon[x][j] = 140;
+			else if (dungeon[x][j] == 135 || dungeon[x][j] == 137)
+				dungeon[x][j] = 138;
+		}
+	}
+}
+
 // [DARK KEEP] Builds Caves or a Nest from an editor's mask (DungeonMask): caves are cut on the tile corners.
-void KeeperL3Build(Point stairsUp, Point stairsDown, bool decorate)
+void KeeperL3Build(Point stairsUp, Point stairsDown, const uint8_t gates[DMAXX][DMAXY], bool decorate)
 {
 	const bool nest = leveltype == DTYPE_NEST;
 	Protected.reset();
@@ -2206,6 +2262,16 @@ void KeeperL3Build(Point stairsUp, Point stairsDown, bool decorate)
 		(nest ? L6UP : L3UP).place(stairsUp);
 	if (stairsDown.x >= 0)
 		(nest ? L6DOWN : L3DOWN).place(stairsDown);
+	if (!nest) {
+		for (int j = 1; j < DMAXY - 1; j++) {
+			for (int i = 1; i < DMAXX - 1; i++) {
+				if (gates[i][j] != 0)
+					KeeperPlaceFenceGate(i, j);
+			}
+		}
+		AddFenceDoors();
+		FenceDoorFix();
+	}
 	if (decorate) {
 		if (nest) {
 			PlaceMiniSetRandom1x1(7, 29, 25);
