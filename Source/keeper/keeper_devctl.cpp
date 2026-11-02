@@ -6,6 +6,9 @@
 #include "keeper/keeper_devctl.hpp"
 
 #include <algorithm>
+#ifdef _WIN32
+#include <stdlib.h>
+#endif
 #include <cstdio>
 #include <deque>
 #include <filesystem>
@@ -652,6 +655,11 @@ void DevctlInit(std::string path)
 	enabled = true;
 	commandPath = std::move(path);
 	outputPath = commandPath + ".out";
+#ifdef _WIN32
+	// A failed assert must end the run and say why in a file: the usual message box would land on the user's desktop.
+	_set_error_mode(_OUT_TO_STDERR);
+#endif
+	(void)std::freopen((commandPath + ".err").c_str(), "w", stderr);
 }
 
 bool DevctlSkipsDraw()
