@@ -32,11 +32,8 @@
 #include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
-<<<<<<< HEAD
-#include "keeper/keeper_barricade.hpp"
-=======
 #include "keeper/keeper_alerts.hpp"
->>>>>>> b396891f9
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
@@ -209,11 +206,7 @@ void CenterCameraOn(Point tile)
 
 bool CanUseKeyboardCamera()
 {
-<<<<<<< HEAD
-	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsKeeperOverlayOpen();
-=======
-	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsHelpOpen();
->>>>>>> b396891f9
+	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsKeeperOverlayOpen() && !IsHelpOpen();
 }
 
 /** The engine's zoom renders a half-size view and doubles it. */
@@ -1324,7 +1317,6 @@ void SelectInBox(const Rectangle &box)
 	SetSelection(std::move(found));
 }
 
-<<<<<<< HEAD
 /** A ping in view: rings closing in on the tile. Out of view: an arrow at the edge of the screen pointing to it. */
 void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
 {
@@ -1361,7 +1353,8 @@ void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
 	}
 	const Rectangle label { { std::clamp(tip.x - 60, 0, out.w() - 120), std::clamp(tip.y + (uy > 0 ? -38 : 22), 0, maxY - 14) }, { 120, 14 } };
 	DrawString(out, name, label, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold | UiFlags::Outlined });
-=======
+}
+
 /** Raiders out of view: an arrow at the screen's edge, gold for one carrying your gold. */
 void DrawHeroArrows(const Surface &out)
 {
@@ -1392,7 +1385,6 @@ void DrawHeroArrows(const Surface &out)
 			DrawLine(out, tip, base, color, maxY);
 		}
 	}
->>>>>>> b396891f9
 }
 
 void DrawOverlays(const Surface &out)
@@ -1607,12 +1599,6 @@ std::string GameOverContinueLabel(const KeepSetup &next)
 	return fmt::format("Next: {} (Enter)", CampaignLevelRules(next.campaignLevel).name);
 }
 
-<<<<<<< HEAD
-Rectangle GameOverBanner(int width, int hudTop)
-{
-	return { { 0, hudTop / 2 - GameOverBannerHeight * 3 / 5 }, { width, GameOverBannerHeight } };
-}
-
 /** The banner's buttons, in order. */
 enum class GameOverChoice : uint8_t {
 	RetryRaid,
@@ -1634,18 +1620,6 @@ std::vector<GameOverChoice> GameOverChoices()
 	return choices;
 }
 
-/** Button `index` of the `count` in the banner's row. Three still fit on a small screen. */
-Rectangle GameOverButton(int width, int hudTop, int index, int count)
-{
-	const Rectangle banner = GameOverBanner(width, hudTop);
-	const int buttonWidth = std::min(GameOverButtonWidth, (width - (count + 1) * GameOverButtonGap) / count);
-	const int row = count * buttonWidth + (count - 1) * GameOverButtonGap;
-	return { { (width - row) / 2 + index * (buttonWidth + GameOverButtonGap), banner.position.y + banner.size.height - GameOverButtonHeight - 6 },
-		{ buttonWidth, GameOverButtonHeight } };
-}
-
-=======
->>>>>>> b396891f9
 void ChooseGameOverContinue()
 {
 	if (IsEditorTestRun()) {
@@ -1815,13 +1789,10 @@ void OnLevelLoaded()
 	ResetUnits();
 	LoadSpellBar();
 	LobbyOnLevelLoaded(equippedSpells);
-<<<<<<< HEAD
 	CoopOnLevelLoaded();
-=======
 	AlertsOnLevelLoaded();
 	TutorialOnLevelLoaded();
 	ForgetMapSummary();
->>>>>>> b396891f9
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -2063,7 +2034,6 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::Sell:
 		SellSelected();
 		return;
-<<<<<<< HEAD
 	case KeeperAction::CycleSpeed:
 		CycleGameSpeed();
 		return;
@@ -2075,10 +2045,9 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::HoldTimer:
 		ToggleHeldTimer();
-=======
+		return;
 	case KeeperAction::Help:
 		ToggleHelp();
->>>>>>> b396891f9
 		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
@@ -2098,7 +2067,17 @@ bool OnKeyDown(SDL_Keycode key)
 	if (EditorOnTestKey(key))
 		return true;
 
-<<<<<<< HEAD
+	// F1 always opens the help: the engine's own is for a hero's game.
+	if (key == SDLK_F1) {
+		ToggleHelp();
+		return true;
+	}
+	if (IsHelpOpen()) {
+		if (key == SDLK_ESCAPE || IsKeyBoundTo(KeeperAction::Help, static_cast<uint32_t>(key)))
+			CloseHelp();
+		return true; // nothing else happens behind the help
+	}
+
 	if (IsKeeperOverlayOpen()) {
 		if (key == SDLK_ESCAPE)
 			CloseKeeperOverlay();
@@ -2120,20 +2099,6 @@ bool OnKeyDown(SDL_Keycode key)
 		}
 	}
 	if (IsGameOver() && key == SDLK_L && CanRetryRaid() && GameOverContinue()) {
-=======
-	// F1 always opens the help: the engine's own is for a hero's game.
-	if (key == SDLK_F1) {
-		ToggleHelp();
-		return true;
-	}
-	if (IsHelpOpen()) {
-		if (key == SDLK_ESCAPE || IsKeyBoundTo(KeeperAction::Help, static_cast<uint32_t>(key)))
-			CloseHelp();
-		return true; // nothing else happens behind the help
-	}
-
-	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
->>>>>>> b396891f9
 		ChooseGameOverContinue();
 		return true;
 	}
@@ -2216,12 +2181,12 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
-<<<<<<< HEAD
 	if (CoopHasHostLeft())
 		return true; // nothing left to order about
 	if (IsKeeperOverlayOpen()) {
 		KeeperOverlayClick();
-=======
+		return true;
+	}
 	if (IsHelpOpen()) {
 		HelpOnClick(UiMouse());
 		return true;
@@ -2234,7 +2199,6 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		return true;
 	if (const std::optional<Point> tile = AlertsOnClick(UiMouse()); tile) {
 		CenterCameraOn(*tile);
->>>>>>> b396891f9
 		return true;
 	}
 	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
@@ -2243,12 +2207,10 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		return true;
 	}
 	if (IsGameOver()) {
-<<<<<<< HEAD
-		const int width = UiHitSurface().w();
-		const int top = HudRect().position.y;
+		const Surface ui = UiHitSurface();
 		const std::vector<GameOverChoice> choices = GameOverChoices();
 		for (size_t i = 0; i < choices.size(); i++) {
-			if (!Contains(GameOverButton(width, top, static_cast<int>(i), static_cast<int>(choices.size())), UiMouse()))
+			if (!Contains(MapSummaryButton(ui, static_cast<int>(i), static_cast<int>(choices.size())), UiMouse()))
 				continue;
 			switch (choices[i]) {
 			case GameOverChoice::RetryRaid:
@@ -2264,17 +2226,6 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 				gamemenu_exit_game(false);
 				break;
 			}
-=======
-		const Surface ui = UiHitSurface();
-		const std::optional<KeepSetup> next = GameOverContinue();
-		const int count = next ? 2 : 1;
-		if (next && Contains(MapSummaryButton(ui, 0, count), UiMouse())) {
-			ChooseGameOverContinue();
-			return true;
-		}
-		if (Contains(MapSummaryButton(ui, count - 1, count), UiMouse())) {
-			gamemenu_exit_game(false);
->>>>>>> b396891f9
 			return true;
 		}
 		if (Contains(MapSummaryRect(ui), UiMouse()))
@@ -2361,13 +2312,10 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
-<<<<<<< HEAD
 	if (CoopHasHostLeft() || IsKeeperOverlayOpen())
 		return true;
-=======
 	if (IsHelpOpen())
 		return true; // nothing happens behind the help
->>>>>>> b396891f9
 	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
@@ -2389,13 +2337,12 @@ bool OnMouseWheel(int deltaY)
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseWheel(deltaY);
-<<<<<<< HEAD
 	if (IsKeeperOverlayOpen()) {
 		KeeperOverlayWheel(deltaY);
-=======
+		return true;
+	}
 	if (IsHelpOpen()) {
 		HelpOnWheel(deltaY);
->>>>>>> b396891f9
 		return true;
 	}
 	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
@@ -2615,7 +2562,6 @@ void DrawUi(const Surface &out)
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
 	}
 
-<<<<<<< HEAD
 	if (PauseMode != 0 && !gmenu_is_active()) {
 		const std::string line = "Paused: orders still work";
 		const int width = GetLineWidth(line) + 16;
@@ -2654,11 +2600,6 @@ void DrawUi(const Surface &out)
 				break;
 			}
 		}
-=======
-	if (IsGameOver()) {
-		const std::optional<KeepSetup> next = GameOverContinue();
-		DrawMapSummary(out, UiMouse(), next ? GameOverContinueLabel(*next) : std::string(), IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
->>>>>>> b396891f9
 	}
 	DrawCoopHostLeft(out, top);
 	EditorDrawTestBanner(out);

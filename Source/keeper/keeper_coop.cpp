@@ -120,7 +120,7 @@ std::string CoopGameOverLine()
 		if (id != MyPlayerId && inKeeper[id] && Players[id].plractive)
 			return fmt::format(" {} is in the Keeper.", Players[id]._pName);
 	}
-	return IsJoinedGame() ? " Waiting for the host to choose what is next." : "";
+	return ""; // a joiner's summary already says the host chooses
 }
 
 void DrawCoopKeeperBanner(const Surface &out)

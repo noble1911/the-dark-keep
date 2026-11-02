@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "engine/point.hpp"
 #include "engine/rectangle.hpp"
@@ -19,9 +20,9 @@ void ForgetMapSummary();
 
 /** The panel on `out`, which is the whole UI surface. */
 Rectangle MapSummaryRect(const Surface &out);
-/** Button `index` of `count` along the panel's bottom (the continue button, if any, comes first). */
+/** Button `index` of `count` along the panel's bottom (the main choice comes first). */
 Rectangle MapSummaryButton(const Surface &out, int index, int count);
-/** `continueLabel` is empty if this master doesn't choose what comes next. */
-void DrawMapSummary(const Surface &out, Point mouse, const std::string &continueLabel, const std::string &leaveLabel);
+/** `labels` are the buttons, the main choice first. `note` is a line about them, such as what a retry costs. */
+void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::string> &labels, const std::string &note);
 
 } // namespace devilution::keeper

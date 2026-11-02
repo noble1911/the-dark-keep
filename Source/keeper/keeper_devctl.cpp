@@ -32,11 +32,8 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
-<<<<<<< HEAD
 #include "keeper/keeper_resume.hpp"
-=======
 #include "keeper/keeper_tutorial.hpp"
->>>>>>> b396891f9
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "missiles.h"

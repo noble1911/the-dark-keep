@@ -376,11 +376,8 @@ void NoteRaidStarted(uint8_t wave)
 	current.wave = wave;
 	raidActive = true;
 	summaryVisible = false;
-<<<<<<< HEAD
 	ProfileMarkRaidStart();
-=======
 	xpAtRaidStart = MapXpEarned();
->>>>>>> b396891f9
 }
 
 void NoteRaidEnded(Phase outcome, int tribute)

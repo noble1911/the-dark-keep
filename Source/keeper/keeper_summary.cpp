@@ -158,7 +158,7 @@ Rectangle MapSummaryRect(const Surface &out)
 	}
 	if (RenownAvailable() > 0)
 		content += LineHeight + 1 + (info.unlocks.empty() ? 0 : UnlockCardHeight + 4);
-	content += LineHeight + 6 + ButtonHeight + Margin; // the next step and the buttons
+	content += 2 * LineHeight + 6 + ButtonHeight + Margin; // the note, the next step and the buttons
 	const int height = std::min({ content, out.h() - 2 * Margin, MaxHeight });
 	// Over the view, not the bar, when it fits.
 	const int hudless = out.h() - 2 * Margin;
@@ -174,7 +174,7 @@ Rectangle MapSummaryButton(const Surface &out, int index, int count)
 	return { { panel.position.x + (panel.size.width - row) / 2 + index * (width + ButtonGap), panel.position.y + panel.size.height - ButtonHeight - Margin }, { width, ButtonHeight } };
 }
 
-void DrawMapSummary(const Surface &out, Point mouse, const std::string &continueLabel, const std::string &leaveLabel)
+void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::string> &labels, const std::string &note)
 {
 	const Report &info = GetReport();
 	const bool won = State.phase == Phase::Victory;
@@ -218,7 +218,7 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::string &continue
 	DrawProgress(out, statX, statY, statWidth);
 	y += PortraitHeight + 6;
 
-	const int bottom = MapSummaryButton(out, 0, 1).position.y - 18;
+	const int bottom = MapSummaryButton(out, 0, 1).position.y - 18 - LineHeight;
 
 	if (!won) {
 		// Why, and something to try.
@@ -260,13 +260,15 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::string &continue
 	// The next step.
 	std::string next;
 	if (IsJoinedGame())
-		next = renown > 0 ? "The host chooses what is next. Spend Renown from the main menu's Keeper screen." : "The host chooses what is next.";
-	else if (!continueLabel.empty() && renown > 0 && !IsEditorTestRun())
-		next = gbIsMultiplayer ? "Spend Renown from the main menu's Keeper screen." : "The Keeper screen comes next: spend your Renown there.";
+		next = renown > 0 ? "The host chooses what is next. Spend Renown on the Keeper screen." : "The host chooses what is next.";
+	else if (labels.size() > 1 && renown > 0 && !IsEditorTestRun())
+		next = gbIsMultiplayer ? "Spend Renown on the Keeper screen." : "The Keeper screen comes next: spend your Renown there.";
+	if (!note.empty())
+		DrawString(out, FitText(note, inner), { { panel.position.x, bottom }, { panel.size.width, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	if (!next.empty())
-		DrawString(out, FitText(next, inner), { { panel.position.x, bottom }, { panel.size.width, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+		DrawString(out, FitText(next, inner), { { panel.position.x, bottom + LineHeight }, { panel.size.width, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 
-	const int count = continueLabel.empty() ? 1 : 2;
+	const int count = static_cast<int>(labels.size());
 	const auto drawButton = [&](int index, std::string_view label, bool primary) {
 		const Rectangle button = MapSummaryButton(out, index, count);
 		FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, primary ? PAL16_RED + 12 : PAL16_GRAY + 13);
@@ -274,9 +276,8 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::string &continue
 		DrawString(out, FitText(label, button.size.width - 4), { button.position + Displacement { 0, 5 }, { button.size.width, LineHeight } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (primary || button.contains(mouse) ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	};
-	if (!continueLabel.empty())
-		drawButton(0, continueLabel, true);
-	drawButton(count - 1, leaveLabel, continueLabel.empty());
+	for (int i = 0; i < count; i++)
+		drawButton(i, labels[i], i == 0);
 }
 
 } // namespace devilution::keeper
