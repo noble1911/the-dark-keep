@@ -115,8 +115,6 @@ std::vector<std::byte> SerializeMap(const KeepMap &map);
 /** Never trusts its input: anything wrong comes back as a message for the player. */
 tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size);
 
-/** The "maps" folder under the save directory. Created if missing. */
-std::string MapsFolder();
 /** File names of the player's own maps, sorted. */
 std::vector<std::string> ListMapFiles();
 /** A file name for a map name: only letters, digits, spaces, '-' and '_' survive. */

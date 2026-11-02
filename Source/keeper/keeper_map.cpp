@@ -828,13 +828,6 @@ tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size)
 	return map;
 }
 
-std::string MapsFolder()
-{
-	std::string folder = paths::PrefPath() + "maps" + DIRECTORY_SEPARATOR_STR;
-	RecursivelyCreateDir(folder.c_str());
-	return folder;
-}
-
 std::vector<std::string> ListMapFiles()
 {
 	std::vector<std::string> names;

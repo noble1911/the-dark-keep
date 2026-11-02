@@ -295,7 +295,8 @@ std::vector<std::string> ListCustomMaps()
 	constexpr std::string_view Extension = ".dkmap";
 	std::vector<std::string> maps;
 	for (std::string &file : ListFiles(MapsFolder().c_str())) {
-		if (file.size() <= Extension.size())
+		// The editor's autosave and test-run files start with an underscore.
+		if (file.size() <= Extension.size() || file[0] == '_')
 			continue;
 		const std::string_view tail = std::string_view(file).substr(file.size() - Extension.size());
 		const bool matches = std::equal(tail.begin(), tail.end(), Extension.begin(), [](char a, char b) {
