@@ -18,6 +18,8 @@ void DevctlInit(std::string path);
 
 /** Runs due commands. Called once per presented frame, whatever screen is up. */
 void DevctlFrame();
+/** `drawevery N`: draw one frame in N, so a long sweep or soak runs faster. */
+bool DevctlSkipsDraw();
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }

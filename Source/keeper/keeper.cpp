@@ -32,6 +32,9 @@
 #include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
+#ifdef KEEPER_DEVCTL
+#include "keeper/keeper_devqa.hpp"
+#endif
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
@@ -1665,6 +1668,9 @@ void Tick()
 	UpdateUnitMarkers();
 
 	tickCounter++;
+#ifdef KEEPER_DEVCTL
+	DevQaTick();
+#endif
 	if (tickCounter % 4 == 0) {
 		for (size_t i = 0; i < ActiveMonsterCount; i++) {
 			Monster &monster = Monsters[ActiveMonsters[i]];
@@ -1684,6 +1690,11 @@ uint32_t DevKeeperTicks()
 void DevCenterCamera(Point tile)
 {
 	CenterCameraOn(tile);
+}
+
+Point DevTileOnScreen(Point tile)
+{
+	return TileCenter(tile);
 }
 
 void UpdateCamera()

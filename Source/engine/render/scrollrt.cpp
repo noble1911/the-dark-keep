@@ -84,6 +84,9 @@
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
+#ifdef KEEPER_DEVCTL
+#include "keeper/keeper_devctl.hpp" // [DARK KEEP]
+#endif
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
@@ -1862,6 +1865,10 @@ void DrawAndBlit()
 	if (!gbRunGame || HeadlessMode) {
 		return;
 	}
+#ifdef KEEPER_DEVCTL
+	if (keeper::DevctlSkipsDraw()) // [DARK KEEP] dev/test: long sweeps draw only now and then
+		return;
+#endif
 
 	int hgt = 0;
 	bool drawHealth = IsRedrawComponent(PanelDrawComponent::Health);

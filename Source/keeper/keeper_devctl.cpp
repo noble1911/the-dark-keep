@@ -25,11 +25,14 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_devqa.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_input.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
+#include "missiles.h"
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
@@ -38,6 +41,8 @@
 #include "utils/surface_to_png.hpp"
 
 namespace devilution::keeper {
+
+void DevHallSelect(int whichTab, size_t index);
 
 namespace {
 
@@ -95,6 +100,20 @@ void PushKey(SDL_Keycode key)
 	event.type = SDL_KEYUP;
 	event.key.state = SDL_RELEASED;
 	SDL_PushEvent(&event);
+}
+
+void WriteShot(const std::string &path)
+{
+	SDL_RWops *file = SDL_RWFromFile(path.c_str(), "wb");
+	if (file == nullptr) {
+		Output(fmt::format("error cannot write {}", path));
+		return;
+	}
+	// As true colour: the 8-bit surface's palette doesn't survive saving as PNG.
+	SDL_Surface *rgb = SDL_ConvertSurfaceFormat(PalSurface, SDL_PIXELFORMAT_RGB24, 0);
+	if (const auto result = WriteSurfaceToFilePng(Surface(rgb), file); !result.has_value())
+		Output(fmt::format("error {}", result.error()));
+	SDL_FreeSurface(rgb);
 }
 
 void WriteState()
@@ -284,6 +303,119 @@ void WriteMap()
 	}
 }
 
+void WriteLairs()
+{
+	std::string selected;
+	for (const size_t slot : SelectedLairs())
+		selected += fmt::format("{} ", slot);
+	Output(fmt::format("selected {}", selected));
+	for (size_t slot = 0; slot < State.lairs.size(); slot++) {
+		const Lair &lair = State.lairs[slot];
+		if (!lair.active)
+			continue;
+		std::string route;
+		for (size_t i = 0; i < lair.routeCount; i++)
+			route += fmt::format("{},{} ", lair.route[i].x, lair.route[i].y);
+		std::string members;
+		for (size_t i = 0; i < lair.members.size(); i++) {
+			if (lair.members[i] >= 0) {
+				const Monster &monster = Monsters[lair.members[i]];
+				members += fmt::format("{}@{},{}/leg{}/mode{} ", lair.members[i], monster.position.tile.x, monster.position.tile.y, lair.patrolLeg[i], static_cast<int>(monster.mode));
+			}
+		}
+		Output(fmt::format("lair {} kind={} at={},{} rally={} {},{} route=[{}] members=[{}]", slot, lair.kind, lair.position.x, lair.position.y, lair.hasRally, lair.rally.x, lair.rally.y, route, members));
+	}
+}
+
+/** Endurance: spends the keep's gold on the dearest kinds that fit, closest to the vault first. */
+void AutoBuild()
+{
+	std::vector<Point> tiles;
+	for (int x = 1; x < MAXDUNX - 1; x++) {
+		for (int y = 1; y < MAXDUNY - 1; y++) {
+			if (IsOpenFloor({ x, y }))
+				tiles.push_back({ x, y });
+		}
+	}
+	std::sort(tiles.begin(), tiles.end(), [](Point a, Point b) { return a.WalkingDistance(State.vault) < b.WalkingDistance(State.vault); });
+	std::vector<size_t> kinds = MusterKinds();
+	std::sort(kinds.begin(), kinds.end(), [](size_t a, size_t b) { return BuildKinds[a].cost > BuildKinds[b].cost; });
+	int built = 0;
+	int used = SupplyUsed();
+	size_t from = 0;
+	for (const size_t kind : kinds) {
+		// Only the top few, so one level doesn't load the whole roster.
+		if (kind == kinds[std::min<size_t>(6, kinds.size() - 1)])
+			break;
+		while (used + BuildKinds[kind].supply <= SupplyCap() && built < 24 && from < tiles.size()) {
+			std::string_view reason;
+			if (CanBuildAt(kind, tiles[from], &reason)) {
+				RequestBuild(kind, tiles[from]);
+				used += BuildKinds[kind].supply;
+				built++;
+				from += 4;
+			}
+			from++;
+		}
+	}
+	for (size_t trap = 0; trap < NumTrapKinds; trap++) {
+		if (IsTrapAvailable(trap)) {
+			for (; from < tiles.size(); from++) {
+				if (CanBuildAt(NumLairKinds + trap, tiles[from])) {
+					RequestBuild(NumLairKinds + trap, tiles[from]);
+					built++;
+					break;
+				}
+			}
+		}
+	}
+	Output(fmt::format("autobuild built={} pop={}/{} gold={}", built, used, SupplyCap(), State.vaultGold));
+}
+
+/** Endurance: spends all Renown, as a player would on the Keeper screen. */
+void AutoProfile()
+{
+	int bought = 0;
+	for (size_t kind = 0; kind < NumLairKinds; kind++)
+		bought += UnlockKind(kind) ? 1 : 0;
+	for (size_t round = 0; round < 2; round++) {
+		for (size_t spell = 0; spell < NumSpellKinds; spell++) {
+			const bool owned = OwnedSpellLevel(spell) > 0;
+			if (RaiseSpell(spell)) {
+				bought++;
+				if (!owned)
+					ToggleProfileSpell(spell);
+			}
+		}
+		for (size_t trap = 0; trap < NumTrapKinds; trap++)
+			bought += RaiseTrap(trap) ? 1 : 0;
+	}
+	Output(fmt::format("autoprofile bought={} klevel={} renown={} xp={}", bought, KeeperLevel(), RenownAvailable(), ProfileXp()));
+}
+
+int drawEvery = 1;
+uint32_t drawCounter = 0;
+
+struct Perf {
+	uint32_t frames = 0;
+	uint32_t start = 0;
+	uint32_t worst = 0;
+	uint32_t last = 0;
+	uint32_t startTick = 0;
+};
+Perf perf;
+
+void WritePerf()
+{
+	const uint32_t now = SDL_GetTicks();
+	const uint32_t elapsed = now - perf.start;
+	Output(fmt::format("perf t={} frames={} msPerFrame={:.2f} worstFrame={} keepTicks={} activeMonsters={} missiles={}", now, perf.frames, perf.frames > 0 ? static_cast<double>(elapsed) / perf.frames : 0.0, perf.worst, IsActive() ? DevKeeperTicks() : 0, IsActive() ? ActiveMonsterCount : 0, IsActive() ? Missiles.size() : 0));
+	const uint32_t last = perf.last;
+	perf = {};
+	perf.start = now;
+	perf.last = last;
+}
+
 void Execute(const std::string &line)
 {
 	std::istringstream in(line);
@@ -337,16 +469,7 @@ void Execute(const std::string &line)
 		SDL_PushEvent(&event);
 	} else if (command == "shot") {
 		in >> word;
-		SDL_RWops *file = SDL_RWFromFile(word.c_str(), "wb");
-		if (file == nullptr)
-			Output(fmt::format("error cannot write {}", word));
-		else {
-			// As true colour: the 8-bit surface's palette doesn't survive saving as PNG.
-			SDL_Surface *rgb = SDL_ConvertSurfaceFormat(PalSurface, SDL_PIXELFORMAT_RGB24, 0);
-			if (const auto result = WriteSurfaceToFilePng(Surface(rgb), file); !result.has_value())
-				Output(fmt::format("error {}", result.error()));
-			SDL_FreeSurface(rgb);
-		}
+		WriteShot(word);
 	} else if (command == "wait") {
 		in >> a;
 		waitUntil = SDL_GetTicks() + a;
@@ -423,6 +546,47 @@ void Execute(const std::string &line)
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
+	} else if (command == "rosterqa" || command == "spellqa" || command == "trapqa") {
+		a = 0;
+		b = -1;
+		word = "-";
+		in >> a >> b >> c >> word;
+		DevQaStart(command, a, b, c, word, Output, WriteShot);
+	} else if (command == "clicktile") {
+		in >> a >> b >> word;
+		const Point at = DevTileOnScreen({ a, b });
+		PushMotion(at.x, at.y);
+		pending.push_front(fmt::format("press click {}", word));
+		waitUntil = SDL_GetTicks() + 80;
+	} else if (command == "movetile") {
+		in >> a >> b;
+		const Point at = DevTileOnScreen({ a, b });
+		PushMotion(at.x, at.y);
+	} else if (command == "hallselect") {
+		in >> a >> b;
+		DevHallSelect(a, static_cast<size_t>(b));
+	} else if (command == "lairs") {
+		WriteLairs();
+	} else if (command == "spelllevel") {
+		in >> a >> b;
+		State.spellLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(b);
+	} else if (command == "traplevel") {
+		in >> a >> b;
+		State.trapLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(b);
+	} else if (command == "wavenum") {
+		in >> a;
+		State.wave = static_cast<uint8_t>(a);
+	} else if (command == "autobuild") {
+		AutoBuild();
+	} else if (command == "autoprofile") {
+		AutoProfile();
+	} else if (command == "perf") {
+		WritePerf();
+	} else if (command == "drawevery") {
+		in >> drawEvery;
+	} else if (command == "setphaseticks") {
+		in >> a;
+		State.phaseTicks = a;
 	} else if (command == "fillmana") {
 		State.mana[MyPlayerId] = MaxMana * ManaScale;
 		State.spellCooldown[MyPlayerId] = 0;
@@ -487,10 +651,22 @@ void DevctlInit(std::string path)
 	outputPath = commandPath + ".out";
 }
 
+bool DevctlSkipsDraw()
+{
+	return drawEvery > 1 && ++drawCounter % static_cast<uint32_t>(drawEvery) != 0;
+}
+
 void DevctlFrame()
 {
 	if (!enabled)
 		return;
+	{
+		const uint32_t now = SDL_GetTicks();
+		if (perf.last != 0)
+			perf.worst = std::max(perf.worst, now - perf.last);
+		perf.last = now;
+		perf.frames++;
+	}
 	if (logEvery != 0 && SDL_GetTicks() >= nextLog) {
 		nextLog = SDL_GetTicks() + logEvery;
 		WriteState();
@@ -498,7 +674,7 @@ void DevctlFrame()
 	WatchRaid();
 	ReadNewCommands();
 	// One input a frame, so a screen sees each event as it would from a person.
-	while (!pending.empty() && !IsWaiting()) {
+	while (!pending.empty() && !DevQaRunning() && !IsWaiting()) {
 		const std::string line = std::move(pending.front());
 		pending.pop_front();
 		Execute(line);

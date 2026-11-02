@@ -625,6 +625,14 @@ bool HandleEvent(SDL_Event &event)
 
 } // namespace
 
+#ifdef KEEPER_DEVCTL
+void DevHallSelect(int whichTab, size_t index)
+{
+	tab = static_cast<Tab>(whichTab);
+	selected = { tab, index };
+}
+#endif
+
 void UiKeeperScreen()
 {
 	// UiPollAndRender draws and sends events to the last menu's items: the main menu has freed its own.
