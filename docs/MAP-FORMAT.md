@@ -44,7 +44,9 @@ starts at world tile (16, 16).
 ## Which part does what
 
 - **The layout is what the author made.** The editor loads it and edits it. Doors are layout cells:
-  a door needs floor on two opposite sides and wall on the other two.
+  a door needs floor on two opposite sides and wall on the other two. In the Caves a door cell is instead on
+  open floor in a straight stretch two or more cells wide, and a wooden fence crosses the cave there with the
+  gate in it. Hell and the Nest have no doors.
 - **The tiles and transparency are baked from the layout when the map is saved.** They are what the
   game loads, so a level plays exactly as it was saved and every co-op client builds the same one.
   Loading a map uses no random numbers.
@@ -78,5 +80,8 @@ byte or flag bits for anything older readers must understand.
 
 ## Co-op
 
-The host sends the map's bytes in the join data, with the rest of the setup. The joiner saves them as
-`maps/received/from_host.dkmap` before the level loads, so everyone builds the same level from the start.
+The host sends the map's bytes in the join data, with the rest of the setup. The joiner checks them (size up to
+60000 bytes, everything above, flagged playable, the tileset in its game data, the tiles in range), then saves
+them as `maps/received/from_host.dkmap` before the level loads, so everyone builds the same level from the start.
+A joiner who gets a map that fails is told why and the game exits, since playing a different keep from everyone
+else's isn't possible. A host refuses to send a map that would fail, and the Custom Map screen says what's wrong.

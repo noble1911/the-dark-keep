@@ -268,8 +268,18 @@ void Analyse(const KeepMap &map, Report &report)
 		const Point middle = route[i];
 		BuildFieldAvoiding(withoutSquare, *vault, [middle](Point tile) { return std::abs(tile.x - middle.x) <= 4 && std::abs(tile.y - middle.y) <= 4; });
 		report.routePoints++;
-		if (UsesBarricades() && !BarricadeLine(route[i]).empty())
+		if (const std::vector<Point> line = UsesBarricades() ? BarricadeLine(route[i]) : std::vector<Point> {}; !line.empty()) {
 			report.barrable++;
+			// Airtight? Then there's no short way from one side of it to the other. A long one is just a loop in the map.
+			static DistanceField withBar;
+			const Displacement across = line.size() > 1 && line[0].y == line[1].y ? Displacement { 0, 1 } : Displacement { 1, 0 };
+			const Point a = route[i] + across;
+			const Point b = route[i] - across;
+			BuildFieldAvoiding(withBar, a, [&line](Point tile) { return std::find(line.begin(), line.end(), tile) != line.end(); });
+			const uint16_t around = withBar[b.x][b.y];
+			if (around <= 16)
+				report.errors.push_back(fmt::format("a barricade through {},{} leaks: {} tiles round it", route[i].x, route[i].y, around));
+		}
 		const uint16_t length = withoutSquare[arrival->x][arrival->y];
 		if (length == Unreachable)
 			report.necks++;

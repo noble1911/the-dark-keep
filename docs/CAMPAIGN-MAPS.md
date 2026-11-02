@@ -37,10 +37,13 @@ build\Release\dkmap_tool.exe --data E:\Games\Diablo --assets build\assets --leve
 | 15 to 17 | Caves | A door is a wooden fence across the cave with a gate in it (the same objects the base game uses). Locks work on the gates. |
 | 18 to 20 | Hell | The art has no doors at all, so the Lock tool makes a **Barricade** across any neck up to 12 tiles wide. The longest routes. |
 
-Crypt and Nest are not used. **No map here has been seen on a screen or played**: everything below comes
-from the map code and the tile data. Check first when playing that the walls, stairs and doors of Catacombs, Caves and Hell look right. Whether
-the last six levels lose too much by having no locks is a design question to judge by playing; changing a
-level's `tileset` line (and using doors) is all it takes to move it to another tileset.
+Crypt and Nest are not used. All four tilesets have been looked at in test runs, without a window: walls, stairs,
+gates and barricades draw as they should. No level has been played through by a person, so how they feel is
+still a judgement from the numbers. Catacombs and Caves get brighter ambient light than the other two, because
+their art is darker.
+
+A Barricade only goes where it really shuts the way: `keeper_barricade.cpp` goes on past thin pillars and checks
+there's no short walk round. In a hall too wide to bar, look for a neck, or the shoulders on level 18.
 
 ## Reading the numbers
 
@@ -896,7 +899,7 @@ A wide cloister with a rock island in the middle, and the vault below it on the 
 
 ## Level 18: Chains of Night
 
-**Hell.** Route 184 tiles, 1012 floor cells, 4202 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 16 of them.
+**Hell.** Route 184 tiles, 1012 floor cells, 4202 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 8 of them.
 
 Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. Each turn is a place to bar, and shoulders of rock narrow every hall to one more.
 
@@ -945,7 +948,7 @@ Long chained halls in a switchback, with a broad neck at each turn and one bypas
 
 ## Level 19: Burning Sepulcre
 
-**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 23 of them.
+**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 8 of them.
 
 A burial hall ringed by a broad ambulatory, with the vault below and behind it. The hall has two necks in, and the ring is cut on the east, so the party crosses the hall or walks the whole ring, and the only way down is at the far corner, with the vault back at the other end. Traps herd rather than block: there is always another way on, and lairs hold the ring.
 
@@ -994,7 +997,7 @@ A burial hall ringed by a broad ambulatory, with the vault below and behind it. 
 
 ## Level 20: Throne of Ash
 
-**Hell.** Route 204 tiles, 1082 floor cells, 4557 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 28 of them.
+**Hell.** Route 204 tiles, 1082 floor cells, 4557 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 22 of them.
 
 The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big enough for a last stand.
 

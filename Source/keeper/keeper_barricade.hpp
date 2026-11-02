@@ -21,7 +21,7 @@ constexpr int MaxBarricadeWidth = 12;
 
 /** The current level's tileset has no doors, so the Lock tool barricades instead. */
 bool UsesBarricades();
-/** The line across the narrowest way through `tile`, wall to wall. Empty if it's wider than the limit. */
+/** The line across the narrowest way through `tile`, wall to wall. Empty if it's wider than the limit or wouldn't seal. */
 std::vector<Point> BarricadeLine(Point tile);
 /** @return false if something stands in the way. Keeps the line for this lock slot. */
 bool PlaceBarricade(size_t lockSlot, Point tile);
