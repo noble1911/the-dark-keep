@@ -409,7 +409,11 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	Fill(out, { bar.position, { inner * std::clamp(ProfileXp() - from, 0, to - from) / std::max(to - from, 1), bar.size.height } }, PAL16_YELLOW + 4);
 	Frame(out, bar, FrameColor);
 	y += 14;
-	DrawString(out, fmt::format("{} / {} XP", ProfileXp(), to), { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+	// A line that doesn't fit would wrap down over the Renown below it.
+	std::string xpLine = fmt::format("{} / {} XP", ProfileXp(), to);
+	if (GetLineWidth(xpLine) > inner)
+		xpLine = Fit(fmt::format("{} XP", ProfileXp()), inner);
+	DrawString(out, xpLine, { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	y += 22;
 
 	DrawString(out, std::to_string(RenownAvailable()), { { x, y }, { inner, 30 } }, { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | UiFlags::ColorGold });
