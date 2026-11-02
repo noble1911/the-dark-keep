@@ -236,6 +236,11 @@ int HeroStrengthPercent()
 	return CurrentRules().heroStrengthPercent;
 }
 
+int CurrentLevelNumber()
+{
+	return currentSetup.mode == GameMode::Campaign ? std::clamp(currentSetup.campaignLevel, 1, NumCampaignLevels) : 1;
+}
+
 int ScaleByHeroStrength(int value)
 {
 	return value * HeroStrengthPercent() / 100;

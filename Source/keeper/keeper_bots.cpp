@@ -155,6 +155,10 @@ void RemoveBot(Player &bot)
 	Bots[SlotOf(bot)] = {};
 }
 
+/** Bot character levels gained per campaign level, and the engine's limit. */
+constexpr int LevelsPerCampaignLevel = 2;
+constexpr int MaxBotLevel = 50;
+
 void ScaleBot(Player &bot, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
@@ -171,6 +175,8 @@ void ScaleBot(Player &bot, bool champion)
 	bot._pHPBase = bot._pMaxHPBase;
 	bot._pMaxManaBase = std::max(bot.calculateBaseMana(), 60 << 6);
 	bot._pManaBase = bot._pMaxManaBase;
+	// Life is set: later levels only raise the level for accuracy against heavily armoured monsters.
+	bot.setCharacterLevel(static_cast<uint8_t>(std::min(bot.getCharacterLevel() + LevelsPerCampaignLevel * (CurrentLevelNumber() - 1), MaxBotLevel)));
 	CalcPlrInv(bot, false);
 	SetPlayerHitPoints(bot, bot._pMaxHP);
 	bot._pMana = bot._pMaxMana;
@@ -315,7 +321,7 @@ void HandleDeath(Player &bot, BotState &state)
 	if (state.deathHandled)
 		return;
 	state.deathHandled = true;
-	const int bounty = 30 + 10 * State.wave;
+	const int bounty = ScaleByHeroStrength(30 + 10 * State.wave);
 	AddVaultGold(std::max(state.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(state.carried, 0));
 	if (state.carried > 0)

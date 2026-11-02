@@ -454,6 +454,7 @@ void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 	hp = ScaleByHeroStrength(hp);
 	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
 	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
+	monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.armorClass), 255));
 	monster.maxHitPoints = hp << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
@@ -468,12 +469,11 @@ void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
-	// How many comes from the level. The mix stays even, grouped by class: the first few become bots.
+	// How many comes from the level. Classes alternate, so bots and monster heroes both get a mix.
 	std::vector<HeroClassKind> party;
 	const int size = PartySizeForWave(wave);
 	for (int i = 0; i < size; i++)
 		party.push_back(static_cast<HeroClassKind>(i % NumHeroClasses));
-	std::stable_sort(party.begin(), party.end());
 	return party;
 }
 
@@ -515,7 +515,7 @@ void HeroEscapes(Monster &monster, HeroState &hero)
 
 void HeroSteals(Monster &monster, HeroState &hero)
 {
-	const int amount = std::min(HeroClasses[static_cast<size_t>(hero.cls)].carryCap, State.vaultGold);
+	const int amount = std::min(ScaleByHeroStrength(HeroClasses[static_cast<size_t>(hero.cls)].carryCap), State.vaultGold);
 	if (amount <= 0)
 		return;
 	State.vaultGold -= amount;
@@ -758,11 +758,11 @@ void OnMonsterInit(Monster &monster)
 	}
 	if (IsBoss(monster)) {
 		Heroes[id] = {};
-		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : 600) << 6;
+		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : ScaleByHeroStrength(600)) << 6;
 		monster.hitPoints = monster.maxHitPoints;
-		monster.minDamage = 12;
-		monster.maxDamage = 24;
-		monster.armorClass = 40;
+		monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(12), 255));
+		monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(24), 255));
+		monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(40), 255));
 		OnKeepMonsterInit(monster);
 		return;
 	}
@@ -799,7 +799,7 @@ void OnMonsterDeath(Monster &monster)
 	if (id >= MaxMonsters || !Heroes[id].active)
 		return;
 	HeroState &hero = Heroes[id];
-	const int bounty = 20 + 5 * State.wave;
+	const int bounty = ScaleByHeroStrength(20 + 5 * State.wave);
 	AddVaultGold(std::max(hero.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(hero.carried, 0));
 	if (hero.carried > 0)
@@ -1591,7 +1591,7 @@ int TakeFromVault(int carryCap)
 
 int CarryCapacity(HeroClassKind cls)
 {
-	return HeroClasses[static_cast<size_t>(cls)].carryCap;
+	return ScaleByHeroStrength(HeroClasses[static_cast<size_t>(cls)].carryCap);
 }
 
 bool IsKeepTarget(const Monster &monster)

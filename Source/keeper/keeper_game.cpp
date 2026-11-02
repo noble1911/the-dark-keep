@@ -63,6 +63,10 @@ constexpr int PossessDrainPerTick = 10;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
 constexpr int BaseSupply = 16;
 constexpr int SupplyPerRaid = 4;
+/** Later levels start roomier: their monsters take far more Pop. */
+constexpr int SupplyPerLevel = 2;
+/** The masters' spells gain a level every this many campaign levels, to keep up with the heroes. */
+constexpr int LevelsPerSpellLevel = 4;
 /** A patrolling monster that hasn't moved for this long gives up on its waypoint and takes the next. */
 constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
 /** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
@@ -236,7 +240,7 @@ bool IsPlacementCrowded(Point tile)
 
 int TributeFor(uint8_t wave)
 {
-	return 100 + 25 * wave;
+	return ScaleByHeroStrength(100 + 25 * wave);
 }
 
 /** Runs on every client when the phase changes (locally on the host, from the snapshot elsewhere). */
@@ -953,7 +957,7 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		dir = Direction::SouthEast;
 		src = tile + Displacement(Direction::NorthWest);
 	}
-	AddMissile(src, tile, dir, kind.missile, TARGET_MONSTERS, caster, 0, UpgradedSpellLevel(kind.spellLevel));
+	AddMissile(src, tile, dir, kind.missile, TARGET_MONSTERS, caster, 0, UpgradedSpellLevel(kind.spellLevel + (CurrentLevelNumber() - 1) / LevelsPerSpellLevel));
 }
 
 /** Traps fire on every client: their missiles are local effects, like any other trap in the game. */
@@ -980,7 +984,7 @@ void UpdateTraps()
 		if (victim) {
 			const Direction dir = GetDirection(trap.position, *victim);
 			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
-			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, UpgradedTrapDamage(20 + 5 * State.wave), 0);
+			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, UpgradedTrapDamage(ScaleByHeroStrength(20 + 5 * State.wave)), 0);
 			trap.cooldown = UpgradedTrapRearmTicks(TrapRearmTicks);
 			NoteTrapFired(static_cast<size_t>(&trap - State.traps.data()));
 		}
@@ -1156,7 +1160,7 @@ int SupplyUsed()
 
 int SupplyCap()
 {
-	return BaseSupply + SupplyPerRaid * (std::clamp<int>(State.wave, 1, NumWaves()) - 1);
+	return BaseSupply + SupplyPerLevel * (CurrentLevelNumber() - 1) + SupplyPerRaid * (std::clamp<int>(State.wave, 1, NumWaves()) - 1);
 }
 
 bool IsStructureActive(StructureRef ref)

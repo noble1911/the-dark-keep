@@ -75,6 +75,8 @@ const LevelRules &CurrentRules();
 int NumWaves();
 int StartingGold();
 int HeroStrengthPercent();
+/** 1-based number of the level being played; custom maps and the editor count as level 1. */
+int CurrentLevelNumber();
 /** Scales a hero stat by HeroStrengthPercent(). */
 int ScaleByHeroStrength(int value);
 /** How many heroes raid `wave` brings. */
