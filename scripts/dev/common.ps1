@@ -48,7 +48,7 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo") {
     }
 }
 
-function New-TestProfile([string]$Name, [int]$Width = 1280, [int]$Height = 720, [int]$Port = 6112) {
+function New-TestProfile([string]$Name, [int]$Width = 1280, [int]$Height = 720, [int]$Port = 6121) {
     # A windowed profile with its own saves. Bound to localhost, so hosting raises no firewall prompt.
     $profileDir = "$script:Root\build\test-profiles\$Name"
     New-Item -ItemType Directory -Force $profileDir | Out-Null
