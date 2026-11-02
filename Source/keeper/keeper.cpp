@@ -42,6 +42,7 @@
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/dun_tile.hpp"
@@ -507,42 +508,6 @@ std::string FormatTicks(int ticks)
 {
 	const int seconds = (ticks + 19) / 20;
 	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
-}
-
-void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
-{
-	DrawHorizontalLine(out, rect.position, rect.size.width, color);
-	DrawHorizontalLine(out, rect.position + Displacement { 0, rect.size.height - 1 }, rect.size.width, color);
-	DrawVerticalLine(out, rect.position, rect.size.height, color);
-	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
-}
-
-/** Cuts `text` down until it fits in `width` pixels, marking the cut. */
-std::string FitText(std::string_view text, int width)
-{
-	std::string fitted(text);
-	if (GetLineWidth(fitted) <= width)
-		return fitted;
-	while (!fitted.empty() && GetLineWidth(fitted + ".") > width)
-		fitted.pop_back();
-	while (!fitted.empty() && fitted.back() == ' ')
-		fitted.pop_back();
-	return fitted + ".";
-}
-
-/** Word-wraps `text` to at most `height` pixels of lines, marking any cut. */
-std::string FitLines(std::string_view text, int width, int height, int lineHeight)
-{
-	const std::string wrapped = WordWrapString(text, width);
-	const int maxLines = std::max(height / lineHeight, 1);
-	size_t end = 0;
-	for (int line = 0; line < maxLines; line++) {
-		end = wrapped.find('\n', end);
-		if (end == std::string::npos)
-			return wrapped;
-		end++;
-	}
-	return FitText(wrapped.substr(0, end - 1) + "...", width * maxLines);
 }
 
 // ---- cards -------------------------------------------------------------------
@@ -1813,7 +1778,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		if (index >= NumSpellSlots)
 			return;
 		if (!equippedSpells[index]) {
-			SetFeedback(IsJoinedGame() ? "No spell in that slot: choose one between raids" : "No spell in that slot: equip one from the Spellbook");
+			SetFeedback(std::string(EmptySpellSlotMessage()));
 			return;
 		}
 		if (MyPossessed() == nullptr && !IsMouseOverUi())
@@ -1952,8 +1917,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		return EditorOnMouseDown(/*right=*/false);
 
 	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
-		if (currentTool.type == ToolType::Spell)
-			currentTool = {}; // it may just have come off the bar
+		if (currentTool.type == ToolType::Spell && std::find(equippedSpells.begin(), equippedSpells.end(), currentTool.index) == equippedSpells.end())
+			currentTool = {}; // it just came off the bar
 		return true;
 	}
 	if (IsGameOver()) {

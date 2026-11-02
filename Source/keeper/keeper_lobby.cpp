@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <fmt/format.h>
@@ -19,6 +18,8 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "panels/spell_icons.hpp"
 #include "player.h"
 #include "utils/ui_fwd.h"
@@ -45,31 +46,32 @@ constexpr int MastersWidth = 170;
 constexpr int MastersRowHeight = 14;
 constexpr int MastersTagWidth = 60;
 
-constexpr uint8_t FrameColor = PAL16_YELLOW + 4;
-
 bool panelOpen = false;
 /** The panel opens by itself once the keep's state has arrived and a raid isn't on. */
 bool promptPending = false;
+/** What this game has to offer a joiner; set when the keep loads. */
+std::vector<size_t> availableSpells;
 /** A joiner's picks this session. Empty until the first one. */
 std::optional<SpellBar> chosen;
-/** What the last prompt offered: anything new means a new prompt. */
-std::array<bool, NumSpellKinds> offered {};
+/** What the last prompt showed: only a different list prompts again. */
+std::optional<std::vector<size_t>> promptedSpells;
 bool rematchComing = false;
 
-/** Only a joiner chooses, and raids lock the choice as they lock equipping. */
+uint8_t hostSlot = NoHostSlot;
+/** A joiner's fellow masters may not be marked active yet when it learns the slot. */
+bool hostSeenActive = false;
+
+/** Only a joiner chooses, raids lock the choice, and before the keep's state arrives the phase is only a guess. */
 bool CanChoose()
 {
-	return gbIsMultiplayer && IsJoinedGame() && (State.phase == Phase::Setup || State.phase == Phase::Breather);
+	return gbIsMultiplayer && IsJoinedGame() && !IsAwaitingKeepSnapshot() && (State.phase == Phase::Setup || State.phase == Phase::Breather);
 }
 
-std::vector<size_t> AvailableSpells()
+/** The raid summary shares the middle of the screen, and clicks go to the panel first. */
+void OpenPanel()
 {
-	std::vector<size_t> spells;
-	for (size_t spell = 0; spell < NumSpellKinds; spell++) {
-		if (IsSpellAvailable(spell))
-			spells.push_back(spell);
-	}
-	return spells;
+	panelOpen = true;
+	DismissRaidSummary();
 }
 
 std::optional<size_t> SlotOf(const SpellBar &bar, size_t spell)
@@ -87,10 +89,10 @@ Rectangle ButtonRect(const Rectangle &spellBar)
 }
 
 /** Sits on top of the spell bar it fills, one column to a slot. */
-Rectangle PanelRect(const Rectangle &spellBar, size_t spellCount)
+Rectangle PanelRect(const Rectangle &spellBar)
 {
 	const int columns = static_cast<int>(NumSpellSlots);
-	const int rows = std::max((static_cast<int>(spellCount) + columns - 1) / columns, 1);
+	const int rows = std::max((static_cast<int>(availableSpells.size()) + columns - 1) / columns, 1);
 	const int height = 2 * Padding + TitleHeight + rows * (CellHeight + CellGap) + FooterHeight;
 	const int bottom = ButtonRect(spellBar).position.y - ButtonGap;
 	return { { spellBar.position.x - Padding, std::max(bottom - height, 0) }, { spellBar.size.width + 2 * Padding, height } };
@@ -104,11 +106,11 @@ Rectangle CellRect(const Rectangle &panel, size_t index)
 	return { { panel.position.x + Padding + column * (IconSize + CellGap), panel.position.y + Padding + TitleHeight + row * (CellHeight + CellGap) }, { IconSize, CellHeight } };
 }
 
-std::optional<size_t> SpellAt(const Rectangle &panel, const std::vector<size_t> &spells, Point mouse)
+std::optional<size_t> SpellAt(const Rectangle &panel, Point mouse)
 {
-	for (size_t i = 0; i < spells.size(); i++) {
+	for (size_t i = 0; i < availableSpells.size(); i++) {
 		if (CellRect(panel, i).contains(mouse))
-			return spells[i];
+			return availableSpells[i];
 	}
 	return std::nullopt;
 }
@@ -127,39 +129,9 @@ void ToggleSpell(SpellBar &bar, size_t spell)
 	chosen = bar;
 }
 
-void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
+std::string FooterText(const SpellBar &bar, std::optional<size_t> hovered)
 {
-	DrawHorizontalLine(out, rect.position, rect.size.width, color);
-	DrawHorizontalLine(out, rect.position + Displacement { 0, rect.size.height - 1 }, rect.size.width, color);
-	DrawVerticalLine(out, rect.position, rect.size.height, color);
-	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
-}
-
-void DrawPanel(const Surface &out, const Rectangle &rect)
-{
-	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
-	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
-	DrawFrame(out, rect, FrameColor);
-}
-
-/** Cuts `text` to `width`, marking the cut. Player names can be UTF-8: cuts fall between characters. */
-std::string FitText(std::string_view text, int width)
-{
-	std::string fitted(text);
-	if (GetLineWidth(fitted) <= width)
-		return fitted;
-	while (!fitted.empty() && GetLineWidth(fitted + ".") > width) {
-		while (!fitted.empty() && (static_cast<unsigned char>(fitted.back()) & 0xC0) == 0x80)
-			fitted.pop_back();
-		if (!fitted.empty())
-			fitted.pop_back();
-	}
-	return fitted + ".";
-}
-
-std::string FooterText(const SpellBar &bar, const std::vector<size_t> &spells, std::optional<size_t> hovered)
-{
-	if (spells.empty())
+	if (availableSpells.empty())
 		return "The host's game has no spells.";
 	const auto filled = static_cast<size_t>(NumSpellSlots - std::count(bar.begin(), bar.end(), std::nullopt));
 	if (hovered) {
@@ -200,19 +172,19 @@ void LobbyOnLevelLoaded(SpellBar &bar)
 {
 	panelOpen = false;
 	promptPending = false;
+	availableSpells.clear();
+	hostSlot = IsJoinedGame() ? NoHostSlot : static_cast<uint8_t>(MyPlayerId);
+	hostSeenActive = false;
 	if (!IsJoinedGame()) {
-		chosen.reset();
+		LobbyForgetPicks();
 		return;
 	}
 
-	std::array<bool, NumSpellKinds> available {};
-	bool anyAvailable = false;
 	for (size_t spell = 0; spell < NumSpellKinds; spell++) {
-		available[spell] = IsSpellAvailable(spell);
-		anyAvailable = anyAvailable || available[spell];
+		if (IsSpellAvailable(spell))
+			availableSpells.push_back(spell);
 	}
-	promptPending = anyAvailable && (!chosen || available != offered);
-	offered = available;
+	promptPending = !availableSpells.empty() && promptedSpells != availableSpells;
 
 	if (!chosen)
 		return;
@@ -226,7 +198,7 @@ void LobbyOnLevelLoaded(SpellBar &bar)
 		if (!spell)
 			continue;
 		hadAny = true;
-		if (available[*spell]) {
+		if (IsSpellAvailable(*spell)) {
 			kept[slot] = spell;
 			keptAny = true;
 		}
@@ -247,22 +219,35 @@ void LobbyNoteRematch()
 void LobbyOnGameEnded()
 {
 	if (!rematchComing)
-		chosen.reset();
+		LobbyForgetPicks();
 	rematchComing = false;
 	panelOpen = false;
 	promptPending = false;
 }
 
+void LobbyForgetPicks()
+{
+	chosen.reset();
+	promptedSpells.reset();
+}
+
 void LobbyTick()
 {
+	if (hostSlot != NoHostSlot) {
+		if (Players[hostSlot].plractive)
+			hostSeenActive = true;
+		else if (hostSeenActive)
+			hostSlot = NoHostSlot;
+	}
+
 	if (!CanChoose()) {
 		panelOpen = false;
 		return;
 	}
-	// Until the keep's state arrives a joiner's phase is only a guess: it may have joined mid-raid.
-	if (promptPending && !IsAwaitingKeepSnapshot()) {
+	if (promptPending) {
 		promptPending = false;
-		panelOpen = true;
+		promptedSpells = availableSpells;
+		OpenPanel();
 	}
 }
 
@@ -278,7 +263,7 @@ bool LobbyIsMouseOver(Point mouse, const Rectangle &spellBar)
 {
 	if (!CanChoose())
 		return false;
-	return ButtonRect(spellBar).contains(mouse) || (panelOpen && PanelRect(spellBar, AvailableSpells().size()).contains(mouse));
+	return ButtonRect(spellBar).contains(mouse) || (panelOpen && PanelRect(spellBar).contains(mouse));
 }
 
 bool LobbyOnLeftClick(Point mouse, const Rectangle &spellBar, SpellBar &bar)
@@ -286,17 +271,18 @@ bool LobbyOnLeftClick(Point mouse, const Rectangle &spellBar, SpellBar &bar)
 	if (!CanChoose())
 		return false;
 	if (ButtonRect(spellBar).contains(mouse)) {
-		panelOpen = !panelOpen;
-		promptPending = false;
+		if (panelOpen)
+			panelOpen = false;
+		else
+			OpenPanel();
 		return true;
 	}
 	if (!panelOpen)
 		return false;
-	const std::vector<size_t> spells = AvailableSpells();
-	const Rectangle panel = PanelRect(spellBar, spells.size());
+	const Rectangle panel = PanelRect(spellBar);
 	if (!panel.contains(mouse))
 		return false;
-	if (const std::optional<size_t> spell = SpellAt(panel, spells, mouse); spell)
+	if (const std::optional<size_t> spell = SpellAt(panel, mouse); spell)
 		ToggleSpell(bar, *spell);
 	return true;
 }
@@ -313,20 +299,33 @@ void DrawLobby(const Surface &out, Point mouse, const Rectangle &spellBar, const
 	if (!panelOpen)
 		return;
 
-	const std::vector<size_t> spells = AvailableSpells();
-	const Rectangle panel = PanelRect(spellBar, spells.size());
+	const Rectangle panel = PanelRect(spellBar);
 	DrawPanel(out, panel);
 	const int textWidth = panel.size.width - 2 * Padding;
 	DrawString(out, "Spells in the host's game", { panel.position + Displacement { Padding, Padding - 1 }, { textWidth, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 
-	const std::optional<size_t> hovered = SpellAt(panel, spells, mouse);
-	for (size_t i = 0; i < spells.size(); i++)
-		DrawSpellCell(out, CellRect(panel, i), spells[i], bar, hovered == spells[i]);
+	const std::optional<size_t> hovered = SpellAt(panel, mouse);
+	for (size_t i = 0; i < availableSpells.size(); i++)
+		DrawSpellCell(out, CellRect(panel, i), availableSpells[i], bar, hovered == availableSpells[i]);
 
-	const std::string footer = WordWrapString(FooterText(bar, spells, hovered), textWidth);
+	const std::string footer = FitLines(FooterText(bar, hovered), textWidth, FooterHeight, FooterLineHeight);
 	DrawString(out, footer, { { panel.position.x + Padding, panel.position.y + panel.size.height - Padding - FooterHeight }, { textWidth, FooterHeight } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = FooterLineHeight });
+}
+
+std::string_view EmptySpellSlotMessage()
+{
+	if (!IsJoinedGame())
+		return "No spell in that slot: equip one from the Spellbook";
+	if (availableSpells.empty())
+		return "The host's game has no spells";
+	if (CanChoose())
+		return "No spell in that slot: use Choose spells";
+	// The last raid has no Breather after it.
+	if (!IsAwaitingKeepSnapshot() && State.phase == Phase::Raid && State.wave < NumWaves())
+		return "No spell in that slot: choose one after this raid";
+	return "No spell in that slot";
 }
 
 void DrawMasters(const Surface &out)
@@ -345,9 +344,7 @@ void DrawMasters(const Surface &out)
 		if (!player.plractive)
 			continue;
 		const bool mine = &player == MyPlayer;
-		// Whoever creates a game takes the first network slot. A joiner never counts itself: if the
-		// host has gone and this client took slot 0 over, there is no host any more.
-		const bool host = IsJoinedGame() ? (id == 0 && !mine) : mine;
+		const bool host = id == hostSlot;
 		std::string tag = host ? "host" : "";
 		if (mine)
 			tag += host ? ", you" : "you";
@@ -368,6 +365,17 @@ void DrawMasters(const Surface &out)
 		DrawString(out, FitText(row.tag, MastersTagWidth), { line, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | color });
 		line.y += MastersRowHeight;
 	}
+}
+
+uint8_t LobbyHostSlot()
+{
+	return hostSlot;
+}
+
+void LobbySetHostSlot(uint8_t slot)
+{
+	hostSlot = slot < NetPlayerSlots ? slot : NoHostSlot;
+	hostSeenActive = false;
 }
 
 } // namespace devilution::keeper
