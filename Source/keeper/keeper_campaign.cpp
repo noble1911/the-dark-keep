@@ -172,8 +172,8 @@ void SaveProgress()
 bool AppendMapFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
 {
 	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
-	if (!bytes.has_value() || bytes->size() > maxBytes)
-		return false;
+	if (!bytes.has_value() || bytes->size() > maxBytes || !CheckMapBytes(bytes->data(), bytes->size()).has_value())
+		return false; // a joiner would refuse it, and be thrown out of the game
 	const size_t start = out.size();
 	out.resize(start + bytes->size());
 	if (!bytes->empty())
@@ -317,6 +317,10 @@ void ApplyAutoStartSetup()
 		currentSetup = SetupForMapEditor();
 		return;
 	}
+	if (!TestCustomMap.empty()) {
+		SetCurrentSetup(SetupForCustomMap(TestCustomMap));
+		return;
+	}
 	if (TestCampaignLevel > 0)
 		devRank = std::clamp(TestCampaignLevel, 1, NumCampaignLevels);
 	SetCurrentSetup(SetupForCampaignLevel(TestCampaignLevel > 0 ? TestCampaignLevel : 1));
@@ -440,7 +444,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	std::vector<char> blob(sizeof(wire));
 	std::memcpy(blob.data(), &wire, sizeof(wire));
 	if (!currentSetup.mapFile.empty() && !AppendMapFile(currentSetup.mapFile, blob, MaxMapBytes)) {
-		SDL_SetError("Cannot send this map: it is unreadable or larger than %d bytes.", static_cast<int>(MaxMapBytes));
+		SDL_SetError("Cannot send this map: it is unreadable, unfinished or larger than %d bytes.", static_cast<int>(MaxMapBytes));
 		return false;
 	}
 	return SNetCreateGame(gameName, password, blob.data(), static_cast<int>(blob.size()), playerId);
@@ -459,6 +463,9 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 		// The host's bytes, under a name of our own choosing: nothing from the network names a path.
 		if (mapSize > MaxMapBytes)
 			app_fatal("The host's map is too large.");
+		// It's data from another player, and carrying on without it would be a different keep from theirs.
+		if (const tl::expected<void, std::string> usable = CheckMapBytes(mapBytes, mapSize); !usable.has_value())
+			app_fatal(fmt::format("The host's map can't be used: {}.", usable.error()));
 		setup.mapFile = ReceivedMapPath();
 		FILE *file = OpenFile(setup.mapFile.c_str(), "wb");
 		const bool written = file != nullptr && std::fwrite(mapBytes, 1, mapSize, file) == mapSize;

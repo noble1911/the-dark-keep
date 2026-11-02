@@ -112,6 +112,7 @@ enum class Modal : uint8_t {
 	Author,
 	LoadList,
 	TilesetList,
+	ConfirmNew,
 };
 
 struct Snapshot {
@@ -372,7 +373,7 @@ void LoadMapNamed(const std::string &name)
 	}
 }
 
-void NewMap()
+void NewMapNow()
 {
 	const bool hadChanges = dirty;
 	Autosave();
@@ -380,6 +381,16 @@ void NewMap()
 	levelStale = true;
 	CenterCamera(MapSpawnTile(model));
 	SetFeedback(hadChanges ? "New map (your unsaved changes are in _autosave)" : "New map");
+}
+
+void NewMap()
+{
+	if (dirty) {
+		modal = Modal::ConfirmNew;
+		modalNote.clear();
+	} else {
+		NewMapNow();
+	}
 }
 
 void StartTest()
@@ -546,6 +557,12 @@ bool IsInStairs(Point cell, Point stairs, bool entrance)
 	return cell.x >= stairs.x && cell.y >= stairs.y && cell.x < stairs.x + size.width && cell.y < stairs.y + size.height;
 }
 
+/** Back to wall, or in a cave, where a gate stands on open floor, back to floor. */
+MapCell ClearedOpening()
+{
+	return model.tileset == MapTileset::Caves ? MapCell::Floor : MapCell::Rock;
+}
+
 void EraseAt(Point cell)
 {
 	if (IsInStairs(cell, model.entrance, true)) {
@@ -557,7 +574,7 @@ void EraseAt(Point cell)
 		levelStale = dirty = true;
 	}
 	if (IsPaintableCell(cell.x, cell.y) && IsAnyOf(model.cell(cell.x, cell.y), MapCell::Door, MapCell::Arch))
-		SetCell(cell.x, cell.y, MapCell::Rock);
+		SetCell(cell.x, cell.y, ClearedOpening());
 	const size_t objects = model.objects.size();
 	RemoveObjectsInCell(cell);
 	if (model.objects.size() != objects)
@@ -568,7 +585,7 @@ void PlaceOpening(Point cell, MapCell kind, bool remove)
 {
 	if (remove) {
 		if (IsPaintableCell(cell.x, cell.y) && model.cell(cell.x, cell.y) == kind)
-			SetCell(cell.x, cell.y, MapCell::Rock);
+			SetCell(cell.x, cell.y, ClearedOpening());
 		return;
 	}
 	if (kind == MapCell::Door && !MapTilesetHasDoors(model.tileset)) {
@@ -878,7 +895,9 @@ void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
 Rectangle ModalRect()
 {
 	const int uiWidth = gnScreenWidth / UiPixelScale();
-	const int height = modal == Modal::LoadList || modal == Modal::TilesetList ? 44 + ModalRows * ModalRowHeight : 86;
+	int height = 86;
+	if (modal == Modal::LoadList || modal == Modal::TilesetList)
+		height = 44 + ModalRows * ModalRowHeight;
 	return { { (uiWidth - ModalWidth) / 2, std::max(10, PanelTop() - height - 10) }, { ModalWidth, height } };
 }
 
@@ -893,6 +912,8 @@ std::string_view ModalTitle()
 		return "Load a map";
 	case Modal::TilesetList:
 		return "Tileset";
+	case Modal::ConfirmNew:
+		return "Start a new map?";
 	case Modal::None:
 		break;
 	}
@@ -928,6 +949,12 @@ void DrawModal(const Surface &out)
 		DrawString(out, fmt::format("{}{}", modalText, caretOn ? "_" : ""), { field.position + Displacement { 4, 2 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 		DrawString(out, modalNote.empty() ? std::string_view("Enter: accept   Esc: cancel") : std::string_view(modalNote), { text + Displacement { 0, 44 }, { width, 14 } },
 		    { .flags = UiFlags::FontSize12 | (modalNote.empty() ? UiFlags::ColorWhite : UiFlags::ColorRed) });
+		return;
+	}
+
+	if (modal == Modal::ConfirmNew) {
+		DrawString(out, "Unsaved changes: a copy goes to _autosave.", { text + Displacement { 0, 20 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+		DrawString(out, "Enter: start a new map   Esc: keep this one", { text + Displacement { 0, 44 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 		return;
 	}
 
@@ -1246,6 +1273,11 @@ bool EditorOnKeyDown(SDL_Keycode key)
 		return true;
 	if (modal == Modal::SaveName || modal == Modal::Author)
 		return HandleTextKey(key);
+	if (modal == Modal::ConfirmNew && (key == SDLK_RETURN || key == SDLK_KP_ENTER)) {
+		modal = Modal::None;
+		NewMapNow();
+		return true;
+	}
 	if (modal != Modal::None) {
 		if (key == SDLK_ESCAPE)
 			modal = Modal::None;
@@ -1485,6 +1517,8 @@ void EditorDrawUi(const Surface &out)
 	// What the tool does (or what's under the mouse), under the buttons.
 	const int leftWidth = out.w() - RightColumnWidth - 18;
 	std::string hint(Tools[static_cast<size_t>(tool)].help);
+	if (tool == EditTool::Door && model.tileset == MapTileset::Caves)
+		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
 	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
 		hint += fmt::format("  Size {}", brushSize);
 	DrawString(out, WordWrapString(hint, leftWidth), { { 6, contentBottom + 5 }, { leftWidth, out.h() - contentBottom - 6 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });

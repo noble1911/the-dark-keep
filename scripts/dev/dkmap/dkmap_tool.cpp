@@ -9,6 +9,7 @@
  *   dkmap_tool --data E:\Games\Diablo --assets build\assets --levels scripts\dev\dkmap\levels
  *              --out assets\keeper\campaign --doc docs\CAMPAIGN-MAPS.md
  *   dkmap_tool --data E:\Games\Diablo --assets build\assets --check-campaign
+ *   dkmap_tool --data E:\Games\Diablo --assets build\assets --fuzz file.dkmap [--runs 2000]
  *
  * A level source is text: `name:`, `tileset:`, `seed:` and `note:` lines, then 40 rows of 40 characters.
  *   # rock   . floor   D door   A arch   E entrance's top-left   V vault's top-left
@@ -40,6 +41,7 @@
 #include "engine/path.h"
 #include "headless_mode.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
@@ -87,6 +89,8 @@ struct Report {
 	int routePoints = 0;
 	int necks = 0;
 	std::vector<int> waysRound;
+	/** Route points where a Barricade would fit, in a tileset that uses them. */
+	int barrable = 0;
 	int arches = 0;
 	std::array<std::array<bool, DMAXY>, DMAXX> routeCells {};
 	std::string preview;
@@ -264,6 +268,18 @@ void Analyse(const KeepMap &map, Report &report)
 		const Point middle = route[i];
 		BuildFieldAvoiding(withoutSquare, *vault, [middle](Point tile) { return std::abs(tile.x - middle.x) <= 4 && std::abs(tile.y - middle.y) <= 4; });
 		report.routePoints++;
+		if (const std::vector<Point> line = UsesBarricades() ? BarricadeLine(route[i]) : std::vector<Point> {}; !line.empty()) {
+			report.barrable++;
+			// Airtight? Then there's no short way from one side of it to the other. A long one is just a loop in the map.
+			static DistanceField withBar;
+			const Displacement across = line.size() > 1 && line[0].y == line[1].y ? Displacement { 0, 1 } : Displacement { 1, 0 };
+			const Point a = route[i] + across;
+			const Point b = route[i] - across;
+			BuildFieldAvoiding(withBar, a, [&line](Point tile) { return std::find(line.begin(), line.end(), tile) != line.end(); });
+			const uint16_t around = withBar[b.x][b.y];
+			if (around <= 16)
+				report.errors.push_back(fmt::format("a barricade through {},{} leaks: {} tiles round it", route[i].x, route[i].y, around));
+		}
 		const uint16_t length = withoutSquare[arrival->x][arrival->y];
 		if (length == Unreachable)
 			report.necks++;
@@ -512,6 +528,8 @@ std::string RouteSummary(const Report &report)
 	}
 	if (seriousWays > 0)
 		text += fmt::format("; {} have a real way round (+10 tiles or more, longest +{})", seriousWays, ways.back());
+	if (report.barrable > 0)
+		text += fmt::format("; a Barricade fits at {} of them", report.barrable);
 	return text;
 }
 
@@ -633,6 +651,111 @@ int RunLevels(const std::string &levelsDir, const std::string &outDir, const std
 	return failures == 0 ? 0 : 1;
 }
 
+uint32_t FuzzCrc(const std::vector<std::byte> &bytes)
+{
+	uint32_t crc = 0xFFFFFFFFU;
+	for (size_t i = 16; i < bytes.size(); i++) {
+		crc ^= static_cast<uint8_t>(bytes[i]);
+		for (int bit = 0; bit < 8; bit++)
+			crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+	}
+	return ~crc;
+}
+
+/**
+ * Damaged maps, as a hostile host could send them: random changes with the size and checksum made right,
+ * so they get past the header. Whatever CheckMapBytes lets through is built as the game would build it.
+ * A crash here is the failure this looks for.
+ */
+int FuzzMaps(const std::string &path, int runs)
+{
+	const tl::expected<std::vector<std::byte>, std::string> original = ReadMapBytes(path);
+	if (!original.has_value()) {
+		fmt::print("ERROR: {}\n", original.error());
+		return 1;
+	}
+	const std::string temporary = (fs::temp_directory_path() / "dkmap_tool_fuzz.dkmap").string();
+	uint32_t state = 12345;
+	const auto next = [&state]() {
+		state = state * 1664525U + 1013904223U;
+		return state >> 8;
+	};
+	std::array<int, 4> outcomes {}; // refused by the check, by the loader, built, broken header
+	for (int run = 0; run < runs; run++) {
+		std::vector<std::byte> bytes = *original;
+		const uint32_t kind = next() % 8;
+		size_t begin = 16;
+		size_t end = bytes.size();
+		if (kind == 0) { // truncate or pad, without fixing up the header
+			bytes.resize(next() % (bytes.size() + 200));
+			const tl::expected<void, std::string> check = CheckMapBytes(bytes.data(), bytes.size());
+			outcomes[3] += check.has_value() ? 0 : 1;
+			continue;
+		}
+		if (kind == 1)
+			end = std::min<size_t>(bytes.size(), 16 + 80); // the fixed fields, name and author
+		else if (kind == 2)
+			begin = bytes.size() - 8000; // layout and tiles
+		else if (kind == 3)
+			begin = bytes.size() - 6400; // transparency
+		const int changes = 1 + static_cast<int>(next() % 40);
+		if (kind == 4) {
+			// Hostile but in range, so it gets as far as being built: any tiles the tileset has, stairs and doors included.
+			const size_t tiles = bytes.size() - 6400 - 1600;
+			const int many = 1 + static_cast<int>(next() % 1600);
+			for (int i = 0; i < many; i++)
+				bytes[tiles + next() % 1600] = static_cast<std::byte>(1 + next() % 137);
+		} else if (kind == 5) {
+			// Stairs anywhere the parser allows, on top of each other or of nothing.
+			for (size_t i = 0; i < 4; i++)
+				bytes[16 + 4 + i] = static_cast<std::byte>(1 + next() % 34);
+		} else if (kind == 6) {
+			const size_t layout = bytes.size() - 6400 - 1600 - 1600;
+			for (int i = 0; i < 400; i++)
+				bytes[layout + next() % 1600] = static_cast<std::byte>(next() % 4);
+		} else {
+			for (int i = 0; i < changes && begin < end; i++)
+				bytes[begin + next() % (end - begin)] = static_cast<std::byte>(next());
+		}
+		const uint32_t crc = FuzzCrc(bytes);
+		for (size_t i = 0; i < 4; i++)
+			bytes[12 + i] = static_cast<std::byte>((crc >> (8 * i)) & 0xFF);
+		// Keep it playable-flagged: an honest flag is no defence.
+		bytes[6] = static_cast<std::byte>(1);
+		if (const tl::expected<void, std::string> check = CheckMapBytes(bytes.data(), bytes.size()); !check.has_value()) {
+			outcomes[0]++;
+			continue;
+		}
+		const tl::expected<void, std::string> written = WriteMapBytes(temporary, bytes);
+		if (!written.has_value())
+			continue;
+		const tl::expected<KeepMap, std::string> parsed = ParseMap(bytes.data(), bytes.size());
+		if (const tl::expected<void, std::string> loaded = LoadMapTilesetData(parsed->tileset); !loaded.has_value())
+			continue;
+		currlevel = KeepLevel;
+		setlevel = false;
+		SetCurrentSetup(SetupForCustomMap(temporary));
+		ForgetMapCache();
+		PrepareMapLevel();
+		std::memset(dObject, 0, sizeof(dObject));
+		if (!BuildMapLevel()) {
+			outcomes[1]++;
+			continue;
+		}
+		InitObjects();
+		InitMapTriggers(parsed->tileset);
+		ValidateMap(*parsed);
+		static DistanceField field;
+		BuildField(field, FindVault(MapSpawnTile(*parsed)));
+		outcomes[2]++;
+	}
+	ForgetMapCache();
+	std::error_code ignored;
+	fs::remove(temporary, ignored);
+	fmt::print("{} runs: {} refused by the check, {} by the loader, {} built, {} with a broken header; no crash\n", runs, outcomes[0], outcomes[1], outcomes[2], outcomes[3]);
+	return 0;
+}
+
 /** What a shipped game does: find each level's map by asset name, then parse it. */
 int CheckCampaign()
 {
@@ -673,6 +796,8 @@ int main(int argc, char **argv)
 	std::string out;
 	std::string doc;
 	bool checkCampaign = false;
+	std::string fuzz;
+	int runs = 2000;
 	for (int i = 1; i < argc; i++) {
 		const std::string arg = argv[i];
 		const auto value = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -688,8 +813,12 @@ int main(int argc, char **argv)
 			doc = value();
 		else if (arg == "--check-campaign")
 			checkCampaign = true;
+		else if (arg == "--fuzz")
+			fuzz = value();
+		else if (arg == "--runs")
+			runs = std::atoi(value().c_str());
 	}
-	if (data.empty() || assets.empty() || (!checkCampaign && (levels.empty() || out.empty()))) {
+	if (data.empty() || assets.empty() || (!checkCampaign && fuzz.empty() && (levels.empty() || out.empty()))) {
 		std::cerr << "usage: dkmap_tool --data <mpq folder> --assets <assets folder> (--levels <folder> --out <folder> [--doc <file>] | --check-campaign)\n";
 		return 2;
 	}
@@ -710,6 +839,8 @@ int main(int argc, char **argv)
 	Players.resize(1);
 	MyPlayer = &Players[0];
 	LoadObjectData();
+	if (!fuzz.empty())
+		return FuzzMaps(fuzz, runs);
 	const int result = RunLevels(levels, out, doc);
 	return result;
 }

@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <string>
 #include <cstdint>
 
 #ifdef USE_SDL3
@@ -113,6 +114,8 @@ extern int TestLordHitPoints;
 extern int TestStartWave;
 /** @brief Dev/test flag (--keeper-level <n>): the campaign level to autostart or host (0 = level 1). */
 extern int TestCampaignLevel;
+/** From --keeper-map: autostart or host this map file. */
+extern std::string TestCustomMap;
 /** @brief Dev/test flag (--keeper-rank <n>): overrides CampaignRank() for the roster (0 = normal). Pass it on every client. */
 extern int TestRank;
 /** @brief Dev/test flag (--keeper-test-stamp <n>): pretend to be a different build. */

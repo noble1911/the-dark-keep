@@ -34,13 +34,16 @@ build\Release\dkmap_tool.exe --data E:\Games\Diablo --assets build\assets --leve
 |---|---|---|
 | 1 to 8 | Cathedral | The fullest tileset (docs/TODO.md): doors, arches, braziers. Where each mechanic is taught. |
 | 9 to 14 | Catacombs | Doors, so locks still work. Bigger loops. |
-| 15 to 17 | Caves | No doors, so **no locks**: necks, distance and known traps only. |
-| 18 to 20 | Hell | No doors, so **no locks**. The longest routes. |
+| 15 to 17 | Caves | A door is a wooden fence across the cave with a gate in it (the same objects the base game uses). Locks work on the gates. |
+| 18 to 20 | Hell | The art has no doors at all, so the Lock tool makes a **Barricade** across any neck up to 12 tiles wide. The longest routes. |
 
-Crypt and Nest are not used. **No map here has been seen on a screen or played**: everything below comes
-from the map code and the tile data. Check first when playing that the walls, stairs and doors of Catacombs, Caves and Hell look right. Whether
-the last six levels lose too much by having no locks is a design question to judge by playing; changing a
-level's `tileset` line (and using doors) is all it takes to move it to another tileset.
+Crypt and Nest are not used. All four tilesets have been looked at in test runs, without a window: walls, stairs,
+gates and barricades draw as they should. No level has been played through by a person, so how they feel is
+still a judgement from the numbers. Catacombs and Caves get brighter ambient light than the other two, because
+their art is darker.
+
+A Barricade only goes where it really shuts the way: `keeper_barricade.cpp` goes on past thin pillars and checks
+there's no short walk round. In a hall too wide to bar, look for a neck, or the shoulders on level 18.
 
 ## Reading the numbers
 
@@ -749,9 +752,9 @@ Three wards and a lane under them, then a keep of two halls, then a last lane th
 
 ## Level 15: Howling Stair
 
-**Caves.** Route 122 tiles, 781 floor cells, 3032 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 19 points along the route, 3 leave no way on; 1 have a real way round (+10 tiles or more, longest +11).
+**Caves.** Route 123 tiles, 776 floor cells, 2997 tiles to build on. 5 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +46 tiles), of which a lock turns the party away from 0, 2 off the short route. Shut at any of 19 points along the route, 5 leave no way on; 2 have a real way round (+10 tiles or more, longest +46).
 
-No doors in the Caves, so no locks: distance and necks do all the work. A long winding gully with one short cut through a tight neck halfway. Only a known trap can turn the party aside, so the short cut is worth trapping and the gully is worth garrisoning.
+A long winding gully with one short cut through a tight neck halfway, and in the Caves a door is a fence with a gate in it. Gates on the gully and the short cut decide which way the party goes, and the last two gates are forced, so the gully is worth garrisoning.
 
 ```
 
@@ -761,16 +764,16 @@ No doors in the Caves, so no locks: distance and necks do all the work. A long w
   #..EEE....#         #.b............#
   #..EEE....###########..............#
   #..EEE.............................#
-  #.....+..+++.......................#
+  #.....+..+++......D................#
   #......+++++++.....................#
   #.......+.###++.#####..............#
   #.........# #.++#   #..............#
   #.........# #..+#   #............b.#
   ########### #..+#   #..............#
               #..+#   ########...#####
-              #..+#          #...#
-              #..+#          #...#
-              #..+#          #...#
+              #.++#          #...#
+              #.D.#          #...#
+              #.+.#          #.D.#
               #..+#          #...#
   ##########  #..+#          #...#
   #........#  #..+############...######
@@ -778,59 +781,59 @@ No doors in the Caves, so no locks: distance and necks do all the work. A long w
   #........#  #++.##..................#
   #........####+..##..................#
   #..........++.......................#
-  #.........++........................#
-  #......++++.........................#
+  #........+D+........................#
+  #......+++..........................#
   #.....++.#########..................#
   #.b..++..#       #..................#
   #....+...#       ####################
-  ###..+####
-    #..+#
-  ###..+##############################
-  #....++...................+++++....#
-  #.....++.................+..VVVV...#
-  #......++...............+...VVVV...#
-  #.......++.............+....VVVV...#
-  #........++++++++++++++............#
-  #.........++++++++++++.............#
+  ###.++####
+    #.D.#
+  ###.+.##############################
+  #....+....................+++++....#
+  #.....+..................++.VVVV...#
+  #......+................++..VVVV...#
+  #.......+..............++...VVVV...#
+  #........+++++++++++++++...........#
+  #.........+++++++++++++............#
   ####################################
 
 ```
 
 ## Level 16: Tomb of Kings
 
-**Caves.** Route 144 tiles, 781 floor cells, 3031 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 22 points along the route, 4 leave no way on; 2 have a real way round (+10 tiles or more, longest +10).
+**Caves.** Route 144 tiles, 774 floor cells, 2996 tiles to build on. 7 doors: 1 can't be bypassed, 3 on the short route with a way round (detour +0, +0, +10 tiles), of which a lock turns the party away from 3, 3 off the short route. Shut at any of 22 points along the route, 4 leave no way on; 2 have a real way round (+10 tiles or more, longest +10).
 
-A chain of burial chambers, each with two necks to the next. A trap seen once pushes the survivors through the other neck, so traps work in pairs and the chambers between them are where the party is caught either way.
+A chain of burial chambers, each with two gated necks to the next. A locked gate or a trap seen once pushes the party through the other neck, so they work in pairs, and the chambers between are where the party is caught either way.
 
 ```
 
  ############  #############
  #..........#  #...........#
  #..EEE.....####.b.........#
- #..EEE....................#
+ #..EEE......D.............#
  #..EEE....................######
  #..EEE.....####..........+++...#
  #.....+....#  #.........++++++.#
- #......+...####........++.###++#
- #.......+.+++++.......++..# #.+#
- #........++++++++++++++...# #.+#
+ #......+...####........++.###D.#
+ #.......+.++D++.......++..# #+.#
+ #........+++..+++++++++...# #.+#
  #..........####.++++++....###.+#######
  ############  ##############..++.....#
         ############        #...++....#
         #..........#        #....++...#
         #.b........#        #....++...#
         #..........##########...++....#
-        #......................++.....#
+        #..............D.......++.....#
         #.....................++......#
         #..........##########++.......#
         #..........##########+........#
-        #..................++.......b.#
-        #.........++++++++++..........#
+        #.............+D+..++.......b.#
+        #.........+++++..+++..........#
         #........++####################
         #........+.#
-        ###..###.+##
-          #..# #.+#
-          #..# #.+#
+        ###..###++##
+          #D.# #D.#
+          #..# #+.#
    ########..###.+#####################
    #.............++.........+++++.....#
    #..............++.......+..VVVV....#
@@ -847,9 +850,9 @@ A chain of burial chambers, each with two necks to the next. A trap seen once pu
 
 ## Level 17: Silent Abbey
 
-**Caves.** Route 107 tiles, 760 floor cells, 2948 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 16 points along the route, 2 leave no way on; 2 have a real way round (+10 tiles or more, longest +56).
+**Caves.** Route 108 tiles, 756 floor cells, 2914 tiles to build on. 4 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +56 tiles), of which a lock turns the party away from 0, 1 off the short route. Shut at any of 16 points along the route, 5 leave no way on; 3 have a real way round (+10 tiles or more, longest +56).
 
-A wide cloister with a rock island in the middle, and the vault below it on the side the party starts from, with no way down there. It has to go round, by the middle walk or the far side, so this is about where the army stands rather than what it blocks.
+A wide cloister with a rock island in the middle, and the vault below it on the side the party starts from, with no way down there. It has to go round, by the gated middle walk or the far side, and a lock on the middle sends it the whole way round, so the army can stand in one place.
 
 ```
 
@@ -871,9 +874,9 @@ A wide cloister with a rock island in the middle, and the vault below it on the 
                  #.++#         #......#
                  #..+#         #......#
                  #..+#         #......#
-                 #..+#         #......#
-                 #..+#         #......#
-                 #..+#         #......#
+                 #.++#         #......#
+                 #.D.#         #..D...#
+                 #.+.#         #......#
                  #..+#         #......#
                  #..+#         #......#
                  #.++#         #......#
@@ -881,71 +884,71 @@ A wide cloister with a rock island in the middle, and the vault below it on the 
                ###+..###########......#
        #########++....................#
        #.......++.....................#
-       #......++.....................b#
-       #..+++++.......................#
-       #..+############################
-   #####..+########################
-   #......++.............VVVV.....#
-   #.......++............VVVV.....#
-   #........++...........VVVV.....#
-   #.........+++++++++++++........#
-   #..........+++++++++++.........#
+       #..+D+.++.....................b#
+       #.++..++.......................#
+       #.D.############################
+   #####.+.########################
+   #......+..............VVVV.....#
+   #.......+.............VVVV.....#
+   #........+............VVVV.....#
+   #.........++++++++++++++.......#
+   #..........++++++++++++........#
    ################################
 
 ```
 
 ## Level 18: Chains of Night
 
-**Hell.** Route 184 tiles, 1052 floor cells, 4340 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16).
+**Hell.** Route 184 tiles, 1012 floor cells, 4202 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 8 of them.
 
-Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. A long, plain, brutal route to test what the army can do with no locks at all.
+Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. Each turn is a place to bar, and shoulders of rock narrow every hall to one more.
 
 ```
 
-  ####################################
+  #############   ####################
+  #.EEEE......#   #..................#
+  #.EEEE......#####...............b..#
   #.EEEE.............................#
-  #.EEEE..........................b..#
+  #.EEEE.............................#
   #.EEEE+............................#
-  #.EEEE++...........................#
-  #.EEEE.++..........................#
-  #.......++.........................#
-  #........++++++++++++++............#
+  #......+...........................#
+  #.......+++++++++++++++............#
   #######################+...####....#
-  #######################+...####....#
-  #...................++.............#
+  #########   ###########+...####....#
+  #.......#   #........++............#
+  #.......#####.......++.............#
   #..................++..............#
   #.................++...............#
   #................++................#
-  #...............++.................#
-  #..b...........++..................#
+  #..b...........+++.................#
   #...++++++++++++...................#
   #...+###############################
-  #...+###############################
-  #....+++...........................#
-  #.....+++..........................#
+  #...+############   ################
+  #....+..........#   #..............#
+  #.....+.........#####..............#
+  #......+...........................#
+  #.......+..........................#
   #........+.........................#
-  #.........+........................#
-  #..........+.......................#
-  #...........+...........++.......b.#
-  #............++++++++++++++++++....#
+  #.........+..........++..........b.#
+  #..........++++++++++++++++++++....#
   ###############################+...#
-  ###############################+...#
-  #............................++....#
-  #...........................++.....#
+  ###################   #########+...#
+  #.................#   #......++....#
+  #.................#####.....++.....#
   #..VVVVV...................++......#
   #..VVVVV..................++.......#
   #..VVVVV.................++........#
-  #..VVVVV+++.............+..........#
-  #..VVVVV..++...........+...........#
-  #..........++++.......+............#
-  #...........++.+++++++.............#
+  #..VVVVV................++.........#
+  #..VVVVV+..............++..........#
+  #.......++..++........++...........#
+  #........++++.+++++++++............#
   ####################################
 
 ```
 
 ## Level 19: Burning Sepulcre
 
-**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11).
+**Hell.** Route 154 tiles, 825 floor cells, 3472 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 8 of them.
 
 A burial hall ringed by a broad ambulatory, with the vault below and behind it. The hall has two necks in, and the ring is cut on the east, so the party crosses the hall or walks the whole ring, and the only way down is at the far corner, with the vault back at the other end. Traps herd rather than block: there is always another way on, and lairs hold the ring.
 
@@ -994,18 +997,18 @@ A burial hall ringed by a broad ambulatory, with the vault below and behind it. 
 
 ## Level 20: Throne of Ash
 
-**Hell.** Route 205 tiles, 1102 floor cells, 4594 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 33 points along the route, 0 leave no way on; 7 have a real way round (+10 tiles or more, longest +28).
+**Hell.** Route 204 tiles, 1082 floor cells, 4557 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 22 of them.
 
-The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far except locks, and ends in a throne room big enough for a last stand.
+The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big enough for a last stand.
 
 ```
  ######################################
  #.EEEE...............................#
  #.EEEE.............................b.#
- #.EEEE...............................#
- #.EEEE...............................#
  #.EEEE+..............................#
- #......++++++++++++++++++............#
+ #.EEEE++.............................#
+ #.EEEE.++............................#
+ #.......+++++++++++++++++............#
  #########################+..####.....#
  #########################+..####.....#
  #......................++............#
@@ -1016,27 +1019,27 @@ The last keep: the longest route in the campaign, five halls in a switchback wit
  #.....##..+###########################
  #.....##..+###########################
  #..........+.........................#
- #...........++++.....................#
- #............++.+..................b.#
- #................+...................#
- #.................+++++++............#
- #########################...####.....#
- #########################...####.....#
- #......................++............#
+ #...........++.......................#
+ #............++....................b.#
+ #..............++....................#
+ #...............+++++++++............#
+ #########################+..####.....#
+ #########################+..####.....#
  #.....................++.............#
- #.b..................++..............#
- #...................++...............#
- #....++++++++++++++++................#
+ #....................++..............#
+ #.b.................++...............#
+ #..................+.................#
+ #....++++++++++++++..................#
  #....+################################
  #....+################################
  #.....+..............................#
- #......+.............................#
- #.......+....................VVVVV...#
- #........+...................VVVVV...#
- #.........++.................VVVVV...#
- #..........+++...............VVVVV...#
- #.b...........+..............VVVVV.b.#
- #..............++++++++++++++++......#
+ #......+..........##.....##..........#
+ #.......+.........##.....##..VVVVV...#
+ #........+...++..............VVVVV...#
+ #.........++++++.............VVVVV...#
+ #..........##...+.##.....##..VVVVV...#
+ #.b........##....+##.....##..VVVVV.b.#
+ #.................+++++++++++++......#
  ######################################
 
 ```

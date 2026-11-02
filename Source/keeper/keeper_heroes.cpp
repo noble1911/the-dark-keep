@@ -21,6 +21,7 @@
 #include "game_mode.hpp"
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
@@ -235,7 +236,7 @@ std::optional<HeroClassKind> HeroClassOf(_monster_id type)
 
 bool IsPassable(Point tile)
 {
-	return InDungeonBounds(tile) && IsTileWalkable(tile, /*ignoreDoors=*/true);
+	return InDungeonBounds(tile) && (IsTileWalkable(tile, /*ignoreDoors=*/true) || IsBarricadeAt(tile));
 }
 
 bool CanStepDiagonal(Point from, Displacement step)
@@ -341,9 +342,17 @@ void BuildRoute(DistanceField &field, Point target, uint16_t traps)
 	static DistanceField tileCost;
 	for (auto &column : tileCost)
 		column.fill(1);
-	for (const DoorLock &lock : State.locks) {
-		if (lock.active && InDungeonBounds(lock.position))
+	for (size_t slot = 0; slot < MaxLocks; slot++) {
+		const DoorLock &lock = State.locks[slot];
+		if (!lock.active)
+			continue;
+		if (InDungeonBounds(lock.position))
 			tileCost[lock.position.x][lock.position.y] += LockRoutePenalty;
+		// A barricade is as dear to go through anywhere along it.
+		for (const Point tile : BarricadeTiles(slot)) {
+			if (tile != lock.position)
+				tileCost[tile.x][tile.y] += LockRoutePenalty;
+		}
 	}
 	for (size_t i = 0; i < MaxTraps; i++) {
 		if ((traps & (1U << i)) == 0)
@@ -417,6 +426,8 @@ const DistanceField &RouteField(HeroGoal goal, uint16_t knownTraps)
 
 bool IsLockedDoorAt(Point tile)
 {
+	if (IsBarricadeAt(tile))
+		return true;
 	Object *door = FindObjectAtPosition(tile);
 	return door != nullptr && door->isDoor() && KeeperIsDoorClosed(*door) && FindLock(door->position) != nullptr;
 }
@@ -1962,6 +1973,19 @@ std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownT
 
 void StrikeLockedDoor(Point tile, int blows, std::string_view who)
 {
+	if (const std::optional<size_t> slot = BarricadeSlotAt(tile); slot) {
+		DoorLock &barricade = State.locks[*slot];
+		if (!barricade.active)
+			return;
+		barricade.strength -= blows;
+		if (barricade.strength <= 0) {
+			barricade.active = false;
+			RemoveBarricade(*slot);
+			Announce(fmt::format("{} smashed through a barricade!", who));
+			RebuildPaths();
+		}
+		return;
+	}
 	Object *door = FindObjectAtPosition(tile);
 	if (door == nullptr || !door->isDoor())
 		return;

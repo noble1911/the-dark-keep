@@ -1189,6 +1189,9 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-level") { // [DARK KEEP] dev/test: autostart or host this campaign level
 			if (i + 1 < argc)
 				keeper::TestCampaignLevel = std::atoi(argv[++i]);
+		} else if (arg == "--keeper-map") { // [DARK KEEP] dev/test: autostart or host this map file
+			if (i + 1 < argc)
+				keeper::TestCustomMap = argv[++i];
 		} else if (arg == "--keeper-rank") { // [DARK KEEP] dev/test: override the campaign rank (pass the same on every client)
 			if (i + 1 < argc)
 				keeper::TestRank = std::atoi(argv[++i]);

@@ -10,7 +10,8 @@ What the rules below come from (see docs/CAMPAIGN-MAPS.md):
   needs floor on two opposite sides and non-floor on the other two.
 - A lock costs a hero's route 40 tiles, so a way round that is shorter than that makes them turn away,
   and a longer one makes them stop and break the door. Both are useful and the levels use both.
-- Caves and Hell have no doors at all: their chokes are necks, and nothing there can be locked.
+- In the Caves a door is a fence right across the cave with a gate in it: mark the cell in a straight stretch
+  two or more cells wide. Hell has no doors at all: the Lock tool makes a barricade across any neck instead.
 """
 import os
 
@@ -381,9 +382,9 @@ l.put('c', (36, 36), (20, 36))
 # ---- Act three: the Caves. No doors: necks and chambers. ----------------------------------------
 
 l = level(15, 'Howling Stair', 'Caves', 0x300F,
-          'No doors in the Caves, so no locks: distance and necks do all the work. A long winding gully '
-          'with one short cut through a tight neck halfway. Only a known trap can turn the party aside, so '
-          'the short cut is worth trapping and the gully is worth garrisoning.')
+          'A long winding gully with one short cut through a tight neck halfway, and in the Caves a door is '
+          'a fence with a gate in it. Gates on the gully and the short cut decide which way the party goes, '
+          'and the last two gates are forced, so the gully is worth garrisoning.')
 l.room(3, 3, 9, 9).entrance(5, 3)
 l.hall_h(6, 12, 22, 3)
 l.room(23, 3, 14, 10)
@@ -394,12 +395,13 @@ l.room(3, 19, 8, 10)
 l.hall_v(5, 29, 31, 3)
 l.room(3, 32, 34, 6).vault(30, 33)
 l.hall_v(15, 9, 22, 3)
+l.door(20, 7).door(16, 15).door(31, 16).door(12, 24).door(6, 30)
 l.put('b', (24, 4), (35, 11), (4, 27))
 
 l = level(16, 'Tomb of Kings', 'Caves', 0x3010,
-          'A chain of burial chambers, each with two necks to the next. A trap seen once pushes the '
-          'survivors through the other neck, so traps work in pairs and the chambers between them are '
-          'where the party is caught either way.')
+          'A chain of burial chambers, each with two gated necks to the next. A locked gate or a trap seen '
+          'once pushes the party through the other neck, so they work in pairs, and the chambers between '
+          'are where the party is caught either way.')
 l.room(2, 2, 10, 10).entrance(4, 3)
 l.room(16, 2, 11, 10)
 l.hall_h(4, 12, 15, 2)
@@ -413,12 +415,13 @@ l.room(9, 14, 10, 11)
 l.hall_v(11, 25, 28, 2)
 l.hall_v(16, 25, 28, 2)
 l.room(4, 29, 34, 8).vault(30, 30)
+l.door(13, 4).door(13, 9).door(30, 8).door(23, 17).door(23, 21).door(11, 26).door(16, 26)
 l.put('b', (17, 3), (36, 21), (10, 15), (5, 35))
 
 l = level(17, 'Silent Abbey', 'Caves', 0x3011,
           'A wide cloister with a rock island in the middle, and the vault below it on the side the party '
-          'starts from, with no way down there. It has to go round, by the middle walk or the far side, '
-          'so this is about where the army stands rather than what it blocks.')
+          'starts from, with no way down there. It has to go round, by the gated middle walk or the far side, '
+          'and a lock on the middle sends it the whole way round, so the army can stand in one place.')
 l.room(2, 2, 12, 9).entrance(5, 3)
 l.room(2, 11, 36, 4)
 l.room(32, 11, 6, 20)
@@ -429,13 +432,15 @@ l.hall_v(32, 9, 10, 3)
 l.hall_h(28, 8, 15, 3)
 l.hall_v(8, 31, 32, 3)
 l.room(4, 33, 30, 5).vault(25, 33)
+l.door(19, 20).door(34, 20).door(11, 29).door(9, 31)
 l.put('b', (21, 3), (36, 7), (37, 29))
 
 # ---- Act four: Hell. No doors, the longest routes, the most ways through. ------------------------
 
 l = level(18, 'Chains of Night', 'Hell', 0x4012,
           'Long chained halls in a switchback, with a broad neck at each turn and one bypass through the '
-          'middle wall. A long, plain, brutal route to test what the army can do with no locks at all.')
+          'middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. '
+          'Each turn is a place to bar, and shoulders of rock narrow every hall to one more.')
 l.room(3, 2, 34, 7).entrance(4, 2)
 l.room(33, 9, 4, 2)
 l.room(3, 11, 34, 7)
@@ -444,6 +449,8 @@ l.room(25, 9, 4, 2)
 l.room(3, 20, 34, 7)
 l.room(33, 27, 4, 2)
 l.room(3, 29, 34, 9).vault(5, 31)
+# The halls are too wide to bar: these shoulders narrow each one to a neck that can be, off the party's line.
+l.rock(14, 2, 5, 2).rock(10, 11, 5, 2).rock(18, 20, 5, 2).rock(20, 29, 5, 2)
 l.put('b', (34, 3), (5, 16), (35, 25))
 
 l = level(19, 'Burning Sepulcre', 'Hell', 0x4013,
@@ -468,7 +475,7 @@ l.put('b', (4, 12), (33, 12), (4, 30), (35, 30))
 l = level(20, 'Throne of Ash', 'Hell', 0x4014,
           'The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at '
           'each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way '
-          'round, so it asks for everything learned so far except locks, and ends in a throne room big '
+          'round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big '
           'enough for a last stand.')
 l.room(2, 1, 36, 6).entrance(3, 1)
 l.room(33, 7, 5, 2)
@@ -482,6 +489,8 @@ l.room(2, 23, 36, 5)
 l.room(26, 21, 3, 2)
 l.room(2, 28, 5, 2)
 l.room(2, 30, 36, 8).vault(30, 32)
+# Pillars in the throne room: cover for a last stand, none of them on the way to the throne.
+l.rock(12, 35, 2, 2).rock(19, 35, 2, 2).rock(26, 35, 2, 2).rock(19, 31, 2, 2).rock(26, 31, 2, 2)
 l.put('b', (36, 2), (3, 12), (36, 18), (3, 25), (36, 36), (3, 36))
 
 

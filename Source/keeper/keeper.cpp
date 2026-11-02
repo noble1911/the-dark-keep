@@ -32,6 +32,7 @@
 #include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
@@ -66,6 +67,7 @@ bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
 int TestCampaignLevel = 0;
+std::string TestCustomMap;
 int TestRank = 0;
 int TestBuildStamp = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
@@ -73,8 +75,9 @@ char AutoJoinAddress[128] = "127.0.0.1";
 
 namespace {
 
-/** Ambient light level for the whole keep (0 = fully lit, 15 = pitch black). */
+/** Ambient light for the whole keep (0 = fully lit, 15 = pitch black). The Catacombs' and Caves' art is darker. */
 constexpr uint8_t AmbientLight = 3;
+constexpr uint8_t DarkTilesetAmbientLight = 1;
 /** Camera speed in screen pixels per second. */
 constexpr float CameraSpeed = 720.F;
 /** Mouse distance from the window edge (pixels) that scrolls the camera. */
@@ -171,10 +174,11 @@ void RevealKeep()
 
 void ApplyAmbientLight()
 {
+	const uint8_t ambient = IsAnyOf(leveltype, DTYPE_CATACOMBS, DTYPE_CAVES) ? DarkTilesetAmbientLight : AmbientLight;
 	for (int x = 0; x < MAXDUNX; x++) {
 		for (int y = 0; y < MAXDUNY; y++) {
-			dPreLight[x][y] = std::min(dPreLight[x][y], AmbientLight);
-			dLight[x][y] = std::min(dLight[x][y], AmbientLight);
+			dPreLight[x][y] = std::min(dPreLight[x][y], ambient);
+			dLight[x][y] = std::min(dLight[x][y], ambient);
 		}
 	}
 }
@@ -563,11 +567,12 @@ CardText DescribeCard(const Tool &tool)
 		break;
 	}
 	case ToolType::LockDoor:
-		text.name = "Lock";
+		text.name = UsesBarricades() ? "Barricade" : "Lock";
 		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", LockDoorCost);
 		text.ready = State.vaultGold >= LockDoorCost;
-		text.description = "Bars a door. Heroes have to bash it down; Warriors do it fastest.";
+		text.description = UsesBarricades() ? "Bars a neck, wall to wall. No doors here, so heroes bash it down or go round."
+		                                    : "Bars a door. Heroes have to bash it down; Warriors do it fastest.";
 		break;
 	case ToolType::Bait:
 		text.name = "Bait";
@@ -1085,6 +1090,13 @@ void DrawToolPreview(const Surface &out)
 	}
 	case ToolType::LockDoor: {
 		const bool ok = CanLockDoorAt(tile, &reason);
+		if (UsesBarricades()) {
+			for (const Point at : BarricadeLine(tile))
+				DrawTileDiamond(out, at, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
+			if (!ok)
+				DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+			return;
+		}
 		const Object *door = FindDoorAt(tile);
 		DrawTileDiamond(out, door != nullptr ? door->position : tile, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 		if (!ok)
@@ -1267,7 +1279,7 @@ void DrawOverlays(const Surface &out)
 		if (!lock.active)
 			continue;
 		DrawTileDiamond(out, lock.position, PAL16_RED + 2);
-		DrawWorldLabel(out, lock.position, fmt::format("Locked ({})", lock.strength), UiFlags::ColorRed);
+		DrawWorldLabel(out, lock.position, fmt::format("{} ({})", UsesBarricades() ? "Barred" : "Locked", lock.strength), UiFlags::ColorRed);
 	}
 
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
