@@ -29,14 +29,16 @@ std::string tcp_server::LocalhostSelf()
 	auto addr = acceptor->local_endpoint().address();
 	if (addr.is_unspecified()) {
 		if (addr.is_v4()) {
-			return asio::ip::address_v4::loopback().to_string();
+			addr = asio::ip::address_v4::loopback();
+		} else if (addr.is_v6()) {
+			addr = asio::ip::address_v6::loopback();
+		} else {
+			ABORT();
 		}
-		if (addr.is_v6()) {
-			return asio::ip::address_v6::loopback().to_string();
-		}
-		ABORT();
 	}
-	return addr.to_string();
+	// [DARK KEEP] With the port: the host's own client otherwise looks for its server on the default one.
+	const std::string port = std::to_string(acceptor->local_endpoint().port());
+	return addr.is_v6() ? "[" + addr.to_string() + "]:" + port : addr.to_string() + ":" + port;
 }
 
 tcp_server::scc tcp_server::MakeConnection()

@@ -953,7 +953,7 @@ void DrawModal(const Surface &out)
 	}
 
 	if (modal == Modal::ConfirmNew) {
-		DrawString(out, "This map has unsaved changes. A copy goes to _autosave.", { text + Displacement { 0, 20 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+		DrawString(out, "Unsaved changes: a copy goes to _autosave.", { text + Displacement { 0, 20 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 		DrawString(out, "Enter: start a new map   Esc: keep this one", { text + Displacement { 0, 44 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 		return;
 	}
