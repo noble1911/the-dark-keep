@@ -250,8 +250,11 @@ void WriteMonsters()
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const Player &bot = Players[FirstBotId + i];
-		if (IsLivingBot(bot))
-			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode)));
+		if (IsLivingBot(bot)) {
+			const std::optional<BotSummary> summary = GetBotSummary(bot);
+			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={} stone={} flee={} carried={} potions={} dest={} step={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode),
+			    IsPetrifiedBot(bot), summary->fleeing, summary->carried, summary->potions, static_cast<int>(bot.destAction), static_cast<int>(bot.walkpath[0])));
+		}
 	}
 	for (const DoorLock &lock : State.locks) {
 		if (lock.active)

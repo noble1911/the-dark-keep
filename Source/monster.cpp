@@ -1163,7 +1163,7 @@ int CheckReflect(Monster &monster, Player &player, int dam)
 		NetSendCmdParam1(true, CMD_SETREFLECT, 0);
 	// reflects 20-30% damage
 	const int mdam = dam * RandomIntBetween(20, 30, true) / 100;
-	ApplyMonsterDamage(DamageType::Physical, monster, mdam);
+	keeper::IsBot(player) ? ApplySimulatedMonsterDamage(DamageType::Physical, monster, mdam) : ApplyMonsterDamage(DamageType::Physical, monster, mdam); // [DARK KEEP]
 	if (monster.hasNoLife())
 		M_StartKill(monster, player);
 	else
@@ -1245,7 +1245,7 @@ void MonsterAttackPlayer(Monster &monster, Player &player, int hit, int minDam, 
 	// Reflect can also kill a monster, so make sure the monster is still alive
 	if (HasAnyOf(player._pIFlags, ItemSpecialEffect::Thorns) && monster.mode != MonsterMode::Death) {
 		const int mdam = (GenerateRnd(3) + 1) << 6;
-		ApplyMonsterDamage(DamageType::Physical, monster, mdam);
+		keeper::IsBot(player) ? ApplySimulatedMonsterDamage(DamageType::Physical, monster, mdam) : ApplyMonsterDamage(DamageType::Physical, monster, mdam); // [DARK KEEP]
 		if (monster.hasNoLife())
 			M_StartKill(monster, player);
 		else
@@ -3916,6 +3916,20 @@ void AddDoppelganger(Monster &monster)
 
 // [DARK KEEP] Fights between heroes and keep monsters run on every client, so nobody tells the others about a
 // blow: they each land it themselves, and the host's sync settles the life. Only the host's copy dies.
+void ApplyKeepMonsterLifeLoss(Monster &monster, int damage)
+{
+	monster.hitPoints -= damage;
+	if (!monster.hasNoLife())
+		return;
+	if (keeper::IsHost()) {
+		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
+		// High priority: the raid-ending broadcast is, and a joiner has to count this death first.
+		NetSendCmdLocParam1(true, CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));
+	} else {
+		monster.hitPoints = 1 << 6;
+	}
+}
+
 void ApplySimulatedMonsterDamage(DamageType damageType, Monster &monster, int damage)
 {
 	if (!keeper::IsActive()) {
@@ -3923,33 +3937,24 @@ void ApplySimulatedMonsterDamage(DamageType damageType, Monster &monster, int da
 		return;
 	}
 	lua::OnMonsterTakeDamage(&monster, damage, static_cast<int>(damageType));
-	monster.hitPoints -= damage;
-	if (!monster.hasNoLife())
-		return;
-	if (keeper::IsHost()) {
-		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
-		NetSendCmdLocParam1(false, CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));
-	} else {
-		monster.hitPoints = 1 << 6;
-	}
+	ApplyKeepMonsterLifeLoss(monster, damage);
 }
 
 void ApplyMonsterDamage(DamageType damageType, Monster &monster, int damage)
 {
-	lua::OnMonsterTakeDamage(&monster, damage, static_cast<int>(damageType));
-
-	monster.hitPoints -= damage;
-
 	if (keeper::IsActive() && !keeper::IsHost()) { // [DARK KEEP] a joiner's spell: the host's copy says if this kills
-		if (monster.hasNoLife())
-			monster.hitPoints = 1 << 6;
+		ApplySimulatedMonsterDamage(damageType, monster, damage);
 		NetSendCmdMonDmg(false, static_cast<uint16_t>(monster.getId()), damage);
 		return;
 	}
 
+	lua::OnMonsterTakeDamage(&monster, damage, static_cast<int>(damageType));
+
+	monster.hitPoints -= damage;
+
 	if (monster.hasNoLife()) {
 		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
-		NetSendCmdLocParam1(false, CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));
+		NetSendCmdLocParam1(keeper::IsActive(), CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));
 		return;
 	}
 

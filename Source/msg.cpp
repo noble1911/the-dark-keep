@@ -2057,8 +2057,8 @@ size_t OnMonstDamage(const TCmdMonDamage &message, Player &player)
 			if (player.isOnActiveLevel() && leveltype != DTYPE_TOWN && monsterIdx < MaxMonsters) {
 				Monster &monster = Monsters[monsterIdx];
 				monster.tag(player);
-				if (monster.hitPoints > 0 && keeper::IsActive() && keeper::IsHost()) { // [DARK KEEP] a joiner's spell, and only the host can kill
-					ApplySimulatedMonsterDamage(DamageType::Physical, monster, Swap32LE(message.dwDam));
+				if (monster.hitPoints > 0 && keeper::IsActive()) { // [DARK KEEP] another master's spell, and only the host can kill
+					ApplyKeepMonsterLifeLoss(monster, Swap32LE(message.dwDam));
 					if (monster.hasNoLife())
 						M_StartKill(monster, player);
 				} else if (monster.hitPoints > 0) {

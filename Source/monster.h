@@ -531,6 +531,8 @@ void InitializeSpawnedMonster(Point position, Direction dir, size_t typeIndex, s
 void AddDoppelganger(Monster &monster);
 void ApplyMonsterDamage(DamageType damageType, Monster &monster, int damage);
 void ApplySimulatedMonsterDamage(DamageType damageType, Monster &monster, int damage); // [DARK KEEP]
+/** Life lost in the keep, with no hook: only the host's copy of a monster dies, the rest stop at 1. */
+void ApplyKeepMonsterLifeLoss(Monster &monster, int damage); // [DARK KEEP]
 void MonsterReducePlayerAttribute(Monster &monster, Player &player);
 bool M_Talker(const Monster &monster);
 void M_StartStand(Monster &monster, Direction md);

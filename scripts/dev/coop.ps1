@@ -1,10 +1,10 @@
 # Dev: launch a co-op host and a client on this machine (TCP over localhost), each with its own
 # profile under build\test-profiles, invisibly unless -Windowed. Stops only the games already on those two
 # profiles. Drive them with ctl.ps1 (-Name host / -Name client).
-param([switch]$Windowed, [int]$JoinDelay = 6, [switch]$HostOnly, [string[]]$HostArgs = @(), [string[]]$ClientArgs = @())
+param([switch]$Windowed, [switch]$NoSync, [int]$JoinDelay = 6, [switch]$HostOnly, [string[]]$HostArgs = @(), [string[]]$ClientArgs = @())
 . "$PSScriptRoot\common.ps1"
 Stop-ProfileGames 'host', 'client'
-Sync-GameData
+Sync-GameData -NoSync:$NoSync
 $hostProfile = New-TestProfile 'host'
 $clientProfile = New-TestProfile 'client'
 $h = Start-TestGame $hostProfile (@('--keeper-host') + $HostArgs) -Windowed:$Windowed

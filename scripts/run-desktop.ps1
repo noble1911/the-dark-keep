@@ -27,7 +27,8 @@ if (-not (Test-Path "$DataDir\DIABDAT.MPQ")) { throw "DIABDAT.MPQ not found in $
 # The game MPQs are hardlinked (same volume) or copied, once.
 Write-Host "==> Syncing engine assets + mod data next to the exe..." -ForegroundColor Cyan
 . "$PSScriptRoot\dev\common.ps1"
-Sync-GameData $DataDir
+# A second copy of the game shares the first one's data rather than pulling it from under it.
+Sync-GameData $DataDir -NoSync:([bool](Get-ExeInstances))
 
 Write-Host "==> Launching The Dark Keep" -ForegroundColor Green
 if ($GameArgs) {
