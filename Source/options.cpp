@@ -1139,6 +1139,8 @@ KeymapperOptions::KeymapperOptions()
 	keyIDToKeyName.emplace(SDLK_COMMA, ",");
 	keyIDToKeyName.emplace(SDLK_PERIOD, ".");
 	keyIDToKeyName.emplace(SDLK_SLASH, "/");
+	keyIDToKeyName.emplace(SDLK_EQUALS, "="); // [DARK KEEP] zoom
+	keyIDToKeyName.emplace(SDLK_MINUS, "-"); // [DARK KEEP] zoom
 
 	keyIDToKeyName.emplace(SDLK_BACKSPACE, "BACKSPACE");
 	keyIDToKeyName.emplace(SDLK_CAPSLOCK, "CAPSLOCK");

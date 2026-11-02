@@ -94,6 +94,8 @@ constexpr size_t MaxLairMembers = 4;
 constexpr size_t MaxTraps = 16;
 constexpr size_t MaxLocks = 16;
 constexpr size_t MaxBaits = 8;
+/** Waypoints a lair's patrol route can hold, on top of its guard post. */
+constexpr size_t MaxPatrolPoints = 6;
 
 struct Lair {
 	bool active = false;
@@ -106,6 +108,11 @@ struct Lair {
 	/** Where the lair's monsters stand guard, if the master set a rally point. */
 	bool hasRally = false;
 	Point rally;
+	/** Patrol: the monsters walk the loop guard post, route[0], route[1]... while they have no enemy. */
+	std::array<Point, MaxPatrolPoints> route {};
+	uint8_t routeCount = 0;
+	/** The leg each member is on: 0 is the guard post, n is route[n - 1]. */
+	std::array<uint8_t, MaxLairMembers> patrolLeg {};
 };
 
 struct Trap {
@@ -206,11 +213,14 @@ std::optional<StructureRef> FindStructureAt(Point tile);
 std::optional<size_t> LairOfMonster(size_t monsterId);
 bool CanSell(StructureRef ref, std::string_view *reason = nullptr);
 bool CanRallyTo(size_t lair, Point tile, std::string_view *reason = nullptr);
+bool CanAddWaypoint(size_t lair, Point tile, std::string_view *reason = nullptr);
 
 /** Requests (all are network commands, also in single player). */
 void RequestSell(StructureRef ref);
-/** Sends lair `lair`'s monsters to guard `tile` (nullopt: back to the lair). */
+/** Sends lair `lair`'s monsters to guard `tile` (nullopt: back to the lair). Either way this ends its patrol. */
 void RequestRally(size_t lair, std::optional<Point> tile);
+/** Adds `tile` to the end of the patrol route of lair `lair`. */
+void RequestWaypoint(size_t lair, Point tile);
 void RequestBuild(size_t kind, Point tile);
 void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
@@ -227,6 +237,9 @@ constexpr int PossessManaCost = 10;
 
 /** Handles CMD_KEEPER / CMD_KEEPER_STATE. @return bytes consumed */
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);
+
+/** A player finished loading a level: if it's a master arriving in the keep, whoever runs the keep sends them all of it. */
+void OnPlayerJoinedLevel(const Player &player);
 
 /** Faction rules: heroes vs. the keep's monsters. */
 bool IsHero(const Monster &monster);

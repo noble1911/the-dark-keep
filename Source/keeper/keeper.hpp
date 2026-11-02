@@ -72,6 +72,9 @@ bool OnKeyDown(SDL_Keycode key);
 /** @return true if the click was consumed by the keeper controls. */
 bool OnLeftMouseDown(uint16_t modState);
 
+/** Ends a drag-select. */
+void OnLeftMouseUp();
+
 /** @return true if the click was consumed by the keeper controls. */
 bool OnRightMouseDown();
 

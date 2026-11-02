@@ -70,6 +70,8 @@ void HeroAi(Monster &monster);
 void LeashMonsters();
 /** Where a keep monster stands guard (its lair, or the lair's rally point). */
 void SetMonsterHome(size_t monsterId, Point tile);
+/** A patrolling monster looks for enemies around itself: its "home" is only the next waypoint. */
+void SetMonsterRoaming(size_t monsterId, bool roaming);
 
 /** A keep monster with nothing to fight: it guards its lair instead of running its stock AI. */
 bool ShouldGuard(const Monster &monster);

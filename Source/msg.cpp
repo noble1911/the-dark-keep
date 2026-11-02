@@ -2348,6 +2348,8 @@ size_t OnPlayerJoinLevel(const TCmdLocParam2 &message, Player &player)
 		}
 	}
 
+	keeper::OnPlayerJoinedLevel(player); // [DARK KEEP] tell a mid-game joiner what stands in the keep
+
 	return sizeof(message);
 }
 

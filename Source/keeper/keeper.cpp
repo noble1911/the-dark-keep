@@ -34,6 +34,7 @@
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_input.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_units.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -85,19 +86,12 @@ enum class ToolType : uint8_t {
 	Upgrade,
 };
 
-/** Second palette row: four spells, then the door lock and the bait pile. */
-constexpr size_t NumActionButtons = NumSpellKinds + 2;
-constexpr std::array<SDL_Keycode, NumActionButtons> ActionKeys { SDLK_Z, SDLK_X, SDLK_C, SDLK_F, SDLK_G, SDLK_T };
-constexpr std::array<std::string_view, NumActionButtons> ActionKeyNames { "Z", "X", "C", "F", "G", "T" };
-
 struct Tool {
 	ToolType type = ToolType::None;
 	size_t index = 0;
 };
 
 Tool currentTool;
-/** The master's own structure picked with a click (sell it, or set a lair's rally point). */
-std::optional<StructureRef> selectedStructure;
 
 const Monster *MyPossessed();
 bool IsMouseOverUi();
@@ -202,6 +196,7 @@ void SetZoom(bool zoomed)
 		return;
 	GetOptions().Graphics.zoom.SetValue(zoomed);
 	CalcViewportGeometry();
+	CancelBoxDrag(); // the box is in screen pixels, which no longer mean the same place
 }
 
 Point FindVault(Point fallback)
@@ -513,6 +508,27 @@ struct CardText {
 	bool ready = false;
 };
 
+/** The key that picks a card: its slot's key while it is on show, plus the key that always picks it, if any. */
+std::string CardHotkey(const Tool &tool)
+{
+	std::string hotkey;
+	if (TabOf(tool) == currentTab) {
+		const std::vector<Tool> cards = TabCards(currentTab);
+		const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
+		const int slot = static_cast<int>(it - cards.begin()) - ScrollOf(currentTab);
+		if (it != cards.end() && slot >= 0 && slot < VisibleCardCount() && slot < static_cast<int>(NumCardSlotKeys))
+			hotkey = KeyLabel(KeeperAction::CardSlot, static_cast<size_t>(slot));
+	}
+	std::string direct;
+	if (tool.type == ToolType::LockDoor)
+		direct = KeyLabel(KeeperAction::LockDoor);
+	else if (tool.type == ToolType::Bait)
+		direct = KeyLabel(KeeperAction::Bait);
+	if (!hotkey.empty() && !direct.empty())
+		hotkey += "/";
+	return hotkey + direct;
+}
+
 CardText DescribeCard(const Tool &tool)
 {
 	const size_t me = MyPlayerId;
@@ -521,7 +537,7 @@ CardText DescribeCard(const Tool &tool)
 	case ToolType::Build: {
 		const BuildInfo &kind = BuildKinds[tool.index];
 		text.name = std::string(kind.name);
-		text.hotkey = std::to_string(tool.index + 1);
+		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", kind.cost);
 		text.ready = State.vaultGold >= kind.cost;
 		if (IsLairKind(tool.index)) {
@@ -535,7 +551,7 @@ CardText DescribeCard(const Tool &tool)
 	case ToolType::Spell: {
 		const SpellKind &spell = SpellKinds[tool.index];
 		text.name = std::string(spell.name);
-		text.hotkey = std::string(ActionKeyNames[tool.index]);
+		text.hotkey = KeyLabel(KeeperAction::Spell, tool.index);
 		text.cost = fmt::format("{} mana", spell.manaCost);
 		text.ready = State.mana[me] >= spell.manaCost * ManaScale && State.spellCooldown[me] == 0;
 		text.description = fmt::format("{} Your spells share a {}s recovery.", SpellFlavor[tool.index], spell.cooldownTicks / 20);
@@ -543,14 +559,14 @@ CardText DescribeCard(const Tool &tool)
 	}
 	case ToolType::LockDoor:
 		text.name = "Lock";
-		text.hotkey = std::string(ActionKeyNames[NumSpellKinds]);
+		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", LockDoorCost);
 		text.ready = State.vaultGold >= LockDoorCost;
 		text.description = "Bars a door. Heroes have to bash it down; Warriors do it fastest.";
 		break;
 	case ToolType::Bait:
 		text.name = "Bait";
-		text.hotkey = std::string(ActionKeyNames[NumSpellKinds + 1]);
+		text.hotkey = CardHotkey(tool);
 		text.cost = fmt::format("{}g", BaitCost);
 		text.ready = State.vaultGold >= BaitCost;
 		text.description = "A pile of fool's gold. Greedy heroes who see it detour to grab it.";
@@ -652,7 +668,7 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 		DrawHalfTransparentRectTo(out, portrait.position.x, portrait.position.y, portrait.size.width, shade);
 	}
 
-	DrawString(out, text.hotkey, { portrait.position + Displacement { 3, 1 }, { 20, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, text.hotkey, { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	DrawString(out, text.name, { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
 	DrawString(out, text.cost, { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
@@ -719,7 +735,7 @@ void DrawSpellBar(const Surface &out)
 			const int shade = icon.size.height * std::min(State.spellCooldown[MyPlayerId], cooldownTicks) / std::max(cooldownTicks, 1);
 			DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, shade);
 		}
-		DrawString(out, text.hotkey, { icon.position + Displacement { 2, 1 }, { 20, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
+		DrawString(out, text.hotkey, { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
 		DrawString(out, std::to_string(SpellKinds[i].manaCost), { icon.position + Displacement { 0, icon.size.height - 14 }, { icon.size.width - 2, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (text.ready ? UiFlags::ColorBlue : UiFlags::ColorRed) });
 
@@ -742,21 +758,19 @@ Rectangle SellButtonRect()
 	return { { info.position.x + 6, info.position.y + info.size.height - 28 }, { info.size.width - 12, 18 } };
 }
 
-/** The selected structure if it still stands. */
+/** The selected structure, when exactly one is selected. */
 std::optional<StructureRef> SelectedStructure()
 {
-	if (selectedStructure && !IsStructureActive(*selectedStructure))
-		selectedStructure.reset();
-	return selectedStructure;
+	const std::vector<StructureRef> &selected = Selection();
+	if (selected.size() != 1)
+		return std::nullopt;
+	return selected.front();
 }
 
-/** A living monster of the selected lair, if any. */
-const Monster *SelectedLairMonster()
+/** A living monster of a lair, if any. */
+const Monster *LairMonster(size_t slot)
 {
-	const std::optional<StructureRef> selected = SelectedStructure();
-	if (!selected || selected->type != StructureType::Lair)
-		return nullptr;
-	const Lair &lair = State.lairs[selected->slot];
+	const Lair &lair = State.lairs[slot];
 	for (const int16_t member : lair.members) {
 		if (member < 0)
 			continue;
@@ -765,6 +779,45 @@ const Monster *SelectedLairMonster()
 			return &monster;
 	}
 	return nullptr;
+}
+
+void DrawSellButton(const Surface &out, const std::string &label, bool canSell)
+{
+	const Rectangle button = SellButtonRect();
+	FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, PAL16_RED + 12);
+	DrawFrame(out, button, Contains(button, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_GRAY + 8);
+	DrawString(out, label, { button.position + Displacement { 0, 2 }, { button.size.width, 14 } },
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (canSell ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+}
+
+/** "Del: " in front of a label, or nothing if selling has no key bound. */
+std::string SellKeyPrefix()
+{
+	const std::string key = KeyLabel(KeeperAction::Sell);
+	return key.empty() ? std::string() : key + ": ";
+}
+
+/** Info panel for several selected structures: how many of what, and what selling them all pays. */
+void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
+{
+	const std::vector<StructureRef> &selected = Selection();
+	DrawString(out, fmt::format("{} selected", selected.size()), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+
+	std::vector<int> kinds(BuildKinds.size());
+	bool canSell = false;
+	for (const StructureRef &ref : selected) {
+		if (ref.type == StructureType::Lair)
+			kinds[State.lairs[ref.slot].kind]++;
+		canSell = canSell || CanSell(ref);
+	}
+	std::string summary;
+	for (size_t i = 0; i < kinds.size(); i++) {
+		if (kinds[i] > 0)
+			summary += fmt::format("{}{} {}", summary.empty() ? "" : ", ", kinds[i], BuildKinds[i].name);
+	}
+	summary += "\nRight-click: rally around a point. Shift+right-click: add a waypoint.";
+	DrawString(out, WordWrapString(summary, textWidth), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
 }
 
 /** Info panel for a selected structure: its state, rally point and the sell button. */
@@ -778,12 +831,13 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 		const Lair &lair = State.lairs[ref.slot];
 		if (lair.summonTicks > 0) {
 			state = "Summoning...";
-		} else if (const Monster *monster = SelectedLairMonster(); monster != nullptr) {
-			state = fmt::format("{} ({}%)", lair.hasRally ? "At its rally point" : "Guarding its lair", monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
+		} else if (const Monster *monster = LairMonster(ref.slot); monster != nullptr) {
+			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At its rally point" : "Guarding its lair");
+			state = fmt::format("{} ({}%)", duty, monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
 		} else {
 			state = "Slain: returns after the raid";
 		}
-		help = fmt::format("Pop {}. Right-click the floor to set a rally point{}.", BuildKinds[lair.kind].supply, lair.hasRally ? ", or the lair to clear it" : "");
+		help = fmt::format("Pop {}. Right-click the floor to set a rally point{}. Shift+right-click adds a waypoint.", BuildKinds[lair.kind].supply, lair.hasRally || lair.routeCount > 0 ? ", or the lair to clear it" : "");
 		break;
 	}
 	case StructureType::Trap:
@@ -800,28 +854,23 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 	if (!help.empty())
 		DrawString(out, WordWrapString(help, textWidth), { textPos + Displacement { 0, 32 }, { textWidth, 52 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 
-	const Rectangle button = SellButtonRect();
-	const bool canSell = CanSell(ref);
-	FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, PAL16_RED + 12);
-	DrawFrame(out, button, Contains(button, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_GRAY + 8);
-	const std::string label = fmt::format("Del: sell for {}g{}", RefundFor(ref), State.phase == Phase::Raid ? " (half)" : "");
-	DrawString(out, label, { button.position + Displacement { 0, 2 }, { button.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (canSell ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+	DrawSellButton(out, fmt::format("{}sell for {}g{}", SellKeyPrefix(), RefundFor(ref), State.phase == Phase::Raid ? " (half)" : ""), CanSell(ref));
 }
 
-/** Sells the selected structure (Del or the sell button). */
+/** Sells everything selected (the sell key or button). */
 void SellSelected()
 {
-	const std::optional<StructureRef> selected = SelectedStructure();
-	if (!selected)
+	const std::vector<StructureRef> selected = Selection();
+	if (selected.empty())
 		return;
 	std::string_view reason;
-	if (!CanSell(*selected, &reason)) {
+	if (!CanSell(selected.front(), &reason)) {
 		SetFeedback(std::string(reason));
 		return;
 	}
-	RequestSell(*selected);
-	selectedStructure.reset();
+	for (const StructureRef &ref : selected)
+		RequestSell(ref);
+	ClearSelection();
 }
 
 /** Right-hand panel: details of the hovered (or selected) card, otherwise the controls. */
@@ -841,18 +890,26 @@ void DrawInfoPanel(const Surface &out)
 	if (!shown && currentTool.type != ToolType::None)
 		shown = currentTool;
 	if (!shown) {
+		if (Selection().size() > 1) {
+			DrawGroupPanel(out, textPos, textWidth);
+			return;
+		}
 		if (const std::optional<StructureRef> selected = SelectedStructure(); selected) {
 			DrawStructurePanel(out, *selected, textPos, textWidth);
 			return;
 		}
 		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		DrawString(out, WordWrapString("Pick a card, then click in the keep to place it. Click a hero to inspect it, or your own monster or trap to sell it or set a rally point.\nWASD / edges: move  Wheel: zoom\nSpace: entrance  V: vault  E: possess", textWidth),
+		const std::string controls = fmt::format("Pick a card, then click in the keep to place it. Click a hero to inspect it, or your own monster or trap to sell it or give it orders. Drag a box to select monsters.\n{}{}{}{} / edges: move  Wheel: zoom\n{}: entrance  {}: vault  {}: possess",
+		    KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
+		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
+		DrawString(out, WordWrapString(controls, textWidth),
 		    { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 		return;
 	}
 	const CardText text = DescribeCard(*shown);
 	DrawString(out, text.name, { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	DrawString(out, fmt::format("[{}]", text.hotkey), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+	if (!text.hotkey.empty())
+		DrawString(out, fmt::format("[{}]", text.hotkey), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	DrawString(out, text.cost, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 	DrawString(out, WordWrapString(text.description, textWidth), { textPos + Displacement { 0, 32 }, { textWidth, info.size.height - 44 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
@@ -1030,28 +1087,108 @@ void DrawToolPreview(const Surface &out)
 	}
 }
 
-/** The selected structure: highlighted, with a lair's monster and its rally point. */
-void DrawSelectionOverlay(const Surface &out)
+/** A lair's patrol: the loop from its guard post through each waypoint and back again. */
+void DrawPatrolRoute(const Surface &out, const Lair &lair)
 {
-	const std::optional<StructureRef> selected = SelectedStructure();
-	if (!selected)
+	if (lair.routeCount == 0)
 		return;
-	const Point position = StructurePosition(*selected);
+	const Point post = lair.hasRally ? lair.rally : lair.position;
+	Point from = post;
+	for (size_t i = 0; i < lair.routeCount; i++) {
+		const Point waypoint = lair.route[i];
+		DrawLine(out, TileCenter(from), TileCenter(waypoint), PAL16_BLUE + 6, ScreenHudTop());
+		DrawTileDiamond(out, waypoint, PAL16_BLUE + 2);
+		DrawWorldLabel(out, waypoint, std::to_string(i + 1), UiFlags::ColorBlue);
+		from = waypoint;
+	}
+	DrawLine(out, TileCenter(from), TileCenter(post), PAL16_BLUE + 6, ScreenHudTop());
+}
+
+/** One selected structure: highlighted, with a lair's monster, rally point and patrol route. */
+void DrawSelectedStructure(const Surface &out, StructureRef ref)
+{
+	const Point position = StructurePosition(ref);
 	DrawTileDiamond(out, position, PAL16_YELLOW + 2);
 	DrawTileDiamond(out, position, PAL16_YELLOW + 2, 1);
-	if (selected->type != StructureType::Lair)
+	if (ref.type != StructureType::Lair)
 		return;
-	const Lair &lair = State.lairs[selected->slot];
-	if (const Monster *monster = SelectedLairMonster(); monster != nullptr)
+	const Lair &lair = State.lairs[ref.slot];
+	if (const Monster *monster = LairMonster(ref.slot); monster != nullptr)
 		DrawTileDiamond(out, monster->position.tile, PAL16_YELLOW + 4);
 	if (lair.hasRally) {
 		DrawLine(out, TileCenter(position), TileCenter(lair.rally), PAL16_BLUE + 4, ScreenHudTop());
 		DrawTileDiamond(out, lair.rally, PAL16_BLUE + 2);
 		DrawWorldLabel(out, lair.rally, "Rally point", UiFlags::ColorBlue);
 	}
-	// Where a right-click would send it.
-	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi() && cursPosition != position)
-		DrawTileDiamond(out, cursPosition, CanRallyTo(selected->slot, cursPosition) ? PAL16_BLUE + 6 : PAL16_RED + 6);
+	DrawPatrolRoute(out, lair);
+}
+
+void DrawSelectionOverlay(const Surface &out)
+{
+	const std::vector<StructureRef> selected = Selection();
+	for (const StructureRef &ref : selected)
+		DrawSelectedStructure(out, ref);
+	const std::vector<size_t> lairs = SelectedLairs();
+	if (lairs.empty() || (lairs.size() == 1 && cursPosition == State.lairs[lairs.front()].position))
+		return;
+	// Where a right-click would send them.
+	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi())
+		DrawTileDiamond(out, cursPosition, CanRallyTo(lairs.front(), cursPosition) ? PAL16_BLUE + 6 : PAL16_RED + 6);
+}
+
+/** The drag-select box, in screen pixels and clear of the command bar. */
+void DrawBoxDrag(const Surface &out)
+{
+	if (gmenu_is_active())
+		CancelBoxDrag();
+	const std::optional<Rectangle> box = BoxDragRect(MousePosition, cameraX, cameraY, ZoomFactor());
+	if (!box)
+		return;
+	const int maxY = ScreenHudTop();
+	const Point topLeft = box->position;
+	const Point topRight = topLeft + Displacement { box->size.width - 1, 0 };
+	const Point bottomLeft = topLeft + Displacement { 0, box->size.height - 1 };
+	const Point bottomRight = topRight + Displacement { 0, box->size.height - 1 };
+	DrawLine(out, topLeft, topRight, PAL16_YELLOW + 2, maxY);
+	DrawLine(out, topRight, bottomRight, PAL16_YELLOW + 2, maxY);
+	DrawLine(out, bottomRight, bottomLeft, PAL16_YELLOW + 2, maxY);
+	DrawLine(out, bottomLeft, topLeft, PAL16_YELLOW + 2, maxY);
+}
+
+/** True if a monster standing on `tile` shows inside `box` (screen pixels). */
+bool IsMonsterInBox(Point tile, const Rectangle &box)
+{
+	// A monster is drawn upwards from its feet, about a tile wide and a tile and a half tall.
+	const int zoom = ZoomFactor();
+	const Point feet = TileCenter(tile);
+	const int left = feet.x - TILE_WIDTH / 4 * zoom;
+	const int right = feet.x + TILE_WIDTH / 4 * zoom;
+	const int top = feet.y - 3 * TILE_HEIGHT * zoom / 2;
+	return left < box.position.x + box.size.width && right >= box.position.x && top < box.position.y + box.size.height && feet.y >= box.position.y;
+}
+
+/** Selects the master's monsters in the box. A lair whose monster isn't there to box counts by its own tile. */
+void SelectInBox(const Rectangle &box)
+{
+	std::vector<StructureRef> found;
+	for (size_t slot = 0; slot < MaxLairs; slot++) {
+		const Lair &lair = State.lairs[slot];
+		if (!lair.active)
+			continue;
+		bool hit = false;
+		bool anyAlive = false;
+		for (const int16_t member : lair.members) {
+			if (member < 0 || LairOfMonster(static_cast<size_t>(member)) != slot)
+				continue;
+			anyAlive = true;
+			hit = hit || IsMonsterInBox(Monsters[member].position.tile, box);
+		}
+		if (!anyAlive)
+			hit = Contains(box, TileCenter(lair.position));
+		if (hit)
+			found.push_back({ StructureType::Lair, slot });
+	}
+	SetSelection(std::move(found));
 }
 
 void DrawOverlays(const Surface &out)
@@ -1119,7 +1256,7 @@ void SelectTool(ToolType type, size_t index)
 		return;
 	}
 	currentTool = { type, index };
-	selectedStructure.reset();
+	ClearSelection();
 }
 
 /** A click with no tool: one of the master's own monsters (its lair), or a structure on the tile. */
@@ -1132,28 +1269,37 @@ bool SelectStructureUnderCursor()
 	}
 	if (!found)
 		found = FindStructureAt(cursPosition);
-	selectedStructure = found;
+	if (found)
+		SetSelection({ *found });
+	else
+		ClearSelection();
 	return found.has_value();
 }
 
-/** Right-click with a lair selected: send its monsters to guard there (or back to the lair). */
+/** Right-click with lairs selected: send their monsters to guard there, spread out (or back to their lairs). */
 bool SetRallyPoint(Point tile)
 {
-	const std::optional<StructureRef> selected = SelectedStructure();
-	if (!selected || selected->type != StructureType::Lair)
+	const std::vector<size_t> lairs = SelectedLairs();
+	if (lairs.empty())
 		return false;
-	const Lair &lair = State.lairs[selected->slot];
-	if (tile.WalkingDistance(lair.position) <= 1) {
-		if (lair.hasRally)
-			RequestRally(selected->slot, std::nullopt);
+	// One lair: on or next to it means "come home". A group may well want to gather near one of its lairs.
+	const int homeDistance = lairs.size() == 1 ? 1 : 0;
+	const bool home = std::any_of(lairs.begin(), lairs.end(), [&](size_t slot) { return tile.WalkingDistance(State.lairs[slot].position) <= homeDistance; });
+	if (home) {
+		for (const size_t slot : lairs) {
+			if (State.lairs[slot].hasRally || State.lairs[slot].routeCount > 0)
+				RequestRally(slot, std::nullopt);
+		}
 		return true;
 	}
 	std::string_view reason;
-	if (!CanRallyTo(selected->slot, tile, &reason)) {
+	if (!CanRallyTo(lairs.front(), tile, &reason)) {
 		SetFeedback(std::string(reason));
 		return true;
 	}
-	RequestRally(selected->slot, tile);
+	const std::vector<Point> tiles = SpreadTiles(tile, lairs.size());
+	for (size_t i = 0; i < lairs.size(); i++)
+		RequestRally(lairs[i], tiles[i % tiles.size()]);
 	return true;
 }
 
@@ -1168,14 +1314,25 @@ void BuyUpgradeCard(size_t index)
 	RequestBuyUpgrade(upgrade);
 }
 
-void SelectActionButton(size_t i)
+/** Shift+right-click with lairs selected: add a waypoint to each one's patrol, spread out like a rally. */
+bool AddPatrolWaypoint(Point tile)
 {
-	if (i < NumSpellKinds)
-		SelectTool(ToolType::Spell, i);
-	else if (i == NumSpellKinds)
-		SelectTool(ToolType::LockDoor, 0);
-	else
-		SelectTool(ToolType::Bait, 0);
+	const std::vector<size_t> lairs = SelectedLairs();
+	if (lairs.empty())
+		return false;
+	std::string_view reason;
+	if (!CanRallyTo(lairs.front(), tile, &reason)) {
+		SetFeedback(std::string(reason));
+		return true;
+	}
+	const std::vector<Point> tiles = SpreadTiles(tile, lairs.size());
+	for (size_t i = 0; i < lairs.size(); i++) {
+		if (CanAddWaypoint(lairs[i], tiles[i % tiles.size()], &reason))
+			RequestWaypoint(lairs[i], tiles[i % tiles.size()]);
+		else
+			SetFeedback(std::string(reason));
+	}
+	return true;
 }
 
 bool IsGameOver()
@@ -1311,6 +1468,8 @@ void OnLevelLoaded()
 	ResetUnits();
 	CenterCameraOn(entrance);
 	currentTool = {};
+	ClearSelection();
+	CancelBoxDrag();
 	tickCounter = 0;
 	lastCameraTicks = SDL_GetTicks();
 }
@@ -1318,6 +1477,8 @@ void OnLevelLoaded()
 void OnGameEnded()
 {
 	active = false;
+	ClearSelection();
+	CancelBoxDrag();
 }
 
 void Tick()
@@ -1370,10 +1531,10 @@ void UpdateCamera()
 	float sy = 0;
 	if (CanUseKeyboardCamera()) {
 		const auto *keys = SDLC_GetKeyState();
-		if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) sx -= 1;
-		if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) sx += 1;
-		if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) sy -= 1;
-		if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) sy += 1;
+		if (IsKeyHeld(KeeperAction::CameraLeft) || keys[SDL_SCANCODE_LEFT]) sx -= 1;
+		if (IsKeyHeld(KeeperAction::CameraRight) || keys[SDL_SCANCODE_RIGHT]) sx += 1;
+		if (IsKeyHeld(KeeperAction::CameraUp) || keys[SDL_SCANCODE_UP]) sy -= 1;
+		if (IsKeyHeld(KeeperAction::CameraDown) || keys[SDL_SCANCODE_DOWN]) sy += 1;
 
 		if (MousePosition.x <= EdgeScrollMargin) sx = -1;
 		if (MousePosition.x >= gnScreenWidth - 1 - EdgeScrollMargin) sx = 1;
@@ -1435,37 +1596,77 @@ bool CanMonstersTargetPlayers()
 	return !IsActive();
 }
 
+void PerformKeeperAction(KeeperAction action, size_t index)
+{
+	switch (action) {
+	case KeeperAction::CardSlot: {
+		const std::vector<Tool> cards = TabCards(currentTab);
+		const size_t card = static_cast<size_t>(ScrollOf(currentTab)) + index;
+		if (static_cast<int>(index) < VisibleCardCount() && card < cards.size())
+			if (cards[card].type == ToolType::Upgrade)
+				BuyUpgradeCard(cards[card].index);
+			else
+				SelectTool(cards[card].type, cards[card].index);
+		return;
+	}
+	case KeeperAction::Spell:
+		if (index >= NumSpellKinds)
+			return;
+		if (MyPossessed() == nullptr && !IsMouseOverUi())
+			TryCastSpell(index, cursPosition);
+		else
+			SelectTool(ToolType::Spell, index);
+		return;
+	case KeeperAction::LockDoor:
+	case KeeperAction::Bait:
+		SelectTool(action == KeeperAction::LockDoor ? ToolType::LockDoor : ToolType::Bait, 0);
+		if (currentTool.type != ToolType::None)
+			RevealCard(currentTool);
+		return;
+	case KeeperAction::NextTab:
+		currentTab = static_cast<BarTab>((static_cast<size_t>(currentTab) + 1) % NumBarTabs);
+		return;
+	case KeeperAction::StartRaid:
+		if (State.phase == Phase::Setup || State.phase == Phase::Breather)
+			RequestStartRaid();
+		return;
+	case KeeperAction::CenterEntrance:
+		CenterCameraOn(State.entrance);
+		return;
+	case KeeperAction::CenterVault:
+		CenterCameraOn(State.vault);
+		return;
+	case KeeperAction::ZoomIn:
+		SetZoom(true);
+		return;
+	case KeeperAction::ZoomOut:
+		SetZoom(false);
+		return;
+	case KeeperAction::Possess:
+		TogglePossession();
+		return;
+	case KeeperAction::Sell:
+		SellSelected();
+		return;
+	// Polled every frame (see UpdateCamera).
+	case KeeperAction::CameraLeft:
+	case KeeperAction::CameraRight:
+	case KeeperAction::CameraUp:
+	case KeeperAction::CameraDown:
+		return;
+	}
+}
+
 bool OnKeyDown(SDL_Keycode key)
 {
 	if (!IsActive())
 		return false;
 
-	if (key >= SDLK_1 && key <= SDLK_9) {
-		const size_t index = static_cast<size_t>(key - SDLK_1);
-		if (index < NumBuildKinds) {
-			SelectTool(ToolType::Build, index);
-			RevealCard({ ToolType::Build, index });
-		}
+	if (DispatchBoundKey(static_cast<uint32_t>(key)))
 		return true;
-	}
-	for (size_t i = 0; i < NumActionButtons; i++) {
-		if (key != ActionKeys[i])
-			continue;
-		if (i < NumSpellKinds) {
-			if (MyPossessed() == nullptr && !IsMouseOverUi())
-				TryCastSpell(i, cursPosition);
-			else
-				SelectActionButton(i);
-			return true;
-		}
-		SelectActionButton(i);
-		if (currentTool.type != ToolType::None)
-			RevealCard(currentTool);
-		return true;
-	}
 
 	switch (key) {
-	// Camera keys are polled every frame; swallow them so they don't trigger hero hotkeys.
+	// The default camera keys and the arrows: swallow them so they don't trigger hero hotkeys.
 	case SDLK_W:
 	case SDLK_A:
 	case SDLK_S:
@@ -1481,36 +1682,24 @@ bool OnKeyDown(SDL_Keycode key)
 	case SDLK_Y:
 	case SDLK_0:
 		return true;
-	case SDLK_TAB:
-		currentTab = static_cast<BarTab>((static_cast<size_t>(currentTab) + 1) % NumBarTabs);
-		return true;
-	case SDLK_R:
-		if (State.phase == Phase::Setup || State.phase == Phase::Breather)
-			RequestStartRaid();
-		return true;
-	case SDLK_SPACE:
+	// Second keys for bound actions; these work unless bound to something else.
 	case SDLK_HOME:
 		CenterCameraOn(State.entrance);
 		return true;
-	case SDLK_V:
-		CenterCameraOn(State.vault);
-		return true;
-	case SDLK_EQUALS:
 	case SDLK_KP_PLUS:
 		SetZoom(true);
 		return true;
-	case SDLK_MINUS:
 	case SDLK_KP_MINUS:
 		SetZoom(false);
 		return true;
-	case SDLK_E:
-		TogglePossession();
-		return true;
-	case SDLK_DELETE:
 	case SDLK_BACKSPACE:
 		SellSelected();
 		return true;
 	case SDLK_ESCAPE:
+		if (IsBoxDragging()) {
+			CancelBoxDrag();
+			return true;
+		}
 		if (MyPossessed() != nullptr) {
 			RequestRelease();
 			return true;
@@ -1519,8 +1708,8 @@ bool OnKeyDown(SDL_Keycode key)
 			currentTool = {};
 			return true;
 		}
-		if (SelectedStructure()) {
-			selectedStructure.reset();
+		if (!Selection().empty()) {
+			ClearSelection();
 			return true;
 		}
 		if (IsRaidSummaryVisible()) {
@@ -1576,7 +1765,7 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		}
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
-		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && SelectedStructure())
+		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && !Selection().empty())
 			SellSelected();
 		return true;
 	}
@@ -1588,8 +1777,10 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	}
 	// With no tool in hand a click inspects a hero, or selects one of the master's own monsters or structures.
 	if (currentTool.type == ToolType::None) {
+		// The click does its job now; if the mouse then moves away it turns into a drag-select.
+		BeginBoxDrag(MousePosition, cameraX, cameraY);
 		if (SelectHeroUnderCursor()) {
-			selectedStructure.reset();
+			ClearSelection();
 			return true;
 		}
 		ClearSelectedHero();
@@ -1600,15 +1791,30 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	return true;
 }
 
+void OnLeftMouseUp()
+{
+	if (!IsActive() || !IsBoxDragging())
+		return;
+	const std::optional<Rectangle> box = BoxDragRect(MousePosition, cameraX, cameraY, ZoomFactor());
+	CancelBoxDrag();
+	if (!box || MyPossessed() != nullptr)
+		return;
+	ClearSelectedHero();
+	SelectInBox(*box);
+}
+
 bool OnRightMouseDown()
 {
 	if (!IsActive())
 		return false;
-	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi() && SetRallyPoint(cursPosition))
-		return true;
+	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
+		const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
+		if (shift ? AddPatrolWaypoint(cursPosition) : SetRallyPoint(cursPosition))
+			return true;
+	}
 	if (currentTool.type == ToolType::None) {
 		ClearSelectedHero();
-		selectedStructure.reset();
+		ClearSelection();
 	}
 	currentTool = {};
 	return true;
@@ -1618,6 +1824,8 @@ bool OnMouseWheel(int deltaY)
 {
 	if (!IsActive() || deltaY == 0 || gmenu_is_active())
 		return false;
+	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
+		return true;
 	if (Contains(BarRect(), UiMouse())) {
 		// Over the card bar the wheel scrolls the cards instead of zooming.
 		ScrollOf(currentTab) += deltaY > 0 ? -1 : 1;
@@ -1695,6 +1903,7 @@ void DrawScaledUi(const Surface &out)
 void DrawHud(const Surface &out)
 {
 	DrawOverlays(out);
+	DrawBoxDrag(out);
 	DrawUnitBars(out);
 	if (UiScale() > 1)
 		DrawScaledUi(out);
@@ -1742,7 +1951,8 @@ void DrawUi(const Surface &out)
 		const Rectangle ready = ReadyButtonRect();
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
-		DrawString(out, "R: Open the gates", { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		const std::string raidKey = KeyLabel(KeeperAction::StartRaid);
+		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	DrawCardBar(out);
@@ -1768,7 +1978,7 @@ void DrawUi(const Surface &out)
 	}
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
 		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
-		scout = fmt::format("Possessing {} ({}%)  click: move/attack  E: release", possessed->name(), hp);
+		scout = fmt::format("Possessing {} ({}%)  click: move/attack  {}: release", possessed->name(), hp, KeyLabel(KeeperAction::Possess));
 	}
 	DrawString(out, scout, { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
 

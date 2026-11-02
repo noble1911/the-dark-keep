@@ -140,6 +140,7 @@ struct HeroState {
 
 std::array<HeroState, MaxMonsters> Heroes;
 std::array<Point, MaxMonsters> Homes;
+std::array<bool, MaxMonsters> Roaming {};
 
 std::vector<HeroClassKind> pendingParty;
 int spawnCooldown = 0;
@@ -746,6 +747,7 @@ void OnMonsterInit(Monster &monster)
 	if (id >= MaxMonsters)
 		return;
 	Homes[id] = monster.position.tile;
+	Roaming[id] = false;
 	if (IsBoss(monster)) {
 		Heroes[id] = {};
 		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : 600) << 6;
@@ -803,7 +805,7 @@ void UpdateEnemy(Monster &monster)
 		return; // the master picks its targets
 	const bool hero = IsHero(monster);
 	const Point position = monster.position.tile;
-	const Point anchor = hero ? position : Homes[monster.getId()];
+	const Point anchor = hero || Roaming[monster.getId()] ? position : Homes[monster.getId()];
 	const int range = hero ? HeroSight : GuardRadius;
 
 	int best = -1;
@@ -1134,6 +1136,12 @@ void SetMonsterHome(size_t monsterId, Point tile)
 {
 	if (monsterId < MaxMonsters)
 		Homes[monsterId] = tile;
+}
+
+void SetMonsterRoaming(size_t monsterId, bool roaming)
+{
+	if (monsterId < MaxMonsters)
+		Roaming[monsterId] = roaming;
 }
 
 bool ShouldGuard(const Monster &monster)

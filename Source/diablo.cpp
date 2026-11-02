@@ -62,6 +62,7 @@
 #include "init.hpp"
 #include "inv.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_input.hpp" // [DARK KEEP]
 #include "levels/drlg_l1.h"
 #include "levels/drlg_l2.h"
 #include "levels/drlg_l3.h"
@@ -427,6 +428,7 @@ void LeftMouseDown(uint16_t modState)
 
 void LeftMouseUp(uint16_t modState)
 {
+	keeper::OnLeftMouseUp(); // [DARK KEEP] drag-select
 	gmenu_left_mouse(false);
 	CheckMuteButtonUp();
 	if (MainPanelButtonDown)
@@ -1855,6 +1857,7 @@ const auto OptionChangeHandlerLanguage = (GetOptions().Language.code.SetValueCha
 void InitKeymapActions()
 {
 	Options &options = GetOptions();
+	keeper::AddKeymapActions(); // [DARK KEEP]
 	for (uint32_t i = 0; i < 8; ++i) {
 		options.Keymapper.AddAction(
 		    "BeltItem{}",
@@ -2784,6 +2787,7 @@ int DiabloMain(int argc, char **argv)
 
 	// Read settings including translation next. This will use the presence of fonts.mpq and look for assets in devilutionx.mpq
 	LoadOptions();
+	keeper::ReapplyKeyBindings(); // [DARK KEEP] the keeper wins keys it shares with hero actions
 	if (demo::IsRunning()) demo::OverrideOptions();
 
 	// Then look for a voice pack file based on the selected translation

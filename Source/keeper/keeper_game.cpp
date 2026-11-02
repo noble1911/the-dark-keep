@@ -6,6 +6,7 @@
 #include "keeper/keeper_game.hpp"
 
 #include <algorithm>
+#include <bitset>
 #include <cstring>
 
 #include <fmt/format.h>
@@ -72,6 +73,10 @@ constexpr int PossessDrainPerTick = 10;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
 constexpr int BaseSupply = 16;
 constexpr int SupplyPerRaid = 4;
+/** A patrolling monster that hasn't moved for this long gives up on its waypoint and takes the next. */
+constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
+/** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
+constexpr int JoinSyncTimeoutTicks = 10 * TicksPerSecond;
 
 enum class Action : uint8_t {
 	RequestBuild = 1,
@@ -93,6 +98,23 @@ enum class Action : uint8_t {
 	LairMember,
 	RequestUpgrade,
 	UpgradeBought,
+	RequestWaypoint,
+	WaypointAdded,
+	PatrolLeg,
+	// The keep as it stands, sent to one master who joined mid-game (see SendKeepSnapshot).
+	SyncBegin,
+	SyncMonsterPosition,
+	SyncMonsterHitPoints,
+	SyncLair,
+	SyncRally,
+	SyncWaypoint,
+	SyncMember,
+	SyncTrap,
+	SyncLock,
+	SyncBait,
+	SyncPossessed,
+	SyncBot,
+	SyncEnd,
 };
 
 #pragma pack(push, 1)
@@ -123,6 +145,18 @@ struct TCmdKeeperState {
 #pragma pack(pop)
 
 int ticksUntilBroadcast = 0;
+/** This client joined a keep already in play, and doesn't act as its host until it has been told about it. */
+bool awaitingKeepSnapshot = false;
+int keepSnapshotTimeout = 0;
+/** Monsters the host's snapshot listed; any others only exist in this client's stale copy of the level. */
+std::bitset<MaxMonsters> snapshotMonsters;
+
+/** Host only: how long each patrolling monster has stood still. */
+struct PatrolWatch {
+	Point position;
+	int idleTicks = 0;
+};
+std::array<std::array<PatrolWatch, MaxLairMembers>, MaxLairs> patrolWatch;
 
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
@@ -333,6 +367,23 @@ Point GuardPost(const Lair &lair)
 	return lair.hasRally ? lair.rally : lair.position;
 }
 
+/** Where a member heads on its current patrol leg. */
+Point PatrolTarget(const Lair &lair, size_t member)
+{
+	const uint8_t leg = lair.patrolLeg[member];
+	return leg > 0 && leg <= lair.routeCount ? lair.route[leg - 1] : GuardPost(lair);
+}
+
+/** Points a living member at its post (or waypoint); patrolling monsters look for enemies around themselves. */
+void ApplyMemberPost(const Lair &lair, size_t member)
+{
+	const int16_t monsterId = lair.members[member];
+	if (!IsMemberAlive(monsterId, BuildKinds[lair.kind].type))
+		return;
+	SetMonsterHome(static_cast<size_t>(monsterId), PatrolTarget(lair, member));
+	SetMonsterRoaming(static_cast<size_t>(monsterId), lair.routeCount > 0);
+}
+
 void RefillLairs()
 {
 	for (Lair &lair : State.lairs)
@@ -521,9 +572,70 @@ void ApplyRally(uint8_t slot, bool set, Point tile)
 	Lair &lair = State.lairs[slot];
 	lair.hasRally = set;
 	lair.rally = set ? tile : Point {};
-	for (const int16_t member : lair.members) {
-		if (IsMemberAlive(member, BuildKinds[lair.kind].type))
-			SetMonsterHome(static_cast<size_t>(member), GuardPost(lair));
+	// A new order replaces the old patrol, and clearing the rally point clears the route with it.
+	lair.routeCount = 0;
+	lair.patrolLeg.fill(0);
+	for (size_t i = 0; i < MaxLairMembers; i++)
+		ApplyMemberPost(lair, i);
+}
+
+void ApplyWaypoint(uint8_t slot, uint8_t index, Point tile)
+{
+	if (slot >= MaxLairs || index >= MaxPatrolPoints || !InDungeonBounds(tile))
+		return;
+	Lair &lair = State.lairs[slot];
+	lair.route[index] = tile;
+	lair.routeCount = std::max<uint8_t>(lair.routeCount, index + 1);
+	for (size_t i = 0; i < MaxLairMembers; i++)
+		ApplyMemberPost(lair, i);
+}
+
+void HostWaypoint(uint8_t slot, Point tile)
+{
+	if (!CanAddWaypoint(slot, tile))
+		return;
+	// Applied here too, so that a second request that arrives before this echo gets the next index.
+	const uint8_t index = State.lairs[slot].routeCount;
+	ApplyWaypoint(slot, index, tile);
+	Send(Action::WaypointAdded, slot, index, tile);
+}
+
+void ApplyPatrolLeg(uint8_t slot, uint8_t member, uint8_t leg)
+{
+	if (slot >= MaxLairs || member >= MaxLairMembers)
+		return;
+	Lair &lair = State.lairs[slot];
+	lair.patrolLeg[member] = leg <= lair.routeCount ? leg : 0;
+	ApplyMemberPost(lair, member);
+}
+
+/** Host only: moves monsters that reached their waypoint (or can't) on to the next, for every client. */
+void UpdatePatrols()
+{
+	for (size_t slot = 0; slot < MaxLairs; slot++) {
+		const Lair &lair = State.lairs[slot];
+		if (!lair.active || lair.routeCount == 0)
+			continue;
+		for (size_t i = 0; i < MaxLairMembers; i++) {
+			const int16_t monsterId = lair.members[i];
+			if (!IsMemberAlive(monsterId, BuildKinds[lair.kind].type))
+				continue;
+			const Monster &monster = Monsters[monsterId];
+			if (IsPossessed(monster) || monster.mode != MonsterMode::Stand || (monster.flags & MFLAG_NO_ENEMY) == 0)
+				continue;
+			PatrolWatch &watch = patrolWatch[slot][i];
+			if (watch.position != monster.position.tile) {
+				watch.position = monster.position.tile;
+				watch.idleTicks = 0;
+			}
+			const bool arrived = monster.position.tile.WalkingDistance(PatrolTarget(lair, i)) <= 1;
+			if (!arrived && ++watch.idleTicks < PatrolStuckTicks)
+				continue;
+			watch.idleTicks = 0;
+			const auto next = static_cast<uint8_t>((lair.patrolLeg[i] + 1) % (lair.routeCount + 1));
+			ApplyPatrolLeg(static_cast<uint8_t>(slot), static_cast<uint8_t>(i), next);
+			Send(Action::PatrolLeg, static_cast<uint8_t>(slot), static_cast<uint8_t>(i), { next, 0 });
+		}
 	}
 }
 
@@ -533,8 +645,285 @@ void ApplyLairMember(uint8_t slot, uint8_t index, int monsterId)
 		return;
 	ClaimMonster(State.lairs[slot], index, static_cast<int16_t>(monsterId));
 	Lair &lair = State.lairs[slot];
-	if (lair.hasRally)
-		SetMonsterHome(static_cast<size_t>(monsterId), lair.rally);
+	// A new monster starts its patrol over from the guard post.
+	lair.patrolLeg[index] = 0;
+	if (lair.hasRally || lair.routeCount > 0)
+		ApplyMemberPost(lair, index);
+}
+
+// ---- mid-game joiners ----------------------------------------------------------
+
+/** Sends a run of commands to one player straight away, as many to a packet as fit. */
+class DirectCommands {
+public:
+	explicit DirectCommands(size_t playerId)
+	    : mask_(1U << playerId)
+	{
+	}
+
+	void Add(Action action, uint8_t a = 0, uint8_t b = 0, uint8_t x = 0, uint8_t y = 0, uint16_t w = 0)
+	{
+		TCmdKeeper &cmd = commands_[count_++];
+		cmd.bCmd = CMD_KEEPER;
+		cmd.action = action;
+		cmd.a = a;
+		cmd.b = b;
+		cmd.x = x;
+		cmd.y = y;
+		cmd.w = Swap16LE(w);
+		if (count_ == commands_.size())
+			Flush();
+	}
+
+	void Add(Action action, uint8_t a, uint8_t b, Point position, uint16_t w = 0)
+	{
+		Add(action, a, b, static_cast<uint8_t>(position.x), static_cast<uint8_t>(position.y), w);
+	}
+
+	void Flush()
+	{
+		if (count_ > 0)
+			multi_send_msg_packet(mask_, reinterpret_cast<const std::byte *>(commands_.data()), count_ * sizeof(TCmdKeeper));
+		count_ = 0;
+	}
+
+private:
+	uint32_t mask_;
+	size_t count_ = 0;
+	/** A packet's body holds 493 bytes (TPkt::body). */
+	std::array<TCmdKeeper, 493 / sizeof(TCmdKeeper)> commands_;
+};
+
+/**
+ * Tells a master who just arrived what the keep looks like. Most of it isn't in the engine's level
+ * delta at all, and that delta only remembers a monster it never saw die as "spawned somewhere".
+ */
+void SendKeepSnapshot(size_t playerId)
+{
+	DirectCommands out(playerId);
+	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave);
+
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		const Monster &monster = Monsters[id];
+		if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell || monster.type().type == MT_GOLEM)
+			continue;
+		const auto w = static_cast<uint16_t>(id + 1);
+		out.Add(Action::SyncMonsterPosition, 0, 0, monster.position.tile, w);
+		const auto hp = static_cast<uint32_t>(monster.hitPoints);
+		out.Add(Action::SyncMonsterHitPoints, static_cast<uint8_t>(hp), static_cast<uint8_t>(hp >> 8), static_cast<uint8_t>(hp >> 16), static_cast<uint8_t>(hp >> 24), w);
+	}
+	for (size_t slot = 0; slot < MaxLairs; slot++) {
+		const Lair &lair = State.lairs[slot];
+		if (!lair.active)
+			continue;
+		const auto a = static_cast<uint8_t>(slot);
+		out.Add(Action::SyncLair, a, lair.kind, lair.position, static_cast<uint16_t>(std::clamp(lair.summonTicks, 0, 0xFFFF)));
+		if (lair.hasRally)
+			out.Add(Action::SyncRally, a, 0, lair.rally);
+		for (size_t i = 0; i < lair.routeCount; i++)
+			out.Add(Action::SyncWaypoint, a, static_cast<uint8_t>(i), lair.route[i]);
+		for (size_t i = 0; i < MaxLairMembers; i++) {
+			if (lair.members[i] >= 0)
+				out.Add(Action::SyncMember, a, static_cast<uint8_t>(i), lair.patrolLeg[i], 0, static_cast<uint16_t>(lair.members[i] + 1));
+		}
+	}
+	for (size_t slot = 0; slot < MaxTraps; slot++) {
+		const Trap &trap = State.traps[slot];
+		if (trap.active)
+			out.Add(Action::SyncTrap, static_cast<uint8_t>(slot), 0, trap.position, static_cast<uint16_t>(std::clamp(trap.cooldown, 0, 0xFFFF)));
+	}
+	for (size_t slot = 0; slot < MaxLocks; slot++) {
+		const DoorLock &lock = State.locks[slot];
+		if (lock.active)
+			out.Add(Action::SyncLock, static_cast<uint8_t>(slot), static_cast<uint8_t>(std::clamp(lock.strength, 0, 0xFF)), lock.position);
+	}
+	for (size_t slot = 0; slot < MaxBaits; slot++) {
+		const Bait &bait = State.baits[slot];
+		if (bait.active)
+			out.Add(Action::SyncBait, static_cast<uint8_t>(slot), static_cast<uint8_t>(std::clamp(bait.uses, 0, 0xFF)), bait.position);
+	}
+	for (size_t pid = 0; pid < State.possessed.size(); pid++) {
+		if (State.possessed[pid] >= 0)
+			out.Add(Action::SyncPossessed, static_cast<uint8_t>(pid), 0, 0, 0, static_cast<uint16_t>(State.possessed[pid] + 1));
+	}
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (const std::optional<BotSummary> summary = GetBotSummary(bot); summary)
+			out.Add(Action::SyncBot, static_cast<uint8_t>(i), static_cast<uint8_t>(summary->cls), bot.position.tile, static_cast<uint16_t>(std::clamp(bot._pHitPoints >> 6, 0, 0xFFFF)));
+	}
+	out.Add(Action::SyncEnd);
+	out.Flush();
+}
+
+/** True if the given monster id is one this client has in play. */
+bool IsMonsterInPlay(int monsterId)
+{
+	return monsterId >= 0 && static_cast<size_t>(monsterId) < MaxMonsters
+	    && std::find(ActiveMonsters, ActiveMonsters + ActiveMonsterCount, static_cast<unsigned>(monsterId)) != ActiveMonsters + ActiveMonsterCount
+	    && !Monsters[monsterId].isInvalid;
+}
+
+void ApplySyncBegin(uint8_t phaseId, uint8_t wave)
+{
+	const Phase phase = static_cast<Phase>(std::min<uint8_t>(phaseId, static_cast<uint8_t>(Phase::Defeat)));
+	State.wave = wave;
+	AnnouncePhase(State.phase, phase);
+	State.phase = phase;
+	for (Lair &lair : State.lairs) {
+		lair = {};
+		lair.members.fill(-1);
+	}
+	State.traps = {};
+	State.locks = {};
+	State.baits = {};
+	State.possessed.fill(-1);
+	snapshotMonsters.reset();
+}
+
+/** Puts a monster where the host has it: from the level delta it's still in the holding cell. */
+void ApplySyncMonsterPosition(int monsterId, Point tile)
+{
+	if (!IsMonsterInPlay(monsterId) || !InDungeonBounds(tile))
+		return;
+	snapshotMonsters.set(static_cast<size_t>(monsterId));
+	Monster &monster = Monsters[monsterId];
+	M_ClearSquares(monster);
+	monster.position.tile = tile;
+	monster.position.old = tile;
+	monster.position.future = tile;
+	monster.occupyTile(tile, false);
+	// ResetGame forgot the heroes loaded with the level, and the wave they scale with wasn't known yet.
+	OnMonsterInit(monster);
+	M_StartStand(monster, monster.direction);
+}
+
+void ApplySyncEnd()
+{
+	// Sold lairs' monsters are still in the delta, as alive: the host never saw them die.
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		Monster &monster = Monsters[id];
+		if (snapshotMonsters.test(id) || monster.isInvalid || monster.type().type == MT_GOLEM)
+			continue;
+		M_ClearSquares(monster);
+		monster.hitPoints = 0;
+		monster.isInvalid = true;
+	}
+	for (const Lair &lair : State.lairs) {
+		if (!lair.active)
+			continue;
+		for (size_t i = 0; i < MaxLairMembers; i++)
+			ApplyMemberPost(lair, i);
+	}
+	RebuildPaths();
+	awaitingKeepSnapshot = false;
+}
+
+void ApplySnapshotEntry(const TCmdKeeper &message)
+{
+	const Point tile { message.x, message.y };
+	const int monsterId = static_cast<int>(Swap16LE(message.w)) - 1;
+	switch (message.action) {
+	case Action::SyncBegin:
+		ApplySyncBegin(message.a, message.b);
+		break;
+	case Action::SyncMonsterPosition:
+		ApplySyncMonsterPosition(monsterId, tile);
+		break;
+	case Action::SyncMonsterHitPoints:
+		if (IsMonsterInPlay(monsterId))
+			Monsters[monsterId].hitPoints = static_cast<int>(message.a | (message.b << 8) | (message.x << 16) | (static_cast<uint32_t>(message.y) << 24));
+		break;
+	case Action::SyncLair:
+		if (message.a < MaxLairs && message.b < BuildKinds.size() && IsLairKind(message.b)) {
+			Lair &lair = State.lairs[message.a];
+			lair.active = true;
+			lair.kind = message.b;
+			lair.position = tile;
+			lair.summonTicks = Swap16LE(message.w);
+		}
+		break;
+	case Action::SyncRally:
+		if (message.a < MaxLairs) {
+			State.lairs[message.a].hasRally = true;
+			State.lairs[message.a].rally = tile;
+		}
+		break;
+	case Action::SyncWaypoint:
+		ApplyWaypoint(message.a, message.b, tile);
+		break;
+	case Action::SyncMember:
+		if (message.a < MaxLairs && message.b < MaxLairMembers && monsterId >= 0 && static_cast<size_t>(monsterId) < MaxMonsters) {
+			ClaimMonster(State.lairs[message.a], message.b, static_cast<int16_t>(monsterId));
+			State.lairs[message.a].patrolLeg[message.b] = std::min<uint8_t>(message.x, MaxPatrolPoints);
+		}
+		break;
+	case Action::SyncTrap:
+		if (message.a < MaxTraps) {
+			Trap &trap = State.traps[message.a];
+			trap.active = true;
+			trap.position = tile;
+			trap.cooldown = Swap16LE(message.w);
+		}
+		break;
+	case Action::SyncLock:
+		if (message.a < MaxLocks) {
+			ApplyDoorLocked(message.a, tile);
+			if (State.locks[message.a].active)
+				State.locks[message.a].strength = message.b;
+		}
+		break;
+	case Action::SyncBait:
+		if (message.a < MaxBaits) {
+			ApplyBaitPlaced(message.a, tile);
+			State.baits[message.a].uses = message.b;
+		}
+		break;
+	case Action::SyncPossessed:
+		if (message.a < State.possessed.size() && IsMonsterInPlay(monsterId))
+			State.possessed[message.a] = static_cast<int16_t>(monsterId);
+		break;
+	case Action::SyncBot:
+		if (message.a < MaxBots && message.b < NumHeroClasses && InDungeonBounds(tile)) {
+			SpawnBot(message.a, static_cast<HeroClassKind>(message.b), tile);
+			Players[FirstBotId + message.a]._pHitPoints = Swap16LE(message.w) << 6;
+		}
+		break;
+	case Action::SyncEnd:
+		ApplySyncEnd();
+		break;
+	default:
+		break;
+	}
+}
+
+/** True if another master is already in the keep, so this client has joined a game in play. */
+bool IsAnotherMasterInKeep()
+{
+	for (size_t i = 0; i < NetPlayerSlots; i++) {
+		const Player &other = Players[i];
+		if (&other != MyPlayer && other.plractive && other.plrlevel == KeepLevel && !other.plrIsOnSetLevel)
+			return true;
+	}
+	return false;
+}
+
+/**
+ * True on the client that answers for the keep when `joiner` arrives. Not IsHost(): if the joiner took
+ * a lower player id than the host's, the engine has just made it the level's owner, and it knows nothing.
+ */
+bool ShouldSendSnapshotTo(const Player &joiner)
+{
+	if (awaitingKeepSnapshot)
+		return false;
+	for (size_t i = 0; i < NetPlayerSlots; i++) {
+		const Player &other = Players[i];
+		if (&other == &joiner || !other.plractive || other._pLvlChanging || other._pmode == PM_NEWLVL || other.plrlevel != KeepLevel || other.plrIsOnSetLevel)
+			continue;
+		return &other == MyPlayer;
+	}
+	return false;
 }
 
 void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
@@ -625,7 +1014,17 @@ std::string_view PhaseName(Phase phase)
 
 bool IsHost()
 {
-	return MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
+	return !awaitingKeepSnapshot && MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
+}
+
+void OnPlayerJoinedLevel(const Player &player)
+{
+	if (!IsActive() || &player == MyPlayer || !player.plractive || !player.isOnActiveLevel() || player.getId() >= NetPlayerSlots)
+		return;
+	if (!ShouldSendSnapshotTo(player))
+		return;
+	SendKeepSnapshot(player.getId());
+	BroadcastState();
 }
 
 void ResetGame(Point entrance, Point vault)
@@ -643,12 +1042,18 @@ void ResetGame(Point entrance, Point vault)
 		lair.members.fill(-1);
 	ticksUntilBroadcast = 0;
 	ResetUpgrades();
+	patrolWatch = {};
+	awaitingKeepSnapshot = IsAnotherMasterInKeep();
+	keepSnapshotTimeout = JoinSyncTimeoutTicks;
 	ResetHeroes();
 	ResetRaidStats();
 }
 
 void GameTick()
 {
+	if (awaitingKeepSnapshot && --keepSnapshotTimeout <= 0)
+		awaitingKeepSnapshot = false;
+
 	// Mana regenerates for every master, on every client (snapshots correct any drift).
 	const int manaRegen = UpgradedManaRegen(ManaRegenPerTick);
 	for (size_t i = 0; i < State.mana.size(); i++) {
@@ -690,6 +1095,7 @@ void GameTick()
 		return;
 
 	UpdateBoss();
+	UpdatePatrols();
 
 	switch (State.phase) {
 	case Phase::Setup:
@@ -877,6 +1283,18 @@ bool CanSell(StructureRef ref, std::string_view *reason)
 	return true;
 }
 
+bool CanAddWaypoint(size_t lair, Point tile, std::string_view *reason)
+{
+	if (!CanRallyTo(lair, tile, reason))
+		return false;
+	if (State.lairs[lair].routeCount >= MaxPatrolPoints) {
+		if (reason != nullptr)
+			*reason = "The patrol route is full";
+		return false;
+	}
+	return true;
+}
+
 bool CanRallyTo(size_t lair, Point tile, std::string_view *reason)
 {
 	auto fail = [reason](std::string_view why) {
@@ -906,6 +1324,11 @@ void RequestSell(StructureRef ref)
 void RequestRally(size_t lair, std::optional<Point> tile)
 {
 	Send(Action::RequestRally, static_cast<uint8_t>(lair), tile ? 1 : 0, tile.value_or(Point {}));
+}
+
+void RequestWaypoint(size_t lair, Point tile)
+{
+	Send(Action::RequestWaypoint, static_cast<uint8_t>(lair), 0, tile);
 }
 
 Object *FindDoorAt(Point tile)
@@ -1134,6 +1557,31 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::UpgradeBought:
 		if (message.a < NumUpgrades)
 			ApplyUpgradeTier(static_cast<UpgradeId>(message.a), message.b);
+		break;
+	case Action::RequestWaypoint:
+		if (IsHost())
+			HostWaypoint(message.a, tile);
+		break;
+	case Action::WaypointAdded:
+		ApplyWaypoint(message.a, message.b, tile);
+		break;
+	case Action::PatrolLeg:
+		ApplyPatrolLeg(message.a, message.b, message.x);
+		break;
+	case Action::SyncBegin:
+	case Action::SyncMonsterPosition:
+	case Action::SyncMonsterHitPoints:
+	case Action::SyncLair:
+	case Action::SyncRally:
+	case Action::SyncWaypoint:
+	case Action::SyncMember:
+	case Action::SyncTrap:
+	case Action::SyncLock:
+	case Action::SyncBait:
+	case Action::SyncPossessed:
+	case Action::SyncBot:
+	case Action::SyncEnd:
+		ApplySnapshotEntry(message);
 		break;
 	}
 	return sizeof(message);
