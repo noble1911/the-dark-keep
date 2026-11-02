@@ -36,7 +36,7 @@ To run these again: `--modes army,traps,spells,sloppy,full`, with a plan from `b
 
 **The Spells and Sloppy columns are overstated.** Those raids cast at the rate worked out with the mana upgrades, though those modes buy
 none. For Spells that was 14% over half the mana on levels 1, 5 and 10, 27% on level 15 and 36% on level 20; Sloppy was over its rate by the same
-share. The harness now sets the rate per mode. The columns above are from before that fix and were not re-run.
+share. The harness now sets the rate per mode. Re-run at the corrected rate, 8 raids a level, Spells won 4, 1, 1, 0 and 2 of 8 on levels 1, 5, 10, 15 and 20: 8 of 40, against 11 of 40 above. Life removed fell most on levels 5 and 15, from 68% to 51% and from 82% to 61%. The table keeps the original runs so its columns stay comparable. Sloppy was not re-run.
 
 Totals: army 5 of 40, traps 3 of 40, spells 11 of 40, sloppy 13 of 40, full 39 of 48.
 
@@ -70,8 +70,8 @@ that look real:
 
 - Level 1 army alone won 5 of 8, against a target of 1 in 8. Level 1 doesn't need support yet. I left it: a first level
   that forgives is what the data supports, but it means level 1 teaches less about spells.
-- One support alone is under target: spells 11 of 40 and traps 3 of 40, with most cells below their band. Levels mostly
-  need both.
+- One support alone is under target: spells 8 of 40 at the corrected rate and traps 3 of 40, with most cells below their band.
+  Levels mostly need both.
 - Sloppy play falls well short late (0 of 8 on level 20, 2 of 8 on level 15). A careless player will stall around level 15.
 - Level 15 full support was 5 of 8, against a target of 80-90%.
 
@@ -139,7 +139,7 @@ that look real:
 | `SWARM_POWER_FLOOR` (new) | none | 4 | A level 18 army of 64 Carcasses won 1 of 4 |
 | Typical player's unlocks | best per Pop | strongest on offer | Reapers against Night Clans, above |
 
-On the final table, R+ from 0.61 to 1.67 all won about 60-100% at full support (R+ 1.21, 0.61, 0.64, 0.72, 1.53, 1.67 on levels 1, 5,
+On the final table, R+ from 0.70 to 1.98 all won about 60-100% at full support (R+ 1.29, 0.70, 0.76, 0.86, 1.84, 1.98 on levels 1, 5,
 10, 15, 18, 20 against 6, 7, 7, 5, 8, 6 of 8). **That is a loose fit**: maps and unit tier move results by more than R shows. R and R+ can't
 forecast one level. Use them to compare, then run raids.
 
