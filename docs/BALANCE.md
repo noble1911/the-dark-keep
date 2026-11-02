@@ -95,9 +95,9 @@ that look real:
    Bounties and start gold move results more.
 4. **Unit tier matters far more than the model thought.** Armies of Reapers won 16 of 16 on level 20, when the model's
    player one level earlier, still on rank 10 Night Clans, won 0 of 8. The model's player now buys the strongest thing on offer.
-5. **Rogues disarm most traps.** Usually only 0-8 of up to 16 traps were left at the end of a raid. Traps
-   alone added about 15 points of party life on level 5, 15 on level 10 and little on levels 15 and 20, for a quarter of the
-   gold. Disarm chances are now lower, and traps' value still needs a person's view.
+5. **Rogues disarm most traps.** Before the change, usually only 0-8 of up to 16 traps were left at the end of a raid. With disarm chances
+   lowered, traps alone remove 57%, 53%, 35% and 53% of party life on levels 5, 10, 15 and 20, against 18%, 22%, 25% and 45% for the army
+   alone, for a quarter of the gold. They rarely win a raid alone (3 of 40).
 6. **Runs must differ.** The game's random numbers repeat from the same start, so identical runs came out nearly identical and
    looked far more certain than they were. The harness now varies each layout.
 7. **Some raids never end.** Four of the 40 traps-only raids on the final table hit the harness's limit, three on level 1 and one on level 10. On level 1 the party stands in a line at 57,67 to 57,69 with the raid never ending, for 300 real seconds at speed. That looks like heroes refusing to pass a trap in a one-wide corridor. It is a possible stall bug, not a balance number, and needs someone to look at it.
