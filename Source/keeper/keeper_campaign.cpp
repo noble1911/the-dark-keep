@@ -22,6 +22,7 @@
 
 #include "appfat.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "multi.h"
 #include "storm/storm_net.hpp"
@@ -67,9 +68,6 @@ constexpr LevelRules CustomRules { "Custom Map", 7, 1200, 100, 2, 80, KeepLevelS
 
 /** However a level's numbers are tuned, a raid never brings more heroes than this. */
 constexpr int MaxPartySize = 14;
-
-/** The map travels in the join packet, whose frame limit is 64 KiB including its headers. */
-constexpr size_t MaxMapBytes = 60000;
 
 constexpr std::string_view ProgressFileName = "campaign_progress.txt";
 constexpr std::string_view ProgressHeader = "DARKKEEP-CAMPAIGN";
@@ -155,18 +153,17 @@ void SaveProgress()
 	RenameFile(temp.c_str(), path.c_str());
 }
 
-/** Appends the file to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
-bool AppendFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
+/** Appends the map to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
+bool AppendMapFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
 {
-	FILE *file = OpenFile(path.c_str(), "rb");
-	if (file == nullptr)
+	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
+	if (!bytes.has_value() || bytes->size() > maxBytes)
 		return false;
 	const size_t start = out.size();
-	out.resize(start + maxBytes + 1);
-	const size_t got = std::fread(out.data() + start, 1, maxBytes + 1, file);
-	std::fclose(file);
-	out.resize(start + got);
-	return got <= maxBytes;
+	out.resize(start + bytes->size());
+	if (!bytes->empty())
+		std::memcpy(out.data() + start, bytes->data(), bytes->size());
+	return true;
 }
 
 uint32_t HashName(std::string_view text)
@@ -269,9 +266,11 @@ KeepSetup SetupForCampaignLevel(int level)
 	setup.mode = GameMode::Campaign;
 	setup.campaignLevel = std::clamp(level, 1, NumCampaignLevels);
 	setup.seed = CampaignLevelRules(setup.campaignLevel).seed;
-	const std::string map = fmt::format("{0}keeper{1}campaign{1}level_{2:02}.dkmap", paths::AssetsPath(), DIRECTORY_SEPARATOR_STR, setup.campaignLevel);
-	if (FileExists(map))
-		setup.mapFile = map;
+	// An asset name rather than a path: it's a loose file or inside devilutionx.mpq, depending on the
+	// build. Without the map's tileset in the game data (shareware) the level stays a random Cathedral.
+	std::string map = CampaignMapAsset(setup.campaignLevel);
+	if (CanPlayMap(map))
+		setup.mapFile = std::move(map);
 	return setup;
 }
 
@@ -378,7 +377,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	wire.swapLE();
 	std::vector<char> blob(sizeof(wire));
 	std::memcpy(blob.data(), &wire, sizeof(wire));
-	if (!currentSetup.mapFile.empty() && !AppendFile(currentSetup.mapFile, blob, MaxMapBytes)) {
+	if (!currentSetup.mapFile.empty() && !AppendMapFile(currentSetup.mapFile, blob, MaxMapBytes)) {
 		SDL_SetError("Cannot send this map: it is unreadable or larger than %d bytes.", static_cast<int>(MaxMapBytes));
 		return false;
 	}

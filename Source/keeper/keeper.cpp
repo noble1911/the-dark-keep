@@ -213,15 +213,6 @@ void SetZoom(bool zoomed)
 	CancelBoxDrag(); // the box is in screen pixels, which no longer mean the same place
 }
 
-Point FindVault(Point fallback)
-{
-	for (int i = 0; i < numtrigs; i++) {
-		if (trigs[i]._tmsg == WM_DIABNEXTLVL)
-			return trigs[i].position;
-	}
-	return fallback;
-}
-
 // ---- HUD layout ------------------------------------------------------------
 //
 // RTS-style command bar along the bottom of the screen (after the C&C sidebar, Total War's unit
@@ -1411,12 +1402,18 @@ constexpr int GameOverButtonWidth = 240;
 constexpr int GameOverButtonHeight = 20;
 constexpr int GameOverButtonGap = 12;
 
+/** The next setup, worked out once when the game ends: the banner asks every frame, and it reads a map. */
+std::optional<std::pair<bool, std::optional<KeepSetup>>> setupAfterGame;
+
 /** What the "continue" button starts: only the game's creator gets one. */
 std::optional<KeepSetup> GameOverContinue()
 {
 	if (IsJoinedGame())
 		return std::nullopt;
-	return ContinueSetup(State.phase == Phase::Victory);
+	const bool won = State.phase == Phase::Victory;
+	if (!setupAfterGame || setupAfterGame->first != won)
+		setupAfterGame.emplace(won, ContinueSetup(won));
+	return setupAfterGame->second;
 }
 
 void LoadSpellBar()
@@ -1589,6 +1586,7 @@ void OnLevelLoaded()
 	if (!active)
 		return;
 
+	setupAfterGame.reset();
 	// ViewPosition was set by the level generator to the up-stairs arrival point.
 	const Point entrance = ViewPosition;
 

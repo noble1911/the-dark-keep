@@ -7,14 +7,20 @@
  */
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <function_ref.hpp>
+
+#include "engine/displacement.hpp"
 #include "engine/point.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "levels/dun_tile.hpp" // IWYU pragma: keep
+#include "levels/gendung_defs.hpp"
 #include "tables/monstdat.h"
 
 namespace devilution {
@@ -24,6 +30,25 @@ struct Player;
 struct Monster;
 
 namespace keeper {
+
+// ---- how heroes get around: the map validator and the map tool use these too ---------------------
+
+/** Steps to a target, per tile. */
+using DistanceField = std::array<std::array<uint16_t, MAXDUNY>, MAXDUNX>;
+constexpr uint16_t Unreachable = 0xFFFF;
+/** A locked door is bashed only if the open way round is longer than this many extra steps. */
+constexpr uint16_t LockRoutePenalty = 40;
+/** A raid's heroes appear on free floor up to this far from the entrance, nearest first. */
+constexpr unsigned HeroSpawnRadius = 6;
+
+/** A hero can stand here, or will open the door here. */
+bool IsPassable(Point tile);
+bool CanStepDiagonal(Point from, Displacement step);
+void BuildField(DistanceField &field, Point target);
+/** BuildField, with some tiles shut. */
+void BuildFieldAvoiding(DistanceField &field, Point target, tl::function_ref<bool(Point)> isShut);
+/** Floor a hero could appear on, if nothing else is standing there. */
+bool IsOpenFloor(Point tile);
 
 enum class HeroClassKind : uint8_t {
 	Warrior,

@@ -58,10 +58,8 @@ constexpr int SetupTicks = 4 * 60 * TicksPerSecond;
 constexpr int BreatherTicks = 75 * TicksPerSecond;
 /** Mana regenerated per tick, in hundredths (100 = 1 mana per tick). */
 constexpr int ManaRegenPerTick = 6; // 1.2 mana per second
-/** Minimum spacing between placements (tiles) and distance from the entrance/vault. */
+/** Minimum spacing between placements (tiles). */
 constexpr int PlacementSpacing = 1;
-constexpr int EntranceKeepOut = 4;
-constexpr int VaultKeepOut = 3;
 /** During a raid nothing can be placed this close to a hero, and lairs take a while to summon. */
 constexpr int RaidBuildHeroDistance = 6;
 constexpr int RaidSummonTicks = 3 * TicksPerSecond;

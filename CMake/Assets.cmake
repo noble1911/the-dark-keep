@@ -155,6 +155,26 @@ set(devilutionx_assets
   gendata/cutstartw.clx
   gendata/cutttw.clx
   gendata/pause.trn
+  keeper/campaign/level_01.dkmap
+  keeper/campaign/level_02.dkmap
+  keeper/campaign/level_03.dkmap
+  keeper/campaign/level_04.dkmap
+  keeper/campaign/level_05.dkmap
+  keeper/campaign/level_06.dkmap
+  keeper/campaign/level_07.dkmap
+  keeper/campaign/level_08.dkmap
+  keeper/campaign/level_09.dkmap
+  keeper/campaign/level_10.dkmap
+  keeper/campaign/level_11.dkmap
+  keeper/campaign/level_12.dkmap
+  keeper/campaign/level_13.dkmap
+  keeper/campaign/level_14.dkmap
+  keeper/campaign/level_15.dkmap
+  keeper/campaign/level_16.dkmap
+  keeper/campaign/level_17.dkmap
+  keeper/campaign/level_18.dkmap
+  keeper/campaign/level_19.dkmap
+  keeper/campaign/level_20.dkmap
   levels/l1data/sklkngt.dun
   levels/l2data/bonechat.dun
   levels/towndata/automap.dun

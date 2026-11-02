@@ -104,8 +104,6 @@ static_assert(MaxBaits <= 8);
 constexpr uint16_t TrapRoutePenalty = 20;
 /** Tiles from a trap that set it off (matches UpdateTraps). */
 constexpr int TrapDangerRadius = 1;
-/** A locked door is bashed only if the open way round is longer than this many extra steps. */
-constexpr uint16_t LockRoutePenalty = 40;
 /** How far away a hero with a clear view notices a trap going off. */
 constexpr int TrapWitnessRange = 8;
 constexpr int RogueDisarmPercent = 50;
@@ -148,8 +146,6 @@ std::array<bool, MaxMonsters> Roaming {};
 std::vector<HeroClassKind> pendingParty;
 int spawnCooldown = 0;
 
-constexpr uint16_t Unreachable = 0xFFFF;
-using DistanceField = std::array<std::array<uint16_t, MAXDUNY>, MAXDUNX>;
 DistanceField ToVault;
 DistanceField ToEntrance;
 DistanceField ToPortal;
@@ -163,6 +159,8 @@ std::optional<HeroClassKind> HeroClassOf(_monster_id type)
 	return std::nullopt;
 }
 
+} // namespace
+
 bool IsPassable(Point tile)
 {
 	return InDungeonBounds(tile) && IsTileWalkable(tile, /*ignoreDoors=*/true);
@@ -175,7 +173,7 @@ bool CanStepDiagonal(Point from, Displacement step)
 	return !IsTileSolid(from + Displacement { step.deltaX, 0 }) && !IsTileSolid(from + Displacement { 0, step.deltaY });
 }
 
-void BuildField(DistanceField &field, Point target)
+void BuildFieldAvoiding(DistanceField &field, Point target, tl::function_ref<bool(Point)> isShut)
 {
 	for (auto &column : field)
 		column.fill(Unreachable);
@@ -191,13 +189,25 @@ void BuildField(DistanceField &field, Point target)
 		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 			const Displacement step(dir);
 			const Point neighbour = tile + step;
-			if (!IsPassable(neighbour) || field[neighbour.x][neighbour.y] != Unreachable || !CanStepDiagonal(tile, step))
+			if (!IsPassable(neighbour) || field[neighbour.x][neighbour.y] != Unreachable || !CanStepDiagonal(tile, step) || isShut(neighbour))
 				continue;
 			field[neighbour.x][neighbour.y] = next;
 			open.push(neighbour);
 		}
 	}
 }
+
+void BuildField(DistanceField &field, Point target)
+{
+	BuildFieldAvoiding(field, target, [](Point) { return false; });
+}
+
+bool IsOpenFloor(Point tile)
+{
+	return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile);
+}
+
+namespace {
 
 uint16_t FieldAt(const DistanceField &field, Point tile)
 {
@@ -492,7 +502,7 @@ std::optional<size_t> FindLevelMonsterType(_monster_id type)
 
 bool IsFreeFloor(Point tile)
 {
-	return InDungeonBounds(tile) && IsTileWalkable(tile) && dMonster[tile.x][tile.y] == 0 && dPlayer[tile.x][tile.y] == 0 && !IsObjectAtPosition(tile);
+	return IsOpenFloor(tile) && dMonster[tile.x][tile.y] == 0 && dPlayer[tile.x][tile.y] == 0;
 }
 
 std::string_view ClassName(const HeroState &hero)
@@ -1257,7 +1267,7 @@ RaidStatus UpdateRaid()
 		} else if (ActiveMonsterCount < MaxMonsters) {
 			const HeroClassKind cls = pendingParty.front();
 			const std::optional<size_t> typeIndex = FindLevelMonsterType(HeroMonsterIds[static_cast<size_t>(cls)]);
-			const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.entrance, 0, 6);
+			const std::optional<Point> tile = FindClosestValidPosition(IsFreeFloor, State.entrance, 0, HeroSpawnRadius);
 			if (tile) {
 				if (const std::optional<size_t> slot = FreeBotSlot(); slot) {
 					RequestSpawnBot(*slot, cls, *tile);
