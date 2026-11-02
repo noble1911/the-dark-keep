@@ -14,7 +14,10 @@ $lines = @(); if ($File) { $lines += Get-Content $File }; if ($Commands) { $line
 $out = "$profileDir\ctl.txt.out"
 $before = if (Test-Path $out) { (Get-Content $out).Count } else { 0 }
 $mark = "done-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-Add-Content -Encoding ascii "$profileDir\ctl.txt" (($lines + "echo $mark") -join "`n")
+# The game reads this file every frame, and a write can lose to that.
+foreach ($try in 1..20) {
+    try { Add-Content -Encoding ascii "$profileDir\ctl.txt" (($lines + "echo $mark") -join "`n") -ErrorAction Stop; break } catch { Start-Sleep -Milliseconds 50 }
+}
 $deadline = (Get-Date).AddSeconds($Timeout)
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200

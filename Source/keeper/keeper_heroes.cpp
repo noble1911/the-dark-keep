@@ -628,7 +628,7 @@ void RogueCheckTraps(const Monster &monster, HeroState &hero)
 		hero.trapsKnown |= static_cast<uint16_t>(1U << i);
 		if (GenerateRnd(100) < RogueDisarmPercent) {
 			trap.active = false;
-			Announce("A Rogue disarmed one of your Fire Traps!");
+			Announce(fmt::format("A Rogue disarmed one of your {}s!", TrapKinds[trap.kind].name));
 		}
 	}
 }

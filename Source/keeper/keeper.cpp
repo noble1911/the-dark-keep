@@ -906,7 +906,7 @@ void DrawInfoPanel(const Surface &out)
 			return;
 		}
 		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster, trap or hero for more. Drag to select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
+		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
 		    KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
 		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
 		DrawString(out, WordWrapString(controls, textWidth),

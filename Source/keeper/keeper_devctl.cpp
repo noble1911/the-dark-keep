@@ -27,8 +27,10 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "monster.h"
+#include "objects.h"
 #include "player.h"
 #include "utils/display.h"
 #include "utils/surface_to_png.hpp"
@@ -254,6 +256,15 @@ void WriteMonsters()
 		if (IsLivingBot(bot))
 			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode)));
 	}
+	for (const DoorLock &lock : State.locks) {
+		if (lock.active)
+			Output(fmt::format("lock at={},{} strength={}", lock.position.x, lock.position.y, lock.strength));
+	}
+	for (const Bait &bait : State.baits) {
+		if (bait.active)
+			Output(fmt::format("bait at={},{} uses={}", bait.position.x, bait.position.y, bait.uses));
+	}
+	Output(fmt::format("possessed={} upgrades={},{},{},{},{},{}", State.possessed[MyPlayerId], UpgradeTiers()[0], UpgradeTiers()[1], UpgradeTiers()[2], UpgradeTiers()[3], UpgradeTiers()[4], UpgradeTiers()[5]));
 	for (size_t i = 0; i < State.traps.size(); i++) {
 		if (State.traps[i].active)
 			Output(fmt::format("trap {} kind={} at={},{} cooldown={}", i, State.traps[i].kind, State.traps[i].position.x, State.traps[i].position.y, State.traps[i].cooldown));
@@ -263,6 +274,11 @@ void WriteMonsters()
 /** The floor plan, for choosing where to build. # solid, . floor. */
 void WriteMap()
 {
+	for (int i = 0; i < ActiveObjectCount; i++) {
+		const Object &object = Objects[ActiveObjects[i]];
+		if (object.isDoor())
+			Output(fmt::format("door at={},{} closed={}", object.position.x, object.position.y, KeeperIsDoorClosed(object)));
+	}
 	for (int y = 0; y < MAXDUNY; y++) {
 		std::string row;
 		for (int x = 0; x < MAXDUNX; x++)

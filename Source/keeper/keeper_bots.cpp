@@ -244,7 +244,7 @@ bool StepOutOfFire(Player &bot)
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const Point tile = bot.position.tile + dir;
 		if (!IsBurning(tile) && PosOkPlayer(bot, tile)) {
-			MakePlrPath(bot, tile, false);
+			MakePlrPath(bot, tile, true); // true: all the way onto it, and without it a next-door tile is no steps at all
 			bot.destAction = ACTION_NONE;
 			return true;
 		}
@@ -385,7 +385,7 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 		state.trapsKnown |= static_cast<uint16_t>(1U << i);
 		if (SyncedRoll(bot, static_cast<uint32_t>(i) + static_cast<uint32_t>(trap.position.x * 256 + trap.position.y) * 16) < RogueDisarmPercent) {
 			trap.active = false;
-			Announce(fmt::format("{} disarmed one of your Fire Traps!", bot._pName));
+			Announce(fmt::format("{} disarmed one of your {}s!", bot._pName, TrapKinds[trap.kind].name));
 		}
 	}
 }
