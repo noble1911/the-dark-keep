@@ -1,8 +1,9 @@
 # The Dark Keep map format (.dkmap)
 
 A `.dkmap` file is one keep level. The editor saves to a `maps` folder under the save directory;
-campaign maps live in `assets/keeper/campaign/level_NN.dkmap`. `Source/keeper/keeper_map.cpp` is
-the reference implementation.
+campaign maps live in `assets/keeper/campaign/level_NN.dkmap`, and reach the game as loose files or
+inside `devilutionx.mpq`, whichever the build makes, so the game finds them by asset name. See
+docs/CAMPAIGN-MAPS.md. `Source/keeper/keeper_map.cpp` is the reference implementation.
 
 All numbers are little-endian. There is no compression: a file is always about 9.7 KB.
 

@@ -21,7 +21,9 @@
 #include <fmt/format.h>
 
 #include "appfat.h"
+#include "engine/assets.hpp"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "multi.h"
 #include "storm/storm_net.hpp"
@@ -155,18 +157,17 @@ void SaveProgress()
 	RenameFile(temp.c_str(), path.c_str());
 }
 
-/** Appends the file to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
-bool AppendFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
+/** Appends the map to `out`. @return false if it cannot be read or is larger than `maxBytes`. */
+bool AppendMapFile(const std::string &path, std::vector<char> &out, size_t maxBytes)
 {
-	FILE *file = OpenFile(path.c_str(), "rb");
-	if (file == nullptr)
+	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
+	if (!bytes.has_value() || bytes->size() > maxBytes)
 		return false;
 	const size_t start = out.size();
-	out.resize(start + maxBytes + 1);
-	const size_t got = std::fread(out.data() + start, 1, maxBytes + 1, file);
-	std::fclose(file);
-	out.resize(start + got);
-	return got <= maxBytes;
+	out.resize(start + bytes->size());
+	if (!bytes->empty())
+		std::memcpy(out.data() + start, bytes->data(), bytes->size());
+	return true;
 }
 
 uint32_t HashName(std::string_view text)
@@ -269,9 +270,10 @@ KeepSetup SetupForCampaignLevel(int level)
 	setup.mode = GameMode::Campaign;
 	setup.campaignLevel = std::clamp(level, 1, NumCampaignLevels);
 	setup.seed = CampaignLevelRules(setup.campaignLevel).seed;
-	const std::string map = fmt::format("{0}keeper{1}campaign{1}level_{2:02}.dkmap", paths::AssetsPath(), DIRECTORY_SEPARATOR_STR, setup.campaignLevel);
-	if (FileExists(map))
-		setup.mapFile = map;
+	// An asset name rather than a path: it's a loose file or inside devilutionx.mpq, depending on the build.
+	std::string map = fmt::format("keeper\\campaign\\level_{:02}.dkmap", setup.campaignLevel);
+	if (FindAsset(map).ok())
+		setup.mapFile = std::move(map);
 	return setup;
 }
 
@@ -378,7 +380,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	wire.swapLE();
 	std::vector<char> blob(sizeof(wire));
 	std::memcpy(blob.data(), &wire, sizeof(wire));
-	if (!currentSetup.mapFile.empty() && !AppendFile(currentSetup.mapFile, blob, MaxMapBytes)) {
+	if (!currentSetup.mapFile.empty() && !AppendMapFile(currentSetup.mapFile, blob, MaxMapBytes)) {
 		SDL_SetError("Cannot send this map: it is unreadable or larger than %d bytes.", static_cast<int>(MaxMapBytes));
 		return false;
 	}

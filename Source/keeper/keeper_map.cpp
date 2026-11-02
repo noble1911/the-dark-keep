@@ -6,6 +6,7 @@
 #include "keeper/keeper_map.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -13,7 +14,9 @@
 
 #include <fmt/format.h>
 
+#include "engine/assets.hpp"
 #include "engine/load_file.hpp"
+#include "engine/path.h"
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
@@ -705,11 +708,19 @@ std::string MapFileName(std::string_view name)
 		if (safe)
 			file.push_back(c);
 	}
-	// No trailing spaces (Windows drops them) and never an empty name.
+	// No trailing spaces (Windows drops them) and never an empty name. A leading underscore marks the
+	// editor's scratch files, which the map lists hide.
 	while (!file.empty() && file.back() == ' ')
 		file.pop_back();
+	file.erase(0, file.find_first_not_of("_ "));
 	if (file.empty())
 		file = "Untitled";
+	// Windows opens these as devices, whatever the extension.
+	std::string upper = file;
+	std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+	const bool numberedDevice = upper.size() == 4 && (upper.rfind("COM", 0) == 0 || upper.rfind("LPT", 0) == 0) && upper[3] >= '1' && upper[3] <= '9';
+	if (numberedDevice || upper == "CON" || upper == "PRN" || upper == "AUX" || upper == "NUL")
+		file += "_map";
 	return file + ".dkmap";
 }
 
@@ -722,8 +733,19 @@ tl::expected<std::vector<std::byte>, std::string> ReadMapBytes(const std::string
 			break;
 		}
 	}
-	if (found.empty())
-		return tl::make_unexpected("the file wasn't found");
+	if (found.empty()) {
+		// Campaign maps ship inside devilutionx.mpq where the build makes one.
+		size_t assetSize = 0;
+		AssetHandle asset = OpenAsset(path, assetSize);
+		if (!asset.ok())
+			return tl::make_unexpected("the file wasn't found");
+		if (assetSize > MaxMapFileSize)
+			return tl::make_unexpected("the file is too big");
+		std::vector<std::byte> assetBytes(assetSize);
+		if (assetSize > 0 && !asset.read(assetBytes.data(), assetSize))
+			return tl::make_unexpected("the file couldn't be read");
+		return assetBytes;
+	}
 	std::uintmax_t size = 0;
 	if (!GetFileSize(found.c_str(), &size))
 		return tl::make_unexpected("the file couldn't be read");
@@ -784,6 +806,33 @@ void BakeMap(KeepMap &map)
 	}
 }
 
+bool BakePlayableMap(KeepMap &map)
+{
+	const auto buildAndJudge = [&map](bool decorate) {
+		ApplyLayoutToLevel(map, decorate);
+		std::memset(dObject, 0, sizeof(dObject));
+		InitObjects();
+		const std::vector<MapProblem> problems = ValidateMap(map);
+		return std::none_of(problems.begin(), problems.end(), [](const MapProblem &problem) { return problem.blocking; });
+	};
+	const bool plainIsPlayable = buildAndJudge(/*decorate=*/false);
+	map.playable = false;
+	for (int attempt = 0; attempt < 16 && !map.playable; attempt++) {
+		if (attempt > 0)
+			map.decorSeed++;
+		BakeMap(map);
+		map.playable = buildAndJudge(/*decorate=*/true) && plainIsPlayable;
+		if (!plainIsPlayable)
+			break; // the decoration isn't what's wrong, so rerolling it won't help
+	}
+	return map.playable;
+}
+
+bool IsMapTilesetLoaded(MapTileset tileset)
+{
+	return leveltype == Info(tileset).levelType;
+}
+
 Point MapSpawnTile(const KeepMap &map)
 {
 	if (!HasPosition(map.entrance))
@@ -834,15 +883,10 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 			} else {
 				static Reach reach;
 				FloodReach(reach, *vaultTile);
-				// Heroes appear on the nearest free tile, so look around the spawn the way they do.
-				bool reachable = false;
-				for (int dx = -6; dx <= 6 && !reachable; dx++) {
-					for (int dy = -6; dy <= 6 && !reachable; dy++) {
-						const Point tile = spawn + Displacement { dx, dy };
-						reachable = InDungeonBounds(tile) && reach[tile.x][tile.y];
-					}
-				}
-				if (!reachable)
+				// Heroes appear on the nearest free tile, so that's the one that has to get there: any tile
+				// nearby would pass a sealed entrance room with the rest of the keep behind its wall.
+				const std::optional<Point> arrival = FindClosestValidPosition([](Point tile) { return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile); }, spawn, 0, 6);
+				if (!arrival || !reach[arrival->x][arrival->y])
 					problems.push_back({ "Heroes can't reach the vault from the entrance" });
 			}
 		}

@@ -132,6 +132,16 @@ tl::expected<void, std::string> WriteMapBytes(const std::string &path, const std
 void ApplyLayoutToLevel(const KeepMap &map, bool decorate);
 /** Fills in map.tiles and map.trans. Leaves the decorated level in `dungeon`: reapply afterwards. */
 void BakeMap(KeepMap &map);
+/**
+ * Bakes the map and judges the result, setting map.playable. What gets saved is the decorated level,
+ * and decoration can matter (a candlestick can plug a narrow hall), so this rerolls decorSeed if the
+ * decoration is what broke the map. The live map must be `map`, and the loaded tileset its own. Leaves
+ * the decorated level in place: reapply afterwards.
+ * @return map.playable
+ */
+bool BakePlayableMap(KeepMap &map);
+/** True if the tile data in memory is this tileset's, as ApplyLayoutToLevel needs. */
+bool IsMapTilesetLoaded(MapTileset tileset);
 /** Where heroes appear for this map: the world tile the staircase's generator would use. */
 Point MapSpawnTile(const KeepMap &map);
 
