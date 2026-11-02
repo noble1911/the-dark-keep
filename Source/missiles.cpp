@@ -727,6 +727,17 @@ bool GuardianTryFireAt(Missile &missile, Point target)
 	if (!LineClearMovingMissile(position, target))
 		return false;
 	const int mid = dMonster[target.x][target.y] - 1;
+	if (keeper::IsActive() && mid < 0) {
+		// [DARK KEEP] guardians shoot bot heroes too
+		const int pid = dPlayer[target.x][target.y] - 1;
+		if (pid < 0 || !keeper::IsLivingBot(Players[pid]))
+			return false;
+		const Direction dir = GetDirection(position, target);
+		AddMissile(position, target, dir, MissileID::Firebolt, TARGET_MONSTERS, missile._misource, missile._midam, missile.sourcePlayer()->GetSpellLevel(SpellID::Guardian), &missile);
+		missile.setFrameGroup<GuardianFrame>(GuardianFrame::Attack);
+		missile.var2 = 3;
+		return true;
+	}
 	if (mid < 0)
 		return false;
 	const Monster &monster = Monsters[mid];
@@ -2373,6 +2384,14 @@ void AddStoneCurse(Missile &missile, AddMissileParameter &parameter)
 		    }
 
 		    const int monsterId = std::abs(dMonster[target.x][target.y]) - 1;
+		    if (keeper::IsActive()) {
+			    // [DARK KEEP] the masters' curse only takes heroes: hero monsters and bot heroes
+			    const int playerId = std::abs(dPlayer[target.x][target.y]) - 1;
+			    if (monsterId < 0)
+				    return playerId >= 0 && keeper::IsLivingBot(Players[playerId]) && !keeper::IsPetrifiedBot(Players[playerId]);
+			    if (!keeper::IsHero(Monsters[monsterId]))
+				    return false;
+		    }
 		    if (monsterId < 0) {
 			    return false;
 		    }
@@ -2393,6 +2412,14 @@ void AddStoneCurse(Missile &missile, AddMissileParameter &parameter)
 	if (!targetMonsterPosition) {
 		missile._miDelFlag = true;
 		parameter.spellFizzled = true;
+		return;
+	}
+
+	if (keeper::IsActive() && dMonster[targetMonsterPosition->x][targetMonsterPosition->y] == 0) {
+		// [DARK KEEP] a bot hero: the bot AI keeps the stone timer (same length as a monster's)
+		const int playerId = std::abs(dPlayer[targetMonsterPosition->x][targetMonsterPosition->y]) - 1;
+		keeper::PetrifyBot(Players[playerId], std::min(missile._mispllvl + 6, 15) << 4);
+		missile._miDelFlag = true;
 		return;
 	}
 

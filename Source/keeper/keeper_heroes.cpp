@@ -20,6 +20,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "missiles.h"
@@ -171,12 +172,32 @@ bool IsAliveMonster(const Monster &monster)
 	return monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isInvalid && monster.position.tile != GolemHoldingCell;
 }
 
+/** Heroes aren't stupid: they won't step into a wall of fire (unless they're already in one). */
+bool IsSafeStep(const Monster &monster, Direction dir)
+{
+	return !IsBurning(monster.position.tile + dir) || IsBurning(monster.position.tile);
+}
+
 /** Walk one step in dir, or the nearest turn that is open. */
 bool StepTowards(Monster &monster, Direction dir)
 {
 	for (const Direction tryDir : { dir, Left(dir), Right(dir) }) {
-		if (DirOK(monster, tryDir)) {
+		if (DirOK(monster, tryDir) && IsSafeStep(monster, tryDir)) {
 			Walk(monster, tryDir);
+			return true;
+		}
+	}
+	return false;
+}
+
+/** Standing in fire: step out to the nearest tile that isn't burning. */
+bool StepOutOfFire(Monster &monster)
+{
+	if (!IsBurning(monster.position.tile))
+		return false;
+	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+		if (!IsBurning(monster.position.tile + dir) && DirOK(monster, dir)) {
+			Walk(monster, dir);
 			return true;
 		}
 	}
@@ -191,7 +212,7 @@ bool FollowField(Monster &monster, const DistanceField &field)
 	uint16_t bestValue = here;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const uint16_t value = FieldAt(field, position + dir);
-		if (value < bestValue && DirOK(monster, dir)) {
+		if (value < bestValue && DirOK(monster, dir) && IsSafeStep(monster, dir)) {
 			best = dir;
 			bestValue = value;
 		}
@@ -199,7 +220,7 @@ bool FollowField(Monster &monster, const DistanceField &field)
 	if (!best) {
 		// Path blocked (by a monster, usually): sidestep to an equally good tile, or wait.
 		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
-			if (FieldAt(field, position + dir) == here && DirOK(monster, dir)) {
+			if (FieldAt(field, position + dir) == here && DirOK(monster, dir) && IsSafeStep(monster, dir)) {
 				best = dir;
 				break;
 			}
@@ -293,6 +314,7 @@ std::string_view ClassName(const HeroState &hero)
 
 void HeroEscapes(Monster &monster, HeroState &hero)
 {
+	NoteHeroLeft(hero.fleeing && !State.bossDown, std::max(hero.carried, 0));
 	if (hero.carried > 0) {
 		State.goldLost += hero.carried;
 		Announce(fmt::format("A {} escaped with {} gold!", ClassName(hero), hero.carried));
@@ -312,6 +334,7 @@ void HeroSteals(Monster &monster, HeroState &hero)
 		return;
 	State.vaultGold -= amount;
 	hero.carried = amount;
+	NoteGoldLooted(amount);
 	Announce(fmt::format("A {} looted {} gold from the vault!", ClassName(hero), amount));
 	KeeperAiDelay(monster, 10);
 }
@@ -404,6 +427,7 @@ void CheckFear(const Monster &monster, HeroState &hero)
 	hero.fleeing = true;
 	if (hero.carried > 0) {
 		AddVaultGold(hero.carried);
+		NoteGoldRecovered(hero.carried);
 		Announce(fmt::format("A {} drops {} gold and flees in terror!", ClassName(hero), hero.carried), UiFlags::ColorGold);
 		hero.carried = 0;
 	} else {
@@ -564,6 +588,8 @@ void OnMonsterDeath(Monster &monster)
 		if (State.possessed[pid] == static_cast<int16_t>(id))
 			EndPossession(pid);
 	}
+	if (!IsHero(monster) && monster.type().type != MT_GOLEM)
+		NoteKeepMonsterLost();
 	if (IsBoss(monster)) {
 		if (State.phase == Phase::Raid && !State.bossDown) {
 			State.bossDown = true;
@@ -576,6 +602,7 @@ void OnMonsterDeath(Monster &monster)
 	HeroState &hero = Heroes[id];
 	const int bounty = 20 + 5 * State.wave;
 	AddVaultGold(std::max(hero.carried, 0) + bounty);
+	NoteHeroSlain(bounty, std::max(hero.carried, 0));
 	if (hero.carried > 0)
 		Announce(fmt::format("Recovered {} stolen gold!", hero.carried), UiFlags::ColorGold);
 	hero = {};
@@ -654,6 +681,8 @@ void HeroAi(Monster &monster)
 	HeroOpenDoors(monster);
 	CheckFear(monster, hero);
 	RogueCheckTraps(monster, hero);
+	if (StepOutOfFire(monster))
+		return;
 
 	// The Lord is dead: the party's only goal is to get out through the portal.
 	if (State.bossDown) {
@@ -1133,6 +1162,11 @@ bool IsPortalCaster(const Player &player)
 	return Portal.botCaster >= 0 && static_cast<size_t>(Portal.botCaster) == player.getId();
 }
 
+bool IsPortalCaster(const Monster &monster)
+{
+	return Portal.caster >= 0 && static_cast<size_t>(Portal.caster) == monster.getId();
+}
+
 uint16_t GoalDistance(HeroGoal goal, Point tile)
 {
 	switch (goal) {
@@ -1244,6 +1278,19 @@ int PortalChannelPercent()
 	if (Portal.awaitingBotCast)
 		return 100;
 	return 100 * (PortalChannelTicks - Portal.channel) / PortalChannelTicks;
+}
+
+std::string_view HeroClassName(HeroClassKind cls)
+{
+	return HeroClasses[static_cast<size_t>(cls)].name;
+}
+
+std::optional<HeroSummary> GetHeroSummary(const Monster &monster)
+{
+	if (!IsHero(monster) || monster.hitPoints <= 0)
+		return std::nullopt;
+	const HeroState &hero = Heroes[monster.getId()];
+	return HeroSummary { hero.cls, hero.carried, hero.champion, hero.fleeing };
 }
 
 std::string_view HeroTitle(const Monster &monster)

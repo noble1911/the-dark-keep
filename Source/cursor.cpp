@@ -453,6 +453,11 @@ void InitCursor()
 	ClearCursor();
 }
 
+bool HaveCursorGraphics()
+{
+	return pCursCels.has_value();
+}
+
 void FreeCursor()
 {
 	pCursCels = std::nullopt;

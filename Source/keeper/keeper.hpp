@@ -83,6 +83,8 @@ bool OnMouseWheel(int deltaY);
 
 /** @brief Draws the master HUD over the main panel area. */
 void DrawHud(const Surface &out);
+/** scrollrt, per tile: the translucent ghost of the lair monster about to be placed under the cursor. */
+void DrawPlacementGhost(const Surface &out, Point tile, Point targetBufferPosition);
 
 /** @brief Dev/test flag (--keeper-autostart): skip menus and start a single-player keep. */
 extern bool AutoStart;

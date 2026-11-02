@@ -31,6 +31,15 @@ enum class HeroClassKind : uint8_t {
 };
 constexpr size_t NumHeroClasses = 3;
 
+/** What the HUD shows about a monster hero (see GetHeroSummary). */
+struct HeroSummary {
+	HeroClassKind cls;
+	/** Gold carried (-1: robbed nothing, but heading out anyway). */
+	int carried;
+	bool champion;
+	bool fleeing;
+};
+
 /** Number of raids to survive; the last one is the champions' raid. */
 constexpr uint8_t NumWaves = 7;
 
@@ -86,6 +95,9 @@ int GoldInFlight();
 int LivingHeroCount();
 
 std::string_view HeroTitle(const Monster &monster);
+std::string_view HeroClassName(HeroClassKind cls);
+/** The hero's state, or nullopt if `monster` isn't a living hero. */
+std::optional<HeroSummary> GetHeroSummary(const Monster &monster);
 
 /** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
 std::string DescribeWave(uint8_t wave);
@@ -111,6 +123,8 @@ int PortalChannelPercent();
 /** Where whoever is channelling the portal stands. */
 std::optional<Point> PortalCasterPosition();
 bool IsPortalCaster(const Player &player);
+/** True for the hero monster channelling the portal. */
+bool IsPortalCaster(const Monster &monster);
 
 // ---- shared hero helpers (used by the bot heroes) -------------------------
 enum class HeroGoal : uint8_t {

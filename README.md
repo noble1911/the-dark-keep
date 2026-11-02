@@ -42,8 +42,12 @@ of your monsters and fight them yourself — before they get away with your gold
 | WASD / arrows / screen edge | Move the camera |
 | Mouse wheel, `+` / `-` | Zoom in / out |
 | Space / V | Jump to the entrance / the vault |
-| 1–6 | Build: Zombie, Fallen, Bones, Archer and Brute lairs, Fire Trap |
-| Z X C F | Spells: Lightning Nova, Fire Wall, Guardian, Stone Curse |
+| Card bar | Click a card (Lairs / Traps & Tricks tabs), then click in the keep. A preview shows where it can go and what it reaches |
+| Tab | Next card tab (mouse wheel over the bar scrolls it) |
+| 1–6 | Build: Zombie, Fallen, Bones, Archer, Brute (one monster each), Fire Trap |
+| Z X C F | Spells, cast instantly at the cursor: Lightning Nova, Fire Wall, Guardian, Stone Curse (or click the spell bar, then the keep) |
+| Left click a hero | Inspect its stats and gear (Esc / right click to close); the raid roster (top right) does the same and jumps the camera to the hero |
+| Esc / click | Dismiss the end-of-raid summary |
 | G / T | Lock a door / place fool's-gold bait |
 | Left click | Place / cast the selected tool (or order a possessed monster) |
 | Right click / Esc | Cancel the tool (Esc also releases a possessed monster) |

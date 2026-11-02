@@ -4,17 +4,27 @@ Working todo list, roughly in order. Each section gets fleshed out when we start
 add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md).
 
 ## 1. UI
-- [ ] Rework the bottom HUD (build bar, spells, raid/vault/mana panel) so it reads clearly at all resolutions
-- [ ] Better feedback: placement previews, costs, cooldowns, "can't build here" reasons
-- [ ] Hero info: who's in the raid, HP bars, what each hero is doing (looting, casting portal, fleeing)
-- [ ] Raid summary screen (kills, gold lost/recovered, tribute)
+- [x] RTS command bar: status column, tabbed scrollable card bar with portraits (Lairs / Traps & Tricks), info panel for the hovered card
+- [x] HUD scales up on big screens (2x at 1440p, 3x at 4K); world overlays stay full resolution
+- [x] Unaffordable cards greyed with red frame, spell recharge shade, floating feedback line
+- [x] Placement previews: ghost of the monster (red where it can't go), trap/bait reach, spell areas, Stone Curse target
+- [x] Floating hit / heal markers with icons (ported from The Red Portal)
+- [x] Health bars over hurt units, mana bars over hero bots
+- [x] Click a hero to inspect stats, gear, loot and state
+- [x] Spells in their own bar; hotkeys cast instantly at the cursor
+- [x] Raid roster: every hero in the raid at a glance (top right; click one to inspect and jump to it)
+- [ ] Rebindable keys
+- [x] Raid summary (slain / escaped / fled, gold stolen / recovered, bounties, tribute, monsters lost)
 
 ## 2. Unit placement
-- [ ] Rethink how lairs/traps are placed and how many are allowed
+- [x] Single monsters instead of groups, priced per monster; up to 96, can stand side by side
+- [ ] Limits per monster type / population cap (unlimited singles may be too strong)
 - [ ] Moving / selling / removing structures
 - [ ] Rally points or patrol routes for keep monsters
 
 ## 3. Interaction with the players (heroes)
+- [x] Masters' spells hit bot heroes too (Guardian shoots them, Stone Curse petrifies them and spares your monsters)
+- [x] Heroes step out of fire walls and wait instead of walking into them
 - [ ] Better hero AI reactions to traps, bait and locked doors
 - [ ] Bots react to bait (only monster heroes do now)
 - [ ] Bot gear that scales with the raid

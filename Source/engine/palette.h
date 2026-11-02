@@ -66,6 +66,12 @@ struct Color {
 extern std::array<SDL_Color, 256> logical_palette;
 
 /**
+ * [DARK KEEP] Bumped whenever a palette is loaded, so sprites baked against the live palette
+ * (the floating-number icons) know to rebuild.
+ */
+extern unsigned PaletteGeneration;
+
+/**
  * @brief This palette is the actual palette used for rendering.
  *
  * It is usually `logical_palette` with the global brightness setting

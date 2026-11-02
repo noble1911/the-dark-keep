@@ -15,6 +15,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "missiles.h"
@@ -29,10 +30,10 @@
 namespace devilution::keeper {
 
 const std::array<BuildInfo, NumBuildKinds> BuildKinds { {
-	{ "Zombie", 100, MT_NZOMBIE, 3 },
-	{ "Fallen", 120, MT_RFALLSP, 4 },
-	{ "Bones", 180, MT_WSKELAX, 3 },
-	{ "Archer", 200, MT_WSKELBW, 2 },
+	{ "Zombie", 40, MT_NZOMBIE, 1 },
+	{ "Fallen", 35, MT_RFALLSP, 1 },
+	{ "Bones", 65, MT_WSKELAX, 1 },
+	{ "Archer", 100, MT_WSKELBW, 1 },
 	{ "Brute", 260, MT_FAT, 1 },
 	{ "Trap", 80, MT_INVALID, 0 },
 } };
@@ -55,7 +56,7 @@ constexpr int StartingVaultGold = 1200;
 /** Mana regenerated per tick, in hundredths (100 = 1 mana per tick). */
 constexpr int ManaRegenPerTick = 6; // 1.2 mana per second
 /** Minimum spacing between placements (tiles) and distance from the entrance/vault. */
-constexpr int PlacementSpacing = 3;
+constexpr int PlacementSpacing = 1;
 constexpr int EntranceKeepOut = 4;
 constexpr int VaultKeepOut = 3;
 /** During a raid nothing can be placed this close to a hero, and lairs take a while to summon. */
@@ -202,6 +203,11 @@ void AnnouncePhase(Phase from, Phase to)
 {
 	if (from == to)
 		return;
+	// Raid stats: every client sees the phase change, so each keeps its own tally.
+	if (from == Phase::Raid)
+		NoteRaidEnded(to, to == Phase::Breather ? TributeFor(State.wave - 1) : 0);
+	if (to == Phase::Raid)
+		NoteRaidStarted(State.wave);
 	if (from == Phase::Raid) {
 		ClosePortal();
 		RemoveAllBots();
@@ -497,6 +503,7 @@ void ResetGame(Point entrance, Point vault)
 		lair.members.fill(-1);
 	ticksUntilBroadcast = 0;
 	ResetHeroes();
+	ResetRaidStats();
 }
 
 void GameTick()
@@ -792,6 +799,15 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	}
 	return sizeof(message);
+}
+
+bool IsBurning(Point tile)
+{
+	for (const Missile &missile : Missiles) {
+		if (missile._mitype == MissileID::FireWall && !missile._miDelFlag && missile.position.tile == tile)
+			return true;
+	}
+	return false;
 }
 
 bool AreHostile(const Monster &a, const Monster &b)

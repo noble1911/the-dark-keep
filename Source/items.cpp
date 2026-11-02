@@ -3039,12 +3039,16 @@ void CreatePlrItems(Player &player)
 		}
 	}
 
-	InitCursor();
+	// [DARK KEEP] Bot heroes are created mid-game, while the cursor graphics are in use: only free what we load.
+	const bool loadCursor = !HaveCursorGraphics();
+	if (loadCursor)
+		InitCursor();
 	for (const _item_indexes itemData : loadout.items) {
 		if (itemData != _item_indexes::IDI_NONE)
 			CreateStartingItem(player, itemData);
 	}
-	FreeCursor();
+	if (loadCursor)
+		FreeCursor();
 
 	if (loadout.gold > 0) {
 		Item &goldItem = player.InvList[player._pNumInv];

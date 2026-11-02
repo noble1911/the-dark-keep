@@ -55,6 +55,8 @@ extern DVL_API_FOR_TEST int pcurs;
 
 void InitCursor();
 void FreeCursor();
+/** [DARK KEEP] True while the item cursor graphics are loaded. */
+bool HaveCursorGraphics();
 void ResetCursor();
 
 struct Item;

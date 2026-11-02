@@ -86,7 +86,7 @@ extern const std::array<SpellKind, NumSpellKinds> SpellKinds;
 constexpr int LockDoorCost = 50;
 constexpr int BaitCost = 60;
 
-constexpr size_t MaxLairs = 32;
+constexpr size_t MaxLairs = 96;
 constexpr size_t MaxLairMembers = 4;
 constexpr size_t MaxTraps = 16;
 constexpr size_t MaxLocks = 16;
@@ -194,6 +194,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);
 /** Faction rules: heroes vs. the keep's monsters. */
 bool IsHero(const Monster &monster);
 bool AreHostile(const Monster &a, const Monster &b);
+/** True if a wall of fire burns on `tile` (heroes step out of it and won't walk into it). */
+bool IsBurning(Point tile);
 
 /** Pays the keep (bounties, tribute, dropped loot). */
 void AddVaultGold(int amount);

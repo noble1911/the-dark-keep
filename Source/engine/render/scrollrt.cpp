@@ -83,6 +83,8 @@
 #endif
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_bots.hpp" // [DARK KEEP]
+#include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
 #endif
@@ -474,6 +476,7 @@ void DrawPlayer(const Surface &out, const Player &player, Point tilePosition, Po
 
 	const ClxSprite sprite = player.currentSprite();
 	const Point spriteBufferPosition = targetBufferPosition + player.getRenderingOffset(sprite);
+	keeper::NotePlayerDrawn(player, spriteBufferPosition, sprite.width()); // [DARK KEEP] health/mana bars
 
 	if (&player == PlayerUnderCursor)
 		ClxDrawOutlineSkipColorZero(out, GetPlayerOutlineColor(player.getId()), spriteBufferPosition, sprite);
@@ -481,6 +484,11 @@ void DrawPlayer(const Surface &out, const Player &player, Point tilePosition, Po
 	if (&player == MyPlayer && IsNoneOf(leveltype, DTYPE_NEST, DTYPE_CRYPT)) {
 		ClxDraw(out, spriteBufferPosition, sprite);
 		DrawPlayerIcons(out, player, targetBufferPosition, /*infraVision=*/false, lightTableIndex);
+		return;
+	}
+
+	if (keeper::IsPetrifiedBot(player)) { // [DARK KEEP] Stone Curse on a bot hero
+		ClxDrawTRN(out, spriteBufferPosition, sprite, GetStoneTRN());
 		return;
 	}
 
@@ -773,6 +781,7 @@ void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBuffe
 		ClxDrawOutlineSkipColorZero(out, OutlineColorsMonster, monsterRenderPosition, sprite);
 	}
 	DrawMonster(out, tilePosition, monsterRenderPosition, monster, lightTableIndex);
+	keeper::NoteMonsterDrawn(monster, monsterRenderPosition, sprite.width()); // [DARK KEEP] health bars
 }
 
 /**
@@ -903,6 +912,7 @@ void DrawDungeon(const Surface &out, const Lightmap &lightmap, Point tilePositio
 	}
 
 	DrawMissile(out, tilePosition, targetBufferPosition, false, lightTableIndex);
+	keeper::DrawPlacementGhost(out, tilePosition, targetBufferPosition); // [DARK KEEP] placement preview
 
 	if (object != nullptr && !object->_oPreFlag) {
 		DrawObject(out, *object, tilePosition, targetBufferPosition, lightTableIndex);

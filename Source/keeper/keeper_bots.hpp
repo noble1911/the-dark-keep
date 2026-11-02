@@ -46,10 +46,23 @@ void RemoveAllBots();
 /** Every client, every game tick: bot AI, potions, deaths and escapes. */
 void UpdateBots();
 
+struct BotSummary {
+	HeroClassKind cls;
+	/** Gold carried (-1: robbed nothing, but heading out anyway). */
+	int carried;
+	bool fleeing;
+	int potions;
+};
+/** The bot's AI state, or nullopt if `player` isn't a living bot. */
+std::optional<BotSummary> GetBotSummary(const Player &player);
+
 int LivingBotCount();
 int BotGoldInFlight();
 /** Living bot nearest `from` within `range` tiles (for the keep's monsters to attack). */
 const Player *NearestBot(Point from, int range);
+/** Every client: the masters' Stone Curse turns a bot to stone for `ticks` game ticks. */
+bool PetrifyBot(Player &bot, int ticks);
+bool IsPetrifiedBot(const Player &player);
 /** Any living bot within `distance` tiles of `tile`. */
 bool IsBotNear(Point tile, int distance);
 

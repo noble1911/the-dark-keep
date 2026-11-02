@@ -140,6 +140,8 @@ set(libdevilutionx_SRCS
 
   keeper/keeper.cpp
   keeper/keeper_bots.cpp
+  keeper/keeper_units.cpp
+  keeper/keeper_raid.cpp
   keeper/keeper_game.cpp
   keeper/keeper_heroes.cpp
 

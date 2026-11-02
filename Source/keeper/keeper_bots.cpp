@@ -17,6 +17,7 @@
 #include "items.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "lighting.h"
@@ -46,6 +47,8 @@ struct BotState {
 	int potions = 0;
 	int thinkCooldown = 0;
 	uint16_t trapsSeen = 0;
+	/** Game ticks left turned to stone (the masters' Stone Curse). */
+	int petrifiedTicks = 0;
 };
 
 std::array<BotState, MaxBots> Bots;
@@ -154,6 +157,47 @@ void QueueSpell(Player &bot, SpellID spell)
 	bot.queuedSpell.spellLevel = bot.GetSpellLevel(spell);
 }
 
+Direction WalkDirection(int8_t step)
+{
+	switch (step) {
+	case WALK_N: return Direction::North;
+	case WALK_NE: return Direction::NorthEast;
+	case WALK_E: return Direction::East;
+	case WALK_SE: return Direction::SouthEast;
+	case WALK_S: return Direction::South;
+	case WALK_SW: return Direction::SouthWest;
+	case WALK_W: return Direction::West;
+	default: return Direction::NorthWest;
+	}
+}
+
+/** Heroes aren't stupid: stop before walking into a wall of fire (unless already in one). */
+void AvoidFire(Player &bot)
+{
+	if (bot.walkpath[0] == WALK_NONE || IsBurning(bot.position.future))
+		return;
+	if (IsBurning(bot.position.future + WalkDirection(bot.walkpath[0]))) {
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+	}
+}
+
+/** Standing in fire: walk to the nearest tile that isn't burning. */
+bool StepOutOfFire(Player &bot)
+{
+	if (!IsBurning(bot.position.tile))
+		return false;
+	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+		const Point tile = bot.position.tile + dir;
+		if (!IsBurning(tile) && PosOkPlayer(bot, tile)) {
+			MakePlrPath(bot, tile, false);
+			bot.destAction = ACTION_NONE;
+			return true;
+		}
+	}
+	return false;
+}
+
 bool HasLineOfSight(Point from, Point to)
 {
 	return LineClearMissile(from, to);
@@ -216,6 +260,7 @@ void Attack(Player &bot, BotState &state, Monster &target)
 
 void Escape(Player &bot, BotState &state, bool throughPortal)
 {
+	NoteHeroLeft(!throughPortal && state.fleeing, std::max(state.carried, 0));
 	if (throughPortal) {
 		State.portalEscape = true;
 		Announce(fmt::format("{} escaped through the portal!", bot._pName));
@@ -236,6 +281,7 @@ void HandleDeath(Player &bot, BotState &state)
 	state.deathHandled = true;
 	const int bounty = 30 + 10 * State.wave;
 	AddVaultGold(std::max(state.carried, 0) + bounty);
+	NoteHeroSlain(bounty, std::max(state.carried, 0));
 	if (state.carried > 0)
 		Announce(fmt::format("{} has been slain! Recovered {} stolen gold.", bot._pName, state.carried), UiFlags::ColorGold);
 	else
@@ -264,6 +310,7 @@ void CheckFear(Player &bot, BotState &state)
 	state.fleeing = true;
 	if (state.carried > 0) {
 		AddVaultGold(state.carried);
+		NoteGoldRecovered(state.carried);
 		Announce(fmt::format("{} drops {} gold and flees in terror!", bot._pName, state.carried), UiFlags::ColorGold);
 		state.carried = 0;
 	} else {
@@ -361,6 +408,7 @@ void Think(Player &bot, BotState &state)
 		// Rogues are here for the gold; the others came for the Lord and wait for him at the vault.
 		if (state.cls == HeroClassKind::Rogue && State.vaultGold > 0) {
 			state.carried = TakeFromVault(CarryCapacity(state.cls));
+			NoteGoldLooted(state.carried);
 			Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, state.carried));
 		}
 		return;
@@ -460,6 +508,13 @@ void UpdateBots()
 			HandleDeath(bot, state);
 			continue;
 		}
+		if (state.petrifiedTicks > 0) {
+			state.petrifiedTicks--;
+			ClrPlrPath(bot);
+			bot.destAction = ACTION_NONE;
+			continue;
+		}
+		AvoidFire(bot);
 
 		OpenDoorsAround(bot.position.tile);
 		RogueCheckTraps(bot, state);
@@ -472,8 +527,13 @@ void UpdateBots()
 			state.thinkCooldown--;
 			continue;
 		}
+		if (StepOutOfFire(bot)) {
+			state.thinkCooldown = 0;
+			continue;
+		}
 		state.thinkCooldown = ThinkInterval;
 		Think(bot, state);
+		AvoidFire(bot);
 	}
 }
 
@@ -514,6 +574,30 @@ const Player *NearestBot(Point from, int range)
 		}
 	}
 	return best;
+}
+
+std::optional<BotSummary> GetBotSummary(const Player &player)
+{
+	if (!IsLivingBot(player))
+		return std::nullopt;
+	const BotState &state = Bots[SlotOf(player)];
+	return BotSummary { state.cls, state.carried, state.fleeing, state.potions };
+}
+
+bool PetrifyBot(Player &bot, int ticks)
+{
+	if (!IsLivingBot(bot))
+		return false;
+	BotState &state = Bots[SlotOf(bot)];
+	if (state.petrifiedTicks > 0)
+		return false; // doesn't stack
+	state.petrifiedTicks = ticks;
+	return true;
+}
+
+bool IsPetrifiedBot(const Player &player)
+{
+	return IsLivingBot(player) && Bots[SlotOf(player)].petrifiedTicks > 0;
 }
 
 bool IsBotNear(Point tile, int distance)

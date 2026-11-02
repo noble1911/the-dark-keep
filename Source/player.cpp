@@ -3071,7 +3071,7 @@ void ProcessPlayers()
 			} while (tplayer);
 
 			player.previewCelSprite = std::nullopt;
-			if (player._pmode != PM_DEATH || player.AnimInfo.tickCounterOfCurrentFrame != 40)
+			if ((player._pmode != PM_DEATH || player.AnimInfo.tickCounterOfCurrentFrame != 40) && !keeper::IsPetrifiedBot(player)) // [DARK KEEP] stone stays still
 				player.AnimInfo.processAnimation();
 		}
 	}
