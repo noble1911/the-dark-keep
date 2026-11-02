@@ -166,6 +166,7 @@ struct RaidWatch {
 RaidWatch watch;
 std::string autocast;
 size_t autocastNext = 0;
+uint32_t lastAutocastTick = 0;
 
 void WatchRaid()
 {
@@ -220,7 +221,8 @@ void WatchRaid()
 			watch.reached = true;
 			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
 		}
-		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
+		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0 && DevKeeperTicks() != lastAutocastTick) {
+			lastAutocastTick = DevKeeperTicks(); // a cast takes effect a tick later: don't ask again each frame
 			std::istringstream list(autocast);
 			std::vector<size_t> spells;
 			for (std::string item; std::getline(list, item, ',');)
