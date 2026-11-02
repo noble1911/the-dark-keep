@@ -37,7 +37,7 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] 20-level campaign with saved rank, random layouts for now
 - [x] Menus without class, difficulty or the Hellfire prompt
 - [x] Monsters from the whole game, unlocked with Renown
-- [ ] Replace the campaign's random layouts with editor maps (assets/keeper/campaign/level_NN.dkmap)
+- [x] Replace the campaign's random layouts with editor maps (assets/keeper/campaign/level_NN.dkmap): all 20 levels are baked
 
 ## 5. Upgrade paths
 - [x] Temporary monster upgrades with gold; spells and trap types level up permanently with Renown (1-15)
