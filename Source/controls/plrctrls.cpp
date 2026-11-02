@@ -1959,6 +1959,9 @@ bool ContinueSimulatedMouseEvent(const SDL_Event &event, const ControllerButtonE
 	if (!gbRunGame || AutomapActive)
 		return false;
 
+	if (keeper::PadKeepsMouseMode(event)) // [DARK KEEP]
+		return true;
+
 #if !defined(USE_SDL1) && !defined(JOY_AXIS_RIGHTX) && !defined(JOY_AXIS_RIGHTY)
 	if (IsAnyOf(event.type,
 	        SDL_EVENT_JOYSTICK_AXIS_MOTION, SDL_EVENT_JOYSTICK_HAT_MOTION,

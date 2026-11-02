@@ -118,6 +118,10 @@ enum class PadPress : uint8_t {
 std::vector<Rectangle> padTargets;
 /** The cards among them, which show their details as soon as the focus lands on them. */
 std::vector<bool> padIsCard;
+/** Whether it is the card the details are showing, and so the one the buy button is for. */
+std::vector<bool> padIsSelected;
+/** Whether it scrolls with the list: the spell bar's slots don't. */
+std::vector<bool> padInList;
 std::array<Rectangle, TabNames.size()> padTabs {};
 std::optional<Rectangle> padPrimary;
 std::optional<Rectangle> padEquip;
@@ -128,10 +132,20 @@ PadPress padPress = PadPress::None;
 bool padFocusFirstCard = false;
 AxisDirectionRepeater padRepeater;
 
-void PadAddTarget(const Rectangle &rect, bool isCard = false)
+void PadAddTarget(const Rectangle &rect)
 {
 	padTargets.push_back(rect);
-	padIsCard.push_back(isCard);
+	padIsCard.push_back(false);
+	padIsSelected.push_back(false);
+	padInList.push_back(false);
+}
+
+void PadAddCard(const Rectangle &rect, bool isSelected, bool inList)
+{
+	padTargets.push_back(rect);
+	padIsCard.push_back(true);
+	padIsSelected.push_back(isSelected);
+	padInList.push_back(inList);
 }
 
 // ---- drawing helpers -------------------------------------------------------------------------
@@ -354,6 +368,11 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 	for (const Row &row : rows) {
 		const int y = rowTop;
 		rowTop += rowHeight(row);
+		// Every card is a target, on show or not: it's how the focus scrolls the list to them.
+		for (size_t t = 0; t < row.kinds.size(); t++) {
+			const Point at { area.position.x + 2 + static_cast<int>(t % perLine) * (cardWidth + ArrowWidth), area.position.y + y + FamilyTitleHeight + static_cast<int>(t / perLine) * (CardHeight + RowGap) };
+			PadAddCard({ at, { cardWidth, CardHeight } }, selected.tab == Tab::Monsters && selected.index == row.kinds[t], /*inList=*/true);
+		}
 		if (rowTop < 0 || y >= area.size.height)
 			continue;
 		if (y >= 0)
@@ -364,7 +383,6 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 			const int cardY = y + FamilyTitleHeight + static_cast<int>(t / perLine) * (CardHeight + RowGap);
 			const int x = 2 + column * (cardWidth + ArrowWidth);
 			const Rectangle card { { x, cardY }, { cardWidth, CardHeight } };
-			PadAddTarget({ area.position + Displacement { card.position.x, card.position.y }, card.size }, /*isCard=*/true);
 			const bool isSelected = selected.tab == Tab::Monsters && selected.index == kind;
 			DrawCard(clip, card, MonsterInfo(kind), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, kind, std::nullopt);
 			if (clicked && mouseInArea && Inside(card, localMouse))
@@ -391,7 +409,7 @@ void DrawSpellBarRow(const Surface &out, const Rectangle &area, Point mouse)
 		Fill(out, slot, 0);
 		if (bar[i] >= 0) {
 			SpellIcon(out.subregion(slot.position.x, slot.position.y, slot.size.width, slot.size.height), { { 0, 0 }, slot.size }, SpellKinds[static_cast<size_t>(bar[i])].icon);
-			PadAddTarget(slot, /*isCard=*/true);
+			PadAddCard(slot, selected.tab == Tab::Spells && selected.index == static_cast<size_t>(bar[i]), /*inList=*/false);
 			if (clicked && Inside(slot, mouse))
 				selected = { Tab::Spells, static_cast<size_t>(bar[i]) };
 		}
@@ -414,7 +432,7 @@ void DrawGrid(const Surface &out, const Rectangle &area, Point mouse)
 		const int column = static_cast<int>(i) % columns;
 		const int row = static_cast<int>(i) / columns;
 		const Rectangle card { { 2 + column * (CardWidth + 6), row * (CardHeight + RowGap) - offset }, { CardWidth, CardHeight } };
-		PadAddTarget({ area.position + Displacement { card.position.x, card.position.y }, card.size }, /*isCard=*/true);
+		PadAddCard({ area.position + Displacement { card.position.x, card.position.y }, card.size }, selected.tab == tab && selected.index == i, /*inList=*/true);
 		const bool isSelected = selected.tab == tab && selected.index == i;
 		DrawCard(clip, card, spells ? SpellInfo(i) : TrapInfo(i), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, std::nullopt, spells ? SpellKinds[i].icon : TrapKinds[i].icon);
 		if (clicked && mouseInArea && Inside(card, localMouse))
@@ -662,9 +680,8 @@ void DrawScreen(const Surface &out, Point mouse)
 	if (IsPadInUse()) {
 		if (padFocus.size.width > 0)
 			PadDrawFocusFrame(out, padFocus);
-		const auto name = [](ControllerButton button) { return std::string(ToString(GamepadType, TranslateTo(GamepadType, button))); };
 		const std::string prompt = fmt::format("{}: buy   {}: spell bar   {}: respec   {} {}: tabs   {}: done",
-		    InputName(PadAction::Confirm), name(ControllerButton_BUTTON_X), name(ControllerButton_BUTTON_Y), InputName(PadAction::PrevTab), InputName(PadAction::NextTab), InputName(PadAction::Cancel));
+		    InputName(PadAction::Confirm), PadButtonName(ControllerButton_BUTTON_X), PadButtonName(ControllerButton_BUTTON_Y), InputName(PadAction::PrevTab), InputName(PadAction::NextTab), InputName(PadAction::Cancel));
 		DrawString(out, FitText(prompt, middleWidth), { { middleLeft, out.h() - Margin - PadPromptHeight + 3 }, { middleWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	}
 }
@@ -675,18 +692,36 @@ bool PadFrame(Point &mouse)
 	if (padTargets.empty())
 		return false;
 	std::optional<Rectangle> click;
-	if (padFocusFirstCard) {
-		const auto firstCard = std::find(padIsCard.begin(), padIsCard.end(), true);
-		if (firstCard != padIsCard.end()) {
-			padFocus = padTargets[static_cast<size_t>(firstCard - padIsCard.begin())];
-			click = padFocus;
+	/** Scrolls a card of the list into view, so a click there lands on it. */
+	const auto focusCard = [&](size_t index) {
+		padFocus = padTargets[index];
+		if (padInList[index]) {
+			int &offset = scroll[static_cast<size_t>(tab)];
+			const int top = padFocus.position.y - PadScrollMargin - padList.position.y;
+			const int bottom = padFocus.position.y + padFocus.size.height - (padList.position.y + padList.size.height);
+			const int move = top < 0 ? top : std::max(bottom, 0);
+			offset += move;
+			padFocus.position.y -= move;
 		}
+		click = padFocus;
+	};
+	if (padFocusFirstCard || padFocus.size.width == 0) {
+		// The first card on show, or else the first there is. Landing on it selects it, so A buys what is framed.
+		std::optional<size_t> first;
+		for (size_t i = 0; i < padTargets.size() && !first; i++) {
+			if (padIsCard[i] && padInList[i] && padList.contains(padTargets[i].position) && padList.contains(padTargets[i].position + Displacement { padTargets[i].size.width - 1, padTargets[i].size.height - 1 }))
+				first = i;
+		}
+		for (size_t i = 0; i < padTargets.size() && !first; i++) {
+			if (padIsCard[i])
+				first = i;
+		}
+		if (first)
+			focusCard(*first);
+		else if (padFocus.size.width == 0)
+			padFocus = padTargets.front();
 		padFocusFirstCard = false;
-	}
-	if (padFocus.size.width == 0) {
-		const auto firstCard = std::find(padIsCard.begin(), padIsCard.end(), true);
-		padFocus = padTargets[firstCard != padIsCard.end() ? static_cast<size_t>(firstCard - padIsCard.begin()) : 0];
-	} else if (!click) {
+	} else {
 		// Scrolling and changing tabs move things about.
 		padFocus = padTargets[PadNearestTarget(padTargets, padFocus.Center()).value_or(0)];
 	}
@@ -694,28 +729,19 @@ bool PadFrame(Point &mouse)
 	const AxisDirection dir = padRepeater.Get(GetLeftStickOrDpadDirection(false));
 	if (dir.x != AxisDirectionX_NONE || dir.y != AxisDirectionY_NONE) {
 		if (const std::optional<size_t> next = PadStepFocus(padTargets, padFocus, dir); next) {
-			padFocus = padTargets[*next];
-			if (padIsCard[*next]) {
-				if (padList.contains(padFocus.Center()) || padFocus.position.y < padList.position.y + padList.size.height) {
-					// A card of the list, not one of the spell bar's slots underneath it: bring it into view.
-					int &offset = scroll[static_cast<size_t>(tab)];
-					const int top = padFocus.position.y - PadScrollMargin - padList.position.y;
-					const int bottom = padFocus.position.y + padFocus.size.height - (padList.position.y + padList.size.height);
-					const int move = top < 0 ? top : std::max(bottom, 0);
-					offset += move;
-					padFocus.position.y -= move;
-				}
-				click = padFocus;
-			}
+			if (padIsCard[*next])
+				focusCard(*next);
+			else
+				padFocus = padTargets[*next];
 		}
 	}
 
 	switch (padPress) {
 	case PadPress::Confirm: {
 		const std::optional<size_t> at = PadNearestTarget(padTargets, padFocus.Center());
-		if (at && padIsCard[*at]) {
-			// The card is already selected: pressing it is the button that buys it.
-			if (padPrimary)
+		if (at && padIsCard[*at] && padIsSelected[*at]) {
+			// The card the details are showing: pressing it is the button that buys it.
+			if (padPrimary && !click)
 				click = padPrimary;
 		} else {
 			click = padFocus;
@@ -839,6 +865,8 @@ void UiKeeperScreen()
 			clicked = PadFrame(mouse);
 		padTargets.clear();
 		padIsCard.clear();
+		padIsSelected.clear();
+		padInList.clear();
 		padPrimary = std::nullopt;
 		padEquip = std::nullopt;
 		DrawScreen(canvas, mouse);

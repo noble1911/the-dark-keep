@@ -430,6 +430,18 @@ void Execute(const std::string &line)
 				set(command == "paddown");
 			}
 		}
+	} else if (command == "padchord") {
+		// padchord lt x: the left trigger and a button, both down in the same frame, for one press.
+		std::string other;
+		in >> word >> other;
+		const std::optional<SDL_GameControllerButton> button = PadButtonNamed(other);
+		if (EnsurePad() && button) {
+			SDL_JoystickSetVirtualAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32767);
+			SDL_JoystickSetVirtualButton(pad, *button, 1);
+			pending.push_front(fmt::format("padup {}", other));
+			pending.insert(pending.begin() + 1, "padup lt");
+			waitUntil = SDL_GetTicks() + 60;
+		}
 	} else if (command == "stick") {
 		// stick l 0.5 -1: x right, y up, held until set back to 0 0.
 		float x = 0.F;

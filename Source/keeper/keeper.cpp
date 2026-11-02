@@ -1623,10 +1623,12 @@ void OnLevelLoaded()
 		}
 	}
 	EditorOnLevelLoaded();
+	PadOnLevelLoaded();
 }
 
 void OnGameEnded()
 {
+	PadOnGameEnded();
 	EditorOnGameEnded();
 	ForgetMapCache();
 	SaveProfile();

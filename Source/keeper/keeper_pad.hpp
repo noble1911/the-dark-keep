@@ -83,6 +83,8 @@ extern bool DevTvUiScale;
  * PlayStation), which DrawString draws in the 12, 24 and 30 point fonts.
  */
 std::string InputName(PadAction action);
+/** The glyph or name for a button, given by what's printed on an Xbox pad: A is the button labelled A, wherever the layout puts it. */
+std::string PadButtonName(ControllerButton button);
 /** The same for a rebindable keeper action: its key, or its button. Empty if nothing does it directly. */
 std::string InputName(KeeperAction action, size_t index = 0);
 
@@ -93,6 +95,12 @@ std::string InputName(KeeperAction action, size_t index = 0);
  * @return true if the event was dealt with: the engine shouldn't see it.
  */
 bool PadOnEvent(const SDL_Event &event, ControllerButtonEvent ctrlEvent, GameAction &action);
+/** Whether the engine should leave the keep's mouse picking alone for this event. */
+bool PadKeepsMouseMode(const SDL_Event &event);
+/** The keep is (re)loaded: nothing carries over but buttons that are still held. */
+void PadOnLevelLoaded();
+/** The game is over: nothing carries over to the next. */
+void PadOnGameEnded();
 /** Each frame: moves the cursor and the focus, which are polled. */
 void PadEveryFrame();
 /** After the engine has picked what's under the cursor: a stick can't aim like a mouse, so nearby counts too. */

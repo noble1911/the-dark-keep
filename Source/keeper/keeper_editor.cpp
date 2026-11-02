@@ -43,6 +43,7 @@
 #include "objects.h"
 #include "options.h"
 #include "utils/file_util.h"
+#include "utils/is_of.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/ui_fwd.h"
 
@@ -889,14 +890,13 @@ std::string ToolHelp(std::string_view help)
 	};
 	const std::string confirm = InputName(PadAction::Confirm);
 	const std::string order = InputName(PadAction::Order);
-	const auto name = [](ControllerButton button) { return std::string(ToString(GamepadType, TranslateTo(GamepadType, button))); };
 	replace("Right-drag", fmt::format("{}-drag", order));
 	replace("Right-click", order);
 	replace("Drag", fmt::format("{}-drag", confirm));
 	replace("Click", confirm);
 	replace("click", confirm);
 	replace("Shift", InputName(PadAction::Modifier));
-	replace("[ ]", fmt::format("{} {}", name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER)));
+	replace("[ ]", fmt::format("{} {}", PadButtonName(ControllerButton_BUTTON_LEFTSHOULDER), PadButtonName(ControllerButton_BUTTON_RIGHTSHOULDER)));
 	return text;
 }
 
@@ -1668,6 +1668,9 @@ bool EditorPadButton(ControllerButton button, bool modifier, bool spellButton)
 	}
 	switch (button) {
 	case ControllerButton_BUTTON_Y:
+		// Whatever this does, it shouldn't happen to half a drag.
+		if (stroke.active)
+			FinishStroke();
 		if (modifier)
 			Redo();
 		else
@@ -1728,7 +1731,12 @@ void EditorPadTextStep(AxisDirection dir)
 
 bool EditorPadOnText(const SDL_Event &event)
 {
-	if (event.type != SDL_EVENT_TEXT_INPUT || !softKeyboardOpen || !IsTextModal())
+	if (!softKeyboardOpen || !IsTextModal())
+		return false;
+	// It clears the old text with synthetic keys, which still have to arrive as keys, but they aren't a keyboard taking over.
+	if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+		return IsAnyOf(SDLC_EventKey(event), SDLK_BACKSPACE, SDLK_DELETE);
+	if (event.type != SDL_EVENT_TEXT_INPUT)
 		return false;
 	const size_t limit = modal == Modal::Author ? MapMaxAuthor : MapMaxName;
 	for (const char *c = event.text.text; *c != 0 && modalText.size() < limit; c++) {
@@ -1744,7 +1752,7 @@ std::string EditorPadPrompt(bool focused)
 	const std::string cancel = InputName(PadAction::Cancel);
 	if (IsTextModal()) {
 #ifdef __SWITCH__
-		const std::string keyboard = fmt::format("   {}: keyboard", ToString(GamepadType, TranslateTo(GamepadType, ControllerButton_BUTTON_Y)));
+		const std::string keyboard = fmt::format("   {}: keyboard", PadButtonName(ControllerButton_BUTTON_Y));
 #else
 		const std::string keyboard;
 #endif
@@ -1754,7 +1762,7 @@ std::string EditorPadPrompt(bool focused)
 		return fmt::format("{}: move   {}: choose   {}: cancel", InputName(PadAction::Navigate), confirm, cancel);
 	if (focused)
 		return fmt::format("{}: move   {}: press   {}: back to the map", InputName(PadAction::Navigate), confirm, cancel);
-	const auto name = [](ControllerButton button) { return std::string(ToString(GamepadType, TranslateTo(GamepadType, button))); };
+	const auto name = PadButtonName;
 	return fmt::format("{}: paint (hold: drag)   {}: other way   {}: shift   {}: undo   {} {}: size   {}: tools   {}: test   {}: menu",
 	    confirm, InputName(PadAction::Order), InputName(PadAction::Modifier), name(ControllerButton_BUTTON_Y),
 	    name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER), InputName(PadAction::Navigate), name(ControllerButton_BUTTON_BACK), InputName(PadAction::Menu));

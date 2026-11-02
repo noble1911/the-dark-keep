@@ -89,7 +89,7 @@ bool jumpToVault = false;
 /** `button` is named by what's printed on an Xbox pad; on a Switch that's the button in the other corner, printed the same. */
 std::string Combo(ControllerButton modifier, ControllerButton button)
 {
-	const std::string name(ToString(GamepadType, TranslateTo(GamepadType, button)));
+	const std::string name = PadButtonName(button);
 	if (modifier == ControllerButton_NONE)
 		return name;
 	return fmt::format("{}+{}", ToString(GamepadType, modifier), name);
@@ -237,6 +237,8 @@ void PressMouse(GameAction &action, uint8_t mouseButton, bool up)
 void HandlePress(ControllerButton button, GameAction &action)
 {
 	const bool modifier = IsControllerButtonPressed(ModifierButton);
+	// Both may arrive in one poll: what this press does asks about Shift now, not next frame.
+	UpdateModifier(modifier);
 	const bool editor = IsEditorActive();
 	if (!editor && IsControllerButtonPressed(SpellButton)) {
 		const auto slot = std::find(SpellButtons.begin(), SpellButtons.end(), button);
@@ -469,6 +471,37 @@ std::string InputName(KeeperAction action, size_t index)
 	return {};
 }
 
+std::string PadButtonName(ControllerButton button)
+{
+	return std::string(ToString(GamepadType, TranslateTo(GamepadType, button)));
+}
+
+bool PadKeepsMouseMode(const SDL_Event &event)
+{
+	return PadOwnsSticks() && !InGameMenu() && ControlMode == ControlTypes::KeyboardAndMouse && IsControllerEvent(event);
+}
+
+void PadOnLevelLoaded()
+{
+	// The editor reloads the level under a drag: its button is let go as usual, if it is still down.
+	leftDown = leftDown && IsControllerButtonPressed(TranslateTo(GamepadType, ControllerButton_BUTTON_A));
+	rightDown = rightDown && IsControllerButtonPressed(TranslateTo(GamepadType, ControllerButton_BUTTON_X));
+	LeaveFocus();
+	toolBeforeConfirm = std::nullopt;
+	jumpToVault = false;
+}
+
+void PadOnGameEnded()
+{
+	leftDown = false;
+	rightDown = false;
+	LeaveFocus();
+	focusRect = {};
+	toolBeforeConfirm = std::nullopt;
+	jumpToVault = false;
+	UpdateModifier(false);
+}
+
 bool PadOnEvent(const SDL_Event &event, ControllerButtonEvent ctrlEvent, GameAction &action)
 {
 	if (!PadOwnsSticks())
@@ -569,7 +602,8 @@ void PadAfterCursMove()
 	int best = SoftTargetTiles + 1;
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const Monster &monster = Monsters[ActiveMonsters[i]];
-		if (monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.type().type == MT_GOLEM)
+		// What the engine's own cursor would accept, and what a player can see.
+		if (monster.hasNoLife() || (monster.flags & MFLAG_HIDDEN) != 0 || monster.isPlayerMinion() || monster.mode == MonsterMode::Death || monster.type().type == MT_GOLEM || !IsTileLit(monster.position.tile))
 			continue;
 		const int distance = monster.position.tile.WalkingDistance(cursPosition);
 		if (distance < best) {
@@ -579,7 +613,7 @@ void PadAfterCursMove()
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const Player &bot = Players[FirstBotId + i];
-		if (!IsLivingBot(bot))
+		if (!IsLivingBot(bot) || !IsTileLit(bot.position.tile))
 			continue;
 		const int distance = bot.position.tile.WalkingDistance(cursPosition);
 		if (distance < best) {
