@@ -1047,7 +1047,13 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		// These travel, and the master's body is parked out of the way: send them towards the raiders' way in.
 		if (tile != State.entrance)
 			dir = GetDirection(tile, State.entrance);
-		dst = tile + dir;
+		// Both begin a step on from their source: starting a step short of the target is what puts it in the fire.
+		if (const Point behind = tile + Opposite(dir); InDungeonBounds(behind)) {
+			src = behind;
+			dst = tile;
+		} else {
+			dst = tile + dir;
+		}
 		caster._pdir = dir; // the flame wave rolls the way its caster faces
 		break;
 	default:
