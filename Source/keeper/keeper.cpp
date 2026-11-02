@@ -1566,6 +1566,18 @@ bool IsMouseOverUi()
 	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
 }
 
+/** Single player opens the gates. In co-op this says where the vote stands and what a press would do. */
+std::string ReadyButtonLabel()
+{
+	if (!gbIsMultiplayer)
+		return "Open the gates";
+	const std::string count = fmt::format("{}/{}", ReadyMasterCount(), MastersInKeepCount());
+	if (!IsMasterReady(MyPlayerId))
+		return fmt::format("Ready {}", count);
+	const int seconds = (State.readyTicks + 19) / 20;
+	return IsHost() ? fmt::format("Start now {} {}s", count, seconds) : fmt::format("Not ready {} {}s", count, seconds);
+}
+
 void ToggleHeldTimer()
 {
 	if (!CanHoldPrepTimer()) {
@@ -2259,7 +2271,7 @@ void DrawUi(const Surface &out)
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
 		const std::string raidKey = KeyLabel(KeeperAction::StartRaid);
-		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		DrawString(out, raidKey.empty() ? ReadyButtonLabel() : fmt::format("{}: {}", raidKey, ReadyButtonLabel()), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	DrawCardBar(out);

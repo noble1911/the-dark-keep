@@ -348,6 +348,9 @@ void DrawMasters(const Surface &out)
 		std::string tag = host ? "host" : "";
 		if (mine)
 			tag += host ? ", you" : "you";
+		// While a vote is on, that's what the list is for.
+		if (State.readyMask != 0 && IsMasterVoting(id))
+			tag = IsMasterReady(id) ? "ready" : "waiting";
 		if (!mine && (player._pLvlChanging || !player.isOnActiveLevel()))
 			tag += tag.empty() ? "arriving" : ", arriving";
 		// Everyone's hero is called the same unless they renamed it.

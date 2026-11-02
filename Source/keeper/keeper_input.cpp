@@ -50,7 +50,7 @@ const std::array<ActionInfo, 16> SimpleActions { {
 	{ KeeperAction::LockDoor, "KeeperLockDoor", N_("Keep: lock a door"), N_("Picks the door lock."), 'G' },
 	{ KeeperAction::Bait, "KeeperBait", N_("Keep: bait"), N_("Picks the pile of fool's gold."), 'T' },
 	{ KeeperAction::NextTab, "KeeperNextTab", N_("Keep: next tab"), N_("Switches between the tabs of the card bar."), static_cast<uint32_t>(SDLK_TAB) },
-	{ KeeperAction::StartRaid, "KeeperStartRaid", N_("Keep: open the gates"), N_("Starts the next raid early."), 'R' },
+	{ KeeperAction::StartRaid, "KeeperStartRaid", N_("Keep: open the gates"), N_("Starts the next raid early. In co-op: says you are ready. The host pressing again starts it for everyone."), 'R' },
 	{ KeeperAction::CenterEntrance, "KeeperCenterEntrance", N_("Keep: go to the entrance"), N_("Centres the view on the entrance."), static_cast<uint32_t>(SDLK_SPACE) },
 	{ KeeperAction::CenterVault, "KeeperCenterVault", N_("Keep: go to the vault"), N_("Centres the view on the vault."), 'V' },
 	{ KeeperAction::ZoomIn, "KeeperZoomIn", N_("Keep: zoom in"), N_("Zooms the view in."), static_cast<uint32_t>(SDLK_EQUALS) },

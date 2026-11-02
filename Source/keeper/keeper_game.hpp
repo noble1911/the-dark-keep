@@ -192,6 +192,10 @@ struct KeepState {
 	int vaultGold = 0;
 	/** Gold carried out of the keep by escaped thieves, this game. */
 	int goldLost = 0;
+	/** Co-op: masters (by player id) who want the raid now. Each client hears it from the host. */
+	uint8_t readyMask = 0;
+	/** Ticks until the raid comes anyway, once anyone is ready. An absent master can't hold the others. */
+	int readyTicks = 0;
 	/** What the vault goes back to if this raid is lost and retried: its gold at the raid's start, less what the raid's own building cost. */
 	int retryGold = 0;
 	std::array<int, 4> mana {};
@@ -283,7 +287,14 @@ void RequestBuild(size_t kind, Point tile);
 void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
 void RequestCastSpell(size_t spell, Point tile);
+/** Single player: opens the gates. Co-op: says this master is ready; the raid comes when all are, or the host insists. */
 void RequestStartRaid();
+/** The ready vote, for the HUD and the masters list. */
+int ReadyMasterCount();
+int MastersInKeepCount();
+bool IsMasterReady(size_t playerId);
+/** Everyone who is here counts, except those still on their way in. */
+bool IsMasterVoting(size_t playerId);
 /** Index into GameSpeeds (keeper_flow.hpp). The host names a turn and every client switches on it. */
 void RequestGameSpeed(size_t level);
 /** After a defeat: the vault goes back to the raid's start and the raid comes again (see ClearLostRaid in keeper_game.cpp). */

@@ -181,6 +181,8 @@ struct TCmdKeeperState {
 	std::array<int32_t, MaxBots> botHitPoints;
 	int32_t retryGold;
 	uint8_t speedLevel;
+	uint8_t readyMask;
+	uint16_t readyTicks;
 };
 #pragma pack(pop)
 
@@ -213,6 +215,8 @@ int retryGoldLost = 0;
  * once; clients stay in step regardless, as none can run a turn ahead of the turns it has from the others.
  */
 constexpr uint32_t SpeedSwitchLeadTurns = 2;
+/** How long the rest have once one master is ready. */
+constexpr int ReadyVoteTimeoutTicks = 30 * TicksPerSecond;
 /** A speed change the host has announced, waiting for its turn. */
 struct PendingSpeed {
 	bool active = false;
@@ -256,6 +260,8 @@ void BroadcastState()
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	cmd.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.retryGold)));
 	cmd.speedLevel = static_cast<uint8_t>(GameSpeedLevel());
+	cmd.readyMask = State.readyMask;
+	cmd.readyTicks = Swap16LE(static_cast<uint16_t>(std::clamp(State.readyTicks, 0, 0xFFFF)));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -381,8 +387,19 @@ void AnnouncePhase(Phase from, Phase to)
 	}
 }
 
+void AnnounceReadyChanges(uint8_t before, uint8_t after)
+{
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		const auto bit = static_cast<uint8_t>(1U << id);
+		if ((after & bit) != 0 && (before & bit) == 0 && Players[id].plractive)
+			Announce(fmt::format("{} is ready for the raid.", Players[id]._pName));
+	}
+}
+
 void SetPhase(Phase phase)
 {
+	State.readyMask = 0;
+	State.readyTicks = 0;
 	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
 	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
 		BroadcastState();
@@ -509,6 +526,55 @@ void NoteRaidBuilding(int cost)
 {
 	if (State.phase == Phase::Raid)
 		State.retryGold -= cost;
+}
+
+/** Host: the raid comes if everyone here is ready, or the vote has run out. @return true if it did. */
+bool UpdateReadyVote()
+{
+	if (State.readyMask == 0)
+		return false;
+	// Someone who left doesn't stay ready for whoever gets their slot, and doesn't hold anyone either.
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (!Players[id].plractive)
+			State.readyMask &= static_cast<uint8_t>(~(1U << id));
+	}
+	if (State.readyMask == 0) {
+		State.readyTicks = 0;
+		return false;
+	}
+	if (ReadyMasterCount() < MastersInKeepCount() && --State.readyTicks > 0)
+		return false;
+	StartRaid();
+	return true;
+}
+
+void HostVoteReady(const Player &voter)
+{
+	if (State.phase != Phase::Setup && State.phase != Phase::Breather)
+		return;
+	if (!gbIsMultiplayer) {
+		StartRaid();
+		return;
+	}
+	const auto bit = static_cast<uint8_t>(1U << voter.getId());
+	if ((State.readyMask & bit) != 0) {
+		// The host's second word is the override. Anyone else has changed their mind.
+		if (&voter == MyPlayer) {
+			StartRaid();
+			return;
+		}
+		State.readyMask &= static_cast<uint8_t>(~bit);
+		if (State.readyMask == 0)
+			State.readyTicks = 0;
+		BroadcastState();
+		return;
+	}
+	if (State.readyMask == 0)
+		State.readyTicks = ReadyVoteTimeoutTicks;
+	AnnounceReadyChanges(State.readyMask, State.readyMask | bit);
+	State.readyMask |= bit;
+	if (!UpdateReadyVote())
+		BroadcastState();
 }
 
 void AnnounceSpeed()
@@ -1347,6 +1413,8 @@ void GameTick()
 		awaitingKeepSnapshot = false;
 
 	UpdatePendingSpeed();
+	if (!IsHost() && State.readyTicks > 0)
+		State.readyTicks--;
 
 	// Mana regenerates for every master, on every client (snapshots correct any drift).
 	const int manaRegen = UpgradedManaRegen(ManaRegenPerTick);
@@ -1397,6 +1465,8 @@ void GameTick()
 	case Phase::Breather:
 		if (State.phaseTicks == 0)
 			StartRaid();
+		else
+			UpdateReadyVote();
 		break;
 	case Phase::Raid:
 		if (State.bossDown && State.portalEscape) {
@@ -1773,6 +1843,39 @@ void RequestStartRaid()
 	Send(Action::RequestStartRaid);
 }
 
+bool IsMasterVoting(size_t playerId)
+{
+	if (playerId >= NetPlayerSlots)
+		return false;
+	const Player &player = Players[playerId];
+	return player.plractive && !player._pLvlChanging && player._pmode != PM_NEWLVL && player.plrlevel == KeepLevel && !player.plrIsOnSetLevel;
+}
+
+int MastersInKeepCount()
+{
+	int count = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (IsMasterVoting(id))
+			count++;
+	}
+	return count;
+}
+
+int ReadyMasterCount()
+{
+	int count = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (IsMasterVoting(id) && IsMasterReady(id))
+			count++;
+	}
+	return count;
+}
+
+bool IsMasterReady(size_t playerId)
+{
+	return playerId < NetPlayerSlots && (State.readyMask & (1U << playerId)) != 0;
+}
+
 void RequestGameSpeed(size_t level)
 {
 	Send(Action::RequestSpeed, static_cast<uint8_t>(level));
@@ -1862,6 +1965,9 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
 			State.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGold)));
 			// A joiner who wasn't there for the change, or missed it. Waits for a second word: this one may have left the host before the switch.
+			AnnounceReadyChanges(State.readyMask, message.readyMask);
+			State.readyMask = message.readyMask;
+			State.readyTicks = Swap16LE(message.readyTicks);
 			speedMismatches = message.speedLevel != GameSpeedLevel() && !pendingSpeed.active ? speedMismatches + 1 : 0;
 			if (speedMismatches >= 2) {
 				speedMismatches = 0;
@@ -1898,8 +2004,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		ApplyCast(player, message.a, tile);
 		break;
 	case Action::RequestStartRaid:
-		if (IsHost() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
-			StartRaid();
+		if (IsHost())
+			HostVoteReady(player);
 		break;
 	case Action::RequestSpeed:
 		if (IsHost())
