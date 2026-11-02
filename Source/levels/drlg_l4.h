@@ -20,5 +20,8 @@ extern WorldTilePosition DiabloQuad4;
 void CreateL4Dungeon(uint32_t rseed, lvl_entry entry);
 void LoadPreL4Dungeon(const char *path);
 void LoadL4Dungeon(const char *path, Point spawn);
+/** [DARK KEEP] See keeper_map.cpp. `stairs*` are megatile positions, x < 0 for none. */
+void KeeperL4Build(Point stairsUp, Point stairsDown, bool decorate);
+void KeeperL4Pass3();
 
 } // namespace devilution

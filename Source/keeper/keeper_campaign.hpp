@@ -16,6 +16,7 @@ constexpr int NumCampaignLevels = 20;
 enum class GameMode : uint8_t {
 	Campaign,
 	CustomMap,
+	MapEditor,
 };
 
 /** Chosen in the menus before the keep level loads. In co-op the host's setup is used by everyone. */

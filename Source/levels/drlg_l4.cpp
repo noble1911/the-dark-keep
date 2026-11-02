@@ -1230,6 +1230,32 @@ void CreateL4Dungeon(uint32_t rseed, lvl_entry entry)
 	Pass3();
 }
 
+// [DARK KEEP] Builds a level from an editor's floor mask (DungeonMask).
+void KeeperL4Build(Point stairsUp, Point stairsDown, bool decorate)
+{
+	Protected.reset();
+	memset(dungeon, 30, sizeof(dungeon));
+	MakeDmt();
+	FixTilesPatterns();
+	FloodTransparencyValues(6);
+	FixTransparency();
+	if (stairsUp.x >= 0)
+		L4USTAIRS.place(stairsUp);
+	if (stairsDown.x >= 0)
+		L4DSTAIRS.place(stairsDown);
+	GeneralFix();
+	ApplyShadowsPatterns();
+	FixCornerTiles();
+	if (decorate)
+		Substitution();
+	memcpy(pdungeon, dungeon, sizeof(pdungeon));
+}
+
+void KeeperL4Pass3()
+{
+	Pass3();
+}
+
 void LoadPreL4Dungeon(const char *path)
 {
 	memset(dungeon, 30, sizeof(dungeon));

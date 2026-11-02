@@ -1,0 +1,89 @@
+# The Dark Keep map format (.dkmap)
+
+A `.dkmap` file is one keep level. The editor saves to a `maps` folder under the save directory;
+campaign maps live in `assets/keeper/campaign/level_NN.dkmap`. `Source/keeper/keeper_map.cpp` is
+the reference implementation.
+
+All numbers are little-endian. There is no compression: a file is always about 9.7 KB.
+
+## Layout
+
+### Header (16 bytes)
+
+| Offset | Type | Field | Notes |
+|---|---|---|---|
+| 0 | char[4] | magic | `DKMP` |
+| 4 | u16 | version | 1 |
+| 6 | u16 | flags | bit 0: playable, it passed validation when saved |
+| 8 | u32 | payload size | must equal file size minus 16 |
+| 12 | u32 | CRC-32 | of the payload (the zlib polynomial) |
+
+### Payload
+
+| Type | Field | Notes |
+|---|---|---|
+| u8 | tileset | 0 Cathedral, 1 Catacombs, 2 Caves, 3 Hell, 4 Nest, 5 Crypt |
+| u8 | width | 40 |
+| u8 | height | 40 |
+| u8 | reserved | 0 |
+| u8, u8 | entrance x, y | top-left megatile of the stairs' footprint; 255, 255 if not placed |
+| u8, u8 | vault x, y | same |
+| u32 | decoration seed | for the random wall and floor variants |
+| u8, bytes | name | up to 40 printable ASCII characters |
+| u8, bytes | author | up to 24 printable ASCII characters |
+| u16 | object count | at most 64 |
+| 3 bytes each | objects | u8 kind (0 barrel, 1 chest, 2 brazier), u8 x, u8 y, as world tiles |
+| 1600 bytes | layout | one per megatile, row by row: 0 rock, 1 floor, 2 door, 3 arch |
+| 1600 bytes | tiles | one per megatile, row by row: the finished `dungeon` |
+| 6400 bytes | transparency | one per world tile of the dungeon area, row by row: `dTransVal`, 0 to 127 |
+
+World tile (x, y) of a dungeon is at megatile ((x - 16) / 2, (y - 16) / 2). The transparency grid
+starts at world tile (16, 16).
+
+## Which part does what
+
+- **The layout is what the author made.** The editor loads it and edits it. Doors are layout cells:
+  a door needs floor on two opposite sides and wall on the other two.
+- **The tiles and transparency are baked from the layout when the map is saved.** They are what the
+  game loads, so a level plays exactly as it was saved and every co-op client builds the same one.
+  Loading a map uses no random numbers.
+- Door objects are not stored separately: as for generated levels, the game creates them from the
+  door tiles. Barrels, chests and braziers are stored, and a map gets nothing else: no random
+  objects. Objects on solid ground are skipped.
+- The entrance and vault are the tileset's normal up and down stairs, stamped into the tiles. The
+  game finds the vault through its usual stairs trigger.
+
+## What makes a file bad
+
+These are all refused with a message for the player, and the keep falls back to a random layout:
+
+- Too short, too long (over 60 KB), wrong magic, a newer version, a size that doesn't match, or a
+  bad CRC.
+- An unknown tileset or object kind, or a size other than 40 by 40.
+- A layout value above 3, a transparency value above 127, or anything past the end of the payload.
+- An object off the map, or stairs whose footprint leaves the paintable area (megatiles 1 to 38).
+- Tile 0, or a tile beyond the end of that tileset's `.til` file (checked at load, against the file).
+- More stairs tiles than the engine's trigger list holds.
+- Flag bit 0 clear, or no entrance or vault: the map isn't finished, so it can only be opened in the
+  editor.
+
+Names are printable ASCII only; anything else reads back as `?`. File names are made from the map's
+name and keep only letters, digits, spaces, `-` and `_`.
+
+## Versions
+
+Readers refuse a higher version than they know. Add a new version rather than reusing the reserved
+byte or flag bits for anything older readers must understand.
+
+## Co-op
+
+The host sends `CMD_KEEPER_MAP` messages:
+
+1. **Offer** (host, once a second until every player has it): CRC and size.
+2. **Have** (joiner): it is already playing that map.
+3. **Want** (joiner): it lacks the map. A file in `maps/received/<crc>.dkmap` with the right CRC is
+   used instead of asking.
+4. **Chunk** (host, one per tick): 180 bytes at an offset, for as long as someone wants them. About
+   3 seconds for a whole map.
+
+The joiner checks the CRC, parses the map, saves it in `maps/received`, and reloads the level.

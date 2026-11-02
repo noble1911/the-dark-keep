@@ -13,6 +13,7 @@
 #include <magic_enum/magic_enum.hpp>
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_map.hpp" // [DARK KEEP]
 #include "engine/clx_sprite.hpp"
 #include "engine/load_file.hpp"
 #include "engine/random.hpp"
@@ -414,6 +415,11 @@ dungeon_type GetLevelType(int level)
 void CreateDungeon(uint32_t rseed, lvl_entry entry)
 {
 	InitGlobals();
+
+	if (keeper::BuildMapLevel()) { // [DARK KEEP] a map file (or the editor's map) instead of a generated layout
+		Make_SetPC(SetPiece);
+		return;
+	}
 
 	switch (leveltype) {
 	case DTYPE_TOWN:

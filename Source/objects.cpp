@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "DiabloUI/ui_flags.hpp"
+#include "keeper/keeper_map.hpp" // [DARK KEEP]
 #include "automap.h"
 #include "cursor.h"
 #ifdef _DEBUG
@@ -3813,6 +3814,8 @@ void AddSlainHero()
 void InitObjects()
 {
 	ClrAllObjects();
+	if (keeper::InitMapObjects()) // [DARK KEEP] a map file says exactly what stands where
+		return;
 	NaKrulTomeSequence = 0;
 	if (currlevel == 16) {
 		AddDiabObjs();

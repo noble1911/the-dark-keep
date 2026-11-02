@@ -4,6 +4,7 @@
  * Implementation of function for sending and receiving network messages.
  */
 #include "keeper/keeper_game.hpp" // [DARK KEEP]
+#include "keeper/keeper_map.hpp" // [DARK KEEP]
 #include "msg.h"
 
 #include <climits>
@@ -197,6 +198,7 @@ std::string_view CmdIdString(_cmd_id cmd)
 	case CMD_SPAWNMONSTER: return "CMD_SPAWNMONSTER";
 	case CMD_KEEPER: return "CMD_KEEPER";
 	case CMD_KEEPER_STATE: return "CMD_KEEPER_STATE";
+	case CMD_KEEPER_MAP: return "CMD_KEEPER_MAP";
 	case FAKE_CMD_SETID: return "FAKE_CMD_SETID";
 	case FAKE_CMD_DROPID: return "FAKE_CMD_DROPID";
 	case CMD_INVALID: return "CMD_INVALID";
@@ -3503,6 +3505,8 @@ size_t ParseCmd(uint8_t pnum, const TCmd *pCmd, size_t maxCmdSize)
 	case CMD_KEEPER:
 	case CMD_KEEPER_STATE:
 		return keeper::HandleNetCommand(player, pCmd, maxCmdSize); // [DARK KEEP]
+	case CMD_KEEPER_MAP:
+		return keeper::HandleMapCommand(player, pCmd, maxCmdSize); // [DARK KEEP]
 	default:
 		break;
 	}
