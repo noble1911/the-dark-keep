@@ -180,7 +180,7 @@ void UpdateAlerts(const std::vector<HeroMark> &heroes)
 		}
 	} else if (boss != nullptr && lordWasHurt && ticks - lordHurtTick < LordAlertTicks) {
 		const int percent = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;
-		alerts.push_back({ lordAttackers.empty() ? fmt::format("The Keep Lord is under attack! ({}%)", percent) : fmt::format("{} attacks the Lord! ({}%)", lordAttackers, percent), UiFlags::ColorRed, MonsterIcon(MT_NBLACK), boss->position.tile });
+		alerts.push_back({ lordAttackers.empty() ? fmt::format("The Keep Lord is under attack! ({}%)", percent) : fmt::format("The Lord is under attack by {}! ({}%)", lordAttackers, percent), UiFlags::ColorRed, MonsterIcon(MT_NBLACK), boss->position.tile });
 	}
 
 	// Thieves on the way out: there is still time to get the gold back.
@@ -188,7 +188,12 @@ void UpdateAlerts(const std::vector<HeroMark> &heroes)
 	if (thief != heroes.end() && thief->carried > 0)
 		alerts.push_back({ fmt::format("A {} runs for the exit with {} gold!", ClassWord(thief->cls), thief->carried), UiFlags::ColorGold, ItemIcon(ICURS_GOLD_MEDIUM), thief->tile });
 
-	// Heroes closing on the vault.
+	// Heroes closing on the vault. Once the Lord is down, the portal is all that matters.
+	if (State.bossDown) {
+		if (alerts.size() > MaxAlertRows)
+			alerts.resize(MaxAlertRows);
+		return;
+	}
 	std::vector<HeroMark> near;
 	int nearest = VaultClearSteps + 1;
 	for (const HeroMark &hero : heroes) {
