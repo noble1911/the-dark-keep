@@ -28,7 +28,11 @@ int tcp_client::create(std::string_view addrstr)
 {
 	auto port = *GetOptions().Network.port;
 	local_server = std::make_unique<tcp_server>(ioc, std::string(addrstr), port, *pktfty);
-	return join(local_server->LocalhostSelf());
+	// [DARK KEEP] the server is on the configured port, which join would otherwise take to be the default
+	const std::string self = local_server->LocalhostSelf();
+	if (port == 6112)
+		return join(self);
+	return join(self.find(':') != std::string::npos ? StrCat("[", self, "]:", port) : StrCat(self, ":", port));
 }
 
 int tcp_client::join(std::string_view addrstr)
