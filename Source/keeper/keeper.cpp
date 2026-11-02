@@ -750,7 +750,9 @@ void DrawCardBar(const Surface &out)
 		const bool selected = static_cast<size_t>(currentTab) == i;
 		FillRect(out, tab.position.x, tab.position.y, tab.size.width, tab.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		DrawFrame(out, tab, selected ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
-		DrawString(out, FitText(BarTabNames[i], tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
+		// The longest name loses its second half before it would be cut.
+		const std::string_view tabName = GetLineWidth(BarTabNames[i]) > tab.size.width - 2 ? BarTabNames[i].substr(0, BarTabNames[i].find(' ')) : BarTabNames[i];
+		DrawString(out, FitText(tabName, tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (selected ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 
@@ -2338,7 +2340,7 @@ void DrawUi(const Surface &out)
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();
-	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {}", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
 	UiFlags scoutColor = UiFlags::ColorGold;
 	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
 		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;
@@ -2354,7 +2356,7 @@ void DrawUi(const Surface &out)
 		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
 		scout = fmt::format("Possessing {} ({}%)  click: move/attack  {}: release", possessed->name(), hp, KeyLabel(KeeperAction::Possess));
 	}
-	DrawString(out, scout, { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
+	DrawString(out, FitText(scout, bar.size.width), { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
 
 	// Feedback floats just above the bar, like an RTS's "insufficient funds".
 	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {

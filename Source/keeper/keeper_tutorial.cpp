@@ -114,7 +114,7 @@ constexpr std::array<TipInfo, 8> GameTips { {
 } };
 
 constexpr std::string_view RenownTipTitle = "Spend your Renown";
-constexpr std::string_view RenownTipText = "You have {} Renown. Pick a card with a gold frame, then press Unlock. What you unlock lasts for every map.";
+constexpr std::string_view RenownTipText = "You have {} Renown. Pick a card marked Unlock, then press its button on the right. It lasts for every map.";
 
 struct HelpRow {
 	UiIcon icon;

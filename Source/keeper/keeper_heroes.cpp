@@ -845,7 +845,7 @@ void OnMonsterDeath(Monster &monster)
 		if (State.possessed[pid] == static_cast<int16_t>(id))
 			EndPossession(pid);
 	}
-	if (!IsHero(monster) && monster.type().type != MT_GOLEM)
+	if (!IsHero(monster) && monster.type().type != MT_GOLEM && !IsBoss(monster))
 		NoteKeepMonsterLost();
 	if (IsBoss(monster)) {
 		if (State.phase == Phase::Raid && !State.bossDown) {
