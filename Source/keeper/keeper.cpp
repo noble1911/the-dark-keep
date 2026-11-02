@@ -1087,6 +1087,9 @@ void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius =
 	DrawLine(out, bottom, left, color, maxY);
 }
 
+/** Wide enough for the longest refusal: narrower cut "Not enough gold" and "Vault: 615 gold" short. */
+constexpr int WorldLabelWidth = 260;
+
 void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
 {
 	if (overlayPass != OverlayPass::Text)
@@ -1094,10 +1097,10 @@ void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFla
 	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
 	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
-	const Point at { anchor.x * zoom - 60, anchor.y * zoom - 4 - raise * zoom };
+	const Point at { anchor.x * zoom - WorldLabelWidth / 2, anchor.y * zoom - 4 - raise * zoom };
 	if (at.y < 0 || at.y + 14 >= ScreenHudTop())
 		return;
-	DrawString(out, text, { at, { 120, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
+	DrawString(out, text, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
 }
 
 /** The hero a Stone Curse cast at `tile` would take (it petrifies the nearest one within 5 tiles). */
