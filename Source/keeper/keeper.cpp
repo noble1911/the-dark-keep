@@ -820,12 +820,15 @@ void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
 			kinds[State.lairs[ref.slot].kind]++;
 		canSell = canSell || CanSell(ref);
 	}
-	std::string summary;
+	// The orders first: it is the list of what's selected that can run out of room.
+	std::string summary = "Right-click: rally. Shift: waypoint.\n";
+	bool firstKind = true;
 	for (size_t i = 0; i < kinds.size(); i++) {
-		if (kinds[i] > 0)
-			summary += fmt::format("{}{} {}", summary.empty() ? "" : ", ", kinds[i], BuildKinds[i].name);
+		if (kinds[i] > 0) {
+			summary += fmt::format("{}{} {}", firstKind ? "" : ", ", kinds[i], BuildKinds[i].name);
+			firstKind = false;
+		}
 	}
-	summary += "\nRight-click: rally around a point. Shift+right-click: add a waypoint.";
 	DrawString(out, FitLines(summary, textWidth, 70, 13), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
 }
