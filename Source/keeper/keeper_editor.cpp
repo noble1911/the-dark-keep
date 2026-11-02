@@ -22,6 +22,9 @@
 #include <fmt/format.h>
 
 #include "control/control.hpp"
+#include "controls/control_mode.hpp"
+#include "controls/controller_buttons.h"
+#include "controls/game_controls.h"
 #include "cursor.h"
 #include "diablo.h"
 #include "engine/palette.h"
@@ -34,13 +37,19 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_map.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "objects.h"
 #include "options.h"
 #include "utils/file_util.h"
+#include "utils/is_of.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/ui_fwd.h"
+
+#ifdef __SWITCH__
+#include "platform/switch/keyboard.h"
+#endif
 
 namespace devilution::keeper {
 
@@ -804,9 +813,11 @@ std::vector<Button> PanelButtons()
 	};
 	for (size_t i = 0; i < NumEditTools; i++) {
 		const auto thisTool = static_cast<EditTool>(i);
-		std::string label = fmt::format("{} {}", Tools[i].key, Tools[i].name);
+		// A controller has no number keys to go with the labels.
+		const std::string key = IsPadInUse() ? std::string() : fmt::format("{} ", Tools[i].key);
+		std::string label = fmt::format("{}{}", key, Tools[i].name);
 		if (thisTool == EditTool::Object)
-			label = fmt::format("{} {}", Tools[i].key, MapObjectName(objectKind));
+			label = fmt::format("{}{}", key, MapObjectName(objectKind));
 		bool enabled = true;
 		if (thisTool == EditTool::Door)
 			enabled = MapTilesetHasDoors(model.tileset);
@@ -827,7 +838,7 @@ std::vector<Button> PanelButtons()
 	add(IsViewZoomed() ? "Zoom: 2x" : "Zoom: 1x", ActionKind::Zoom, 0, IsViewZoomed());
 	add("Grid", ActionKind::Grid, 0, showGrid);
 	add("Variants", ActionKind::Decor, 0, decorPreview);
-	add("F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
+	add(IsPadInUse() ? "Test" : "F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
 	return buttons;
 }
 
@@ -882,6 +893,28 @@ void DoAction(const Button &button)
 		StartTest();
 		break;
 	}
+}
+
+/** A tool's help is written for a mouse: says it in buttons when a controller is in use. */
+std::string ToolHelp(std::string_view help)
+{
+	std::string text(help);
+	if (!IsPadInUse())
+		return text;
+	const auto replace = [&](std::string_view from, const std::string &to) {
+		for (size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size()))
+			text.replace(at, from.size(), to);
+	};
+	const std::string confirm = InputName(PadAction::Confirm);
+	const std::string order = InputName(PadAction::Order);
+	replace("Right-drag", fmt::format("{}-drag", order));
+	replace("Right-click", order);
+	replace("Drag", fmt::format("{}-drag", confirm));
+	replace("Click", confirm);
+	replace("click", confirm);
+	replace("Shift", InputName(PadAction::Modifier));
+	replace("[ ]", fmt::format("{} {}", PadButtonName(ControllerButton_BUTTON_LEFTSHOULDER), PadButtonName(ControllerButton_BUTTON_RIGHTSHOULDER)));
+	return text;
 }
 
 void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
@@ -947,7 +980,8 @@ void DrawModal(const Surface &out)
 		DrawFrame(out, field, PAL16_GRAY + 6);
 		const bool caretOn = (SDL_GetTicks() / 400) % 2 == 0;
 		DrawString(out, fmt::format("{}{}", modalText, caretOn ? "_" : ""), { field.position + Displacement { 4, 2 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-		DrawString(out, modalNote.empty() ? std::string_view("Enter: accept   Esc: cancel") : std::string_view(modalNote), { text + Displacement { 0, 44 }, { width, 14 } },
+		const std::string keys = IsPadInUse() ? fmt::format("{}: accept   {}: cancel", InputName(PadAction::Confirm), InputName(PadAction::Cancel)) : std::string("Enter: accept   Esc: cancel");
+		DrawString(out, modalNote.empty() ? std::string_view(keys) : std::string_view(modalNote), { text + Displacement { 0, 44 }, { width, 14 } },
 		    { .flags = UiFlags::FontSize12 | (modalNote.empty() ? UiFlags::ColorWhite : UiFlags::ColorRed) });
 		return;
 	}
@@ -980,7 +1014,7 @@ void CommitTextModal()
 		std::string name = modalText;
 		const std::string file = MapFileName(name);
 		// One Enter to warn, a second with the same name to overwrite.
-		const std::string warning = fmt::format("{} exists. Enter again to replace it.", file);
+		const std::string warning = fmt::format("{} exists. {} again to replace it.", file, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter"));
 		if (file != fileName && FileExists(MapsFolder() + file) && modalNote != warning) {
 			modalNote = warning;
 			return;
@@ -1516,7 +1550,7 @@ void EditorDrawUi(const Surface &out)
 
 	// What the tool does (or what's under the mouse), under the buttons.
 	const int leftWidth = out.w() - RightColumnWidth - 18;
-	std::string hint(Tools[static_cast<size_t>(tool)].help);
+	std::string hint = ToolHelp(Tools[static_cast<size_t>(tool)].help);
 	if (tool == EditTool::Door && model.tileset == MapTileset::Caves)
 		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
 	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
@@ -1558,11 +1592,221 @@ void EditorDrawUi(const Surface &out)
 		DrawModal(out);
 }
 
+// ---- controller ------------------------------------------------------------------------------------
+
+namespace {
+
+bool softKeyboardOpen = false;
+
+bool IsTextModal()
+{
+	return modal == Modal::SaveName || modal == Modal::Author;
+}
+
+bool IsListModal()
+{
+	return modal == Modal::LoadList || modal == Modal::TilesetList;
+}
+
+Rectangle ModalRowRect(int row)
+{
+	const Rectangle box = ModalRect();
+	return { box.position + Displacement { 8, 24 + row * ModalRowHeight }, { box.size.width - 16, ModalRowHeight } };
+}
+
+/** What a name can be spelled with, for a controller. */
+constexpr std::string_view NameLetters = "abcdefghijklmnopqrstuvwxyz0123456789 -_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+void OpenSoftKeyboard()
+{
+#ifdef __SWITCH__
+	softKeyboardOpen = true;
+	switch_start_text_input(ModalTitle(), modalText, static_cast<unsigned>(modal == Modal::Author ? MapMaxAuthor : MapMaxName) + 1);
+#elif defined(KEEPER_DEVCTL)
+	softKeyboardOpen = true; // the test script sends the text
+	modalText.clear();
+#endif
+}
+
+void PickNextTool(int delta)
+{
+	const int next = (static_cast<int>(tool) + delta + static_cast<int>(NumEditTools)) % static_cast<int>(NumEditTools);
+	SelectTool(static_cast<EditTool>(next));
+}
+
+} // namespace
+
+void EditorPadTargets(std::vector<Rectangle> &targets)
+{
+	if (IsTextModal())
+		return;
+	if (IsListModal()) {
+		const int rows = std::min(ModalRows, static_cast<int>(modalList.size()) - modalScroll);
+		for (int row = 0; row < rows; row++)
+			targets.push_back(ModalRowRect(row));
+		return;
+	}
+	for (const Button &button : PanelButtons()) {
+		if (button.enabled)
+			targets.push_back(button.rect);
+	}
+}
+
+bool EditorPadNeedsFocus()
+{
+	return IsListModal() && !modalList.empty();
+}
+
+bool EditorPadScroll(const Rectangle &focused, AxisDirection dir)
+{
+	if (!IsListModal() || dir.y == AxisDirectionY_NONE)
+		return false;
+	const int before = modalScroll;
+	const int maxScroll = std::max(0, static_cast<int>(modalList.size()) - ModalRows);
+	if (dir.y == AxisDirectionY_DOWN && focused.position.y == ModalRowRect(ModalRows - 1).position.y)
+		modalScroll = std::min(modalScroll + 1, maxScroll);
+	else if (dir.y == AxisDirectionY_UP && focused.position.y == ModalRowRect(0).position.y)
+		modalScroll = std::max(modalScroll - 1, 0);
+	return modalScroll != before;
+}
+
+bool EditorPadButton(ControllerButton button, bool modifier, bool spellButton)
+{
+	if (levelReloading)
+		return true;
+	if (IsTextModal()) {
+		switch (button) {
+		case ControllerButton_BUTTON_A:
+			softKeyboardOpen = false;
+			HandleTextKey(SDLK_RETURN);
+			break;
+		case ControllerButton_BUTTON_B:
+			softKeyboardOpen = false;
+			HandleTextKey(SDLK_ESCAPE);
+			break;
+		case ControllerButton_BUTTON_X:
+			HandleTextKey(SDLK_BACKSPACE);
+			break;
+		case ControllerButton_BUTTON_Y:
+			OpenSoftKeyboard();
+			break;
+		default:
+			break;
+		}
+		return true;
+	}
+	if (modal != Modal::None) {
+		if (button == ControllerButton_BUTTON_B)
+			modal = Modal::None;
+		return button != ControllerButton_BUTTON_A;
+	}
+	switch (button) {
+	case ControllerButton_BUTTON_Y:
+		// Whatever this does, it shouldn't happen to half a drag.
+		if (stroke.active)
+			FinishStroke();
+		if (modifier)
+			Redo();
+		else
+			Undo();
+		return true;
+	case ControllerButton_BUTTON_LEFTSHOULDER:
+		if (spellButton)
+			PickNextTool(-1);
+		else
+			EditorOnKeyDown(SDLK_LEFTBRACKET);
+		return true;
+	case ControllerButton_BUTTON_RIGHTSHOULDER:
+		if (spellButton)
+			PickNextTool(1);
+		else
+			EditorOnKeyDown(SDLK_RIGHTBRACKET);
+		return true;
+	case ControllerButton_BUTTON_BACK:
+		EditorOnKeyDown(SDLK_F5);
+		return true;
+	case ControllerButton_BUTTON_LEFTSTICK:
+		SetViewZoom(!IsViewZoomed());
+		return true;
+	case ControllerButton_BUTTON_RIGHTSTICK:
+		EditorOnKeyDown(modifier ? SDLK_V : SDLK_SPACE);
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool EditorPadInText()
+{
+	return IsTextModal();
+}
+
+void EditorPadTextStep(AxisDirection dir)
+{
+	modalNote.clear();
+	const size_t limit = modal == Modal::Author ? MapMaxAuthor : MapMaxName;
+	if (dir.x == AxisDirectionX_LEFT) {
+		if (!modalText.empty())
+			modalText.pop_back();
+		return;
+	}
+	if (dir.x == AxisDirectionX_RIGHT || modalText.empty()) {
+		if (modalText.size() < limit)
+			modalText.push_back(NameLetters.front());
+		return;
+	}
+	if (dir.y == AxisDirectionY_NONE)
+		return;
+	const size_t count = NameLetters.size();
+	const size_t found = NameLetters.find(modalText.back());
+	const size_t at = found == std::string_view::npos ? 0 : found;
+	modalText.back() = NameLetters[(at + (dir.y == AxisDirectionY_DOWN ? 1 : count - 1)) % count];
+}
+
+bool EditorPadOnText(const SDL_Event &event)
+{
+	if (!softKeyboardOpen || !IsTextModal())
+		return false;
+	// It clears the old text with synthetic keys, which still have to arrive as keys, but they aren't a keyboard taking over.
+	if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+		return IsAnyOf(SDLC_EventKey(event), SDLK_BACKSPACE, SDLK_DELETE);
+	if (event.type != SDL_EVENT_TEXT_INPUT)
+		return false;
+	const size_t limit = modal == Modal::Author ? MapMaxAuthor : MapMaxName;
+	for (const char *c = event.text.text; *c != 0 && modalText.size() < limit; c++) {
+		if (NameLetters.find(*c) != std::string_view::npos)
+			modalText.push_back(*c);
+	}
+	return true;
+}
+
+std::string EditorPadPrompt(bool focused)
+{
+	const std::string confirm = InputName(PadAction::Confirm);
+	const std::string cancel = InputName(PadAction::Cancel);
+	if (IsTextModal()) {
+#ifdef __SWITCH__
+		const std::string keyboard = fmt::format("   {}: keyboard", PadButtonName(ControllerButton_BUTTON_Y));
+#else
+		const std::string keyboard;
+#endif
+		return fmt::format("{}: up/down letter, right add, left remove   {}: accept   {}: cancel{}", InputName(PadAction::Navigate), confirm, cancel, keyboard);
+	}
+	if (IsListModal())
+		return fmt::format("{}: move   {}: choose   {}: cancel", InputName(PadAction::Navigate), confirm, cancel);
+	if (focused)
+		return fmt::format("{}: move   {}: press   {}: back to the map", InputName(PadAction::Navigate), confirm, cancel);
+	const auto name = PadButtonName;
+	return fmt::format("{}: paint (hold: drag)   {}: other way   {}: shift   {}: undo   {} {}: size   {}: tools   {}: test   {}: menu",
+	    confirm, InputName(PadAction::Order), InputName(PadAction::Modifier), name(ControllerButton_BUTTON_Y),
+	    name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER), InputName(PadAction::Navigate), name(ControllerButton_BUTTON_BACK), InputName(PadAction::Menu));
+}
+
 void EditorDrawTestBanner(const Surface &out)
 {
 	if (!testing)
 		return;
-	constexpr std::string_view Text = "Testing your map.  F10: back to the editor";
+	const std::string Text = fmt::format("Testing your map.  {}: back to the editor", InputName(PadAction::EndTest));
 	const int width = GetLineWidth(Text) + 16;
 	const Rectangle line { { (out.w() - width) / 2, 4 }, { width, 18 } };
 	DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);

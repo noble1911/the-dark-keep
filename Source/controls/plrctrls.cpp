@@ -36,6 +36,8 @@
 #include "hwcursor.hpp"
 #include "inv.h"
 #include "items.h"
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_pad.hpp" // [DARK KEEP]
 #include "levels/tile_properties.hpp"
 #include "levels/town.h"
 #include "levels/trigs.h"
@@ -1957,6 +1959,9 @@ bool ContinueSimulatedMouseEvent(const SDL_Event &event, const ControllerButtonE
 	if (!gbRunGame || AutomapActive)
 		return false;
 
+	if (keeper::PadKeepsMouseMode(event)) // [DARK KEEP]
+		return true;
+
 #if !defined(USE_SDL1) && !defined(JOY_AXIS_RIGHTX) && !defined(JOY_AXIS_RIGHTY)
 	if (IsAnyOf(event.type,
 	        SDL_EVENT_JOYSTICK_AXIS_MOTION, SDL_EVENT_JOYSTICK_HAT_MOTION,
@@ -2282,12 +2287,16 @@ void plrctrls_after_check_curs_move()
 void plrctrls_every_frame()
 {
 	ProcessLeftStickOrDPadGameUI();
-	HandleRightStickMotion();
+	keeper::PadEveryFrame(); // [DARK KEEP]
+	if (!keeper::PadOwnsSticks()) // [DARK KEEP] the right stick is the keep's camera
+		HandleRightStickMotion();
 	ProcessAutomapMovementGamepad();
 }
 
 void plrctrls_after_game_logic()
 {
+	if (keeper::PadOwnsSticks()) // [DARK KEEP] the master has no body to walk
+		return;
 	Movement(*MyPlayer);
 }
 

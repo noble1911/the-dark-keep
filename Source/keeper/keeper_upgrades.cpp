@@ -12,6 +12,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "monster.h"
 #include "plrmsg.h"
@@ -140,7 +141,7 @@ std::string UpgradeDescription(UpgradeId id)
 	const std::string effect = fmt::format("{}: {}{}{} per tier. Tier {} of {}.", info.title, info.effectSign, info.effectPerTier, info.effectUnit, UpgradeTier(id), info.maxTier);
 	if (UpgradeNextCost(id) == 0)
 		return effect;
-	return effect + " Click to buy, between raids. Lasts this game.";
+	return fmt::format("{} {} to buy, between raids. Lasts this game.", effect, InputName(PadAction::Confirm));
 }
 
 bool CanBuyUpgrade(UpgradeId id, std::string_view *reason)

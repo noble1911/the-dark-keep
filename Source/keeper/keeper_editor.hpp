@@ -12,6 +12,12 @@
 #include <SDL.h>
 #endif
 
+#include <string>
+#include <vector>
+
+#include "controls/axis_direction.h"
+#include "controls/controller_buttons.h"
+#include "engine/rectangle.hpp"
 #include "engine/surface.hpp"
 
 namespace devilution::keeper {
@@ -39,6 +45,23 @@ bool IsEditorTestRun();
 void EditorEndTestRun();
 bool EditorOnMouseDown(bool right);
 bool EditorOnMouseWheel(int deltaY);
+
+/** Controller: what can be pressed, in UI pixels. */
+void EditorPadTargets(std::vector<Rectangle> &targets);
+/** A list is up: only its rows can be pressed. */
+bool EditorPadNeedsFocus();
+/** Scrolls a list when the focus is at its end. @return true if it moved. */
+bool EditorPadScroll(const Rectangle &focused, AxisDirection dir);
+/** A button the editor has its own use for. `button` is as labelled on the controller. @return true if consumed. */
+bool EditorPadButton(ControllerButton button, bool modifier, bool spellButton);
+/** A name is being typed. */
+bool EditorPadInText();
+/** Stick or D-pad while a name is being typed: up and down change the letter, right adds one, left removes one. */
+void EditorPadTextStep(AxisDirection dir);
+/** Text coming back from the Switch's on-screen keyboard. @return true if consumed. */
+bool EditorPadOnText(const SDL_Event &event);
+/** What the buttons do right now, for the line of prompts. */
+std::string EditorPadPrompt(bool focused);
 
 /** Grid, markers and brush preview, at full resolution over the level. */
 void EditorDrawWorld(const Surface &out);

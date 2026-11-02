@@ -28,6 +28,7 @@
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_goals.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_tutorial.hpp"
@@ -294,6 +295,16 @@ std::optional<Point> OnRaidRosterClick(const Surface &out, Point mouse)
 	return std::nullopt;
 }
 
+void RaidRosterTargets(const Surface &out, std::vector<Rectangle> &targets)
+{
+	if (State.phase != Phase::Raid)
+		return;
+	const std::vector<RosterRow> rows = RosterRows();
+	const Rectangle rect = RosterRect(out, rows.size());
+	for (size_t i = 0; i < rows.size(); i++)
+		targets.push_back(RowRect(rect, i));
+}
+
 // ---- summary API -------------------------------------------------------------------
 
 bool IsRaidSummaryVisible()
@@ -353,7 +364,7 @@ void DrawRaidSummary(const Surface &out, int hudTop)
 	const Rectangle button = SummaryButton(*rect);
 	FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, PAL16_RED + 12);
 	DrawFrame(out, button, PAL16_YELLOW + 4);
-	DrawString(out, "Back to the keep (Esc)", { button.position + Displacement { 0, 4 }, { button.size.width, SummaryLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+	DrawString(out, fmt::format("Back to the keep ({})", InputName(PadAction::Cancel)), { button.position + Displacement { 0, 4 }, { button.size.width, SummaryLineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 }
 
 void ResetRaidStats()

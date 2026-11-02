@@ -84,6 +84,7 @@
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
+#include "keeper/keeper_pad.hpp" // [DARK KEEP]
 #include "keeper/keeper_tutorial.hpp" // [DARK KEEP]
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
@@ -233,6 +234,8 @@ void UndrawCursor(const Surface &out)
 
 bool ShouldShowCursor()
 {
+	if (keeper::PadHidesEngineCursor()) // [DARK KEEP]
+		return false;
 	if (ControlMode == ControlTypes::KeyboardAndMouse)
 		return true;
 	if (pcurs == CURSOR_TELEPORT)

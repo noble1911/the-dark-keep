@@ -47,6 +47,10 @@ bool LobbyOnLeftClick(Point mouse, const Rectangle &spellBar, SpellBar &bar);
 void DrawLobby(const Surface &out, Point mouse, const Rectangle &spellBar, const SpellBar &bar);
 /** What to tell a master who pressed the key of an empty spell slot. */
 std::string_view EmptySpellSlotMessage();
+/** A joiner's spell panel is up. */
+bool LobbyPanelOpen();
+/** What a controller can press here, in UI pixels. @return true if the panel is open, and nothing else can be pressed. */
+bool LobbyPadTargets(const Rectangle &spellBar, std::vector<Rectangle> &targets);
 
 /** Everyone in the game and which one is the host; in co-op only. Clicks pass through it. */
 void DrawMasters(const Surface &out);

@@ -10,6 +10,22 @@
  - Launch `devilutionx.nro`. (Do not use album to launch; see the note below.)
  - *Note:* Hold R on any installed game and launch it. Do not use album to launch. If you use album, the homebrew will only have a small amount memory available, and the touch keyboard won't work. This is true for all homebrew, not just DevilutionX.
 
+# The Dark Keep: controls in the keep
+- Left stick: aim the cursor (push against the edge of the view to scroll). Right stick: move the view.
+- D-pad: go to the cards, spell bar and buttons. A: press. B: back to the map.
+- L / R: previous / next tab of cards.
+- A: select, place, or cast at the cursor (hold and aim to box-select). B: cancel, deselect.
+- X: rally the selected monsters. ZL+X: add a patrol waypoint. ZL+B: sell what is selected.
+- Y: possess the monster at the cursor, or release it.
+- ZR with X, Y, B, A, L or R: cast the spell in that slot at the cursor.
+- Minus: open the gates. Plus: game menu. Left stick click: zoom. Right stick click: jump between the entrance and the vault.
+- Keeper screen: D-pad or stick to move, A: buy, X: spell bar, Y: respec, L / R: tabs, B: done.
+- Map editor: A: paint (hold to drag), X: the opposite, ZL: Shift, Y: undo (ZL+Y: redo), L / R: brush size, ZR+L / ZR+R: tool, D-pad: the buttons, Minus: test (ZL+Plus: back to the editor).
+- Naming a map: D-pad up and down change the letter, right adds one, left removes one; Y opens the keyboard.
+- Saves and maps are kept with the game's other settings, in a "maps" folder for maps.
+
+The controls below are the hero game's, and don't apply in the keep.
+
 # Joycon Controls
 - Left analog or D-Pad: move hero
 - A: attack nearby enemies, talk to townspeople and merchants, pickup/place items in the inventory, OK while in main menu

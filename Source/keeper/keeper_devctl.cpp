@@ -19,6 +19,7 @@
 #include <SDL.h>
 #include <fmt/format.h>
 
+#include "controls/control_mode.hpp"
 #include "cursor.h"
 #include "diablo.h"
 #include "engine/dx.h"
@@ -30,6 +31,8 @@
 #include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_input.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raidtypes.hpp"
@@ -106,6 +109,69 @@ void PushKey(SDL_Keycode key)
 	SDL_PushEvent(&event);
 }
 
+// ---- a controller: a real one as far as the game is concerned, SDL's virtual joystick ------------
+
+SDL_Joystick *pad = nullptr;
+std::optional<GamepadLayout> padLayout;
+
+bool EnsurePad()
+{
+	if (pad != nullptr)
+		return true;
+	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+	const int device = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER, SDL_CONTROLLER_AXIS_MAX, SDL_CONTROLLER_BUTTON_MAX, 0);
+	if (device < 0) {
+		Output(fmt::format("error no virtual pad: {}", SDL_GetError()));
+		return false;
+	}
+	pad = SDL_JoystickOpen(device);
+	if (pad == nullptr) {
+		Output(fmt::format("error no virtual pad: {}", SDL_GetError()));
+		return false;
+	}
+	return true;
+}
+
+/** The button named as on the SDL side: "a" is the bottom one, whichever layout is being tested. */
+std::optional<SDL_GameControllerButton> PadButtonNamed(const std::string &name)
+{
+	if (name == "a") return SDL_CONTROLLER_BUTTON_A;
+	if (name == "b") return SDL_CONTROLLER_BUTTON_B;
+	if (name == "x") return SDL_CONTROLLER_BUTTON_X;
+	if (name == "y") return SDL_CONTROLLER_BUTTON_Y;
+	if (name == "back") return SDL_CONTROLLER_BUTTON_BACK;
+	if (name == "start") return SDL_CONTROLLER_BUTTON_START;
+	if (name == "l3") return SDL_CONTROLLER_BUTTON_LEFTSTICK;
+	if (name == "r3") return SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+	if (name == "lb") return SDL_CONTROLLER_BUTTON_LEFTSHOULDER;
+	if (name == "rb") return SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+	if (name == "up") return SDL_CONTROLLER_BUTTON_DPAD_UP;
+	if (name == "down") return SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+	if (name == "left") return SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+	if (name == "right") return SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+	return std::nullopt;
+}
+
+Sint16 StickValue(float value)
+{
+	return static_cast<Sint16>(std::clamp(value, -1.F, 1.F) * 32767.F);
+}
+
+std::string ControlTypeName(ControlTypes type)
+{
+	switch (type) {
+	case ControlTypes::None:
+		return "none";
+	case ControlTypes::KeyboardAndMouse:
+		return "kbm";
+	case ControlTypes::Gamepad:
+		return "pad";
+	case ControlTypes::VirtualGamepad:
+		return "touch";
+	}
+	return "?";
+}
+
 void WriteState()
 {
 	int keepers = 0;
@@ -135,6 +201,7 @@ void WriteState()
 	line += fmt::format(" xp={} mapXp={} klevel={} renown={} cleared={} curs={},{} mouse={},{} screen={}x{} level={} entrance={},{} vault={},{}",
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
+	line += fmt::format(" device={} mode={} myTile={},{}", ControlTypeName(ControlDevice), ControlTypeName(ControlMode), MyPlayer != nullptr ? MyPlayer->position.tile.x : -1, MyPlayer != nullptr ? MyPlayer->position.tile.y : -1);
 	Output(line);
 }
 
@@ -476,6 +543,70 @@ void Execute(const std::string &line)
 		event.type = SDL_TEXTINPUT;
 		word.copy(event.text.text, sizeof(event.text.text) - 1);
 		SDL_PushEvent(&event);
+	} else if (command == "padattach") {
+		// Hot-plugged, so it arrives through the same added event as a real one. Give it a moment.
+		if (EnsurePad())
+			waitUntil = SDL_GetTicks() + 300;
+	} else if (command == "pad" || command == "paddown" || command == "padup") {
+		// pad a: press and release. paddown lt, padup lt: hold; lt and rt are the triggers.
+		in >> word;
+		if (!EnsurePad())
+			return;
+		const bool isTrigger = word == "lt" || word == "rt";
+		const std::optional<SDL_GameControllerButton> button = PadButtonNamed(word);
+		if (!isTrigger && !button) {
+			Output(fmt::format("error unknown pad button {}", word));
+		} else {
+			const auto set = [&](bool down) {
+				if (isTrigger)
+					SDL_JoystickSetVirtualAxis(pad, word == "lt" ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT, down ? 32767 : -32768);
+				else
+					SDL_JoystickSetVirtualButton(pad, *button, down ? 1 : 0);
+			};
+			if (command == "pad") {
+				set(true);
+				pending.push_front(fmt::format("padup {}", word));
+				waitUntil = SDL_GetTicks() + 60;
+			} else {
+				set(command == "paddown");
+			}
+		}
+	} else if (command == "padchord") {
+		// padchord lt x: the left trigger and a button, both down in the same frame, for one press.
+		std::string other;
+		in >> word >> other;
+		const std::optional<SDL_GameControllerButton> button = PadButtonNamed(other);
+		if (EnsurePad() && button) {
+			SDL_JoystickSetVirtualAxis(pad, SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32767);
+			SDL_JoystickSetVirtualButton(pad, *button, 1);
+			pending.push_front(fmt::format("padup {}", other));
+			pending.insert(pending.begin() + 1, "padup lt");
+			waitUntil = SDL_GetTicks() + 60;
+		}
+	} else if (command == "stick") {
+		// stick l 0.5 -1: x right, y up, held until set back to 0 0.
+		float x = 0.F;
+		float y = 0.F;
+		in >> word >> x >> y;
+		if (EnsurePad()) {
+			const bool left = word == "l";
+			SDL_JoystickSetVirtualAxis(pad, left ? SDL_CONTROLLER_AXIS_LEFTX : SDL_CONTROLLER_AXIS_RIGHTX, StickValue(x));
+			SDL_JoystickSetVirtualAxis(pad, left ? SDL_CONTROLLER_AXIS_LEFTY : SDL_CONTROLLER_AXIS_RIGHTY, StickValue(-y));
+		}
+	} else if (command == "padlayout") {
+		// generic, xbox, ps or nintendo: what a real controller of that kind would report.
+		in >> word;
+		padLayout = word == "nintendo" ? GamepadLayout::Nintendo : word == "xbox" ? GamepadLayout::Xbox : word == "ps" ? GamepadLayout::PlayStation : GamepadLayout::Generic;
+	} else if (command == "padengine") {
+		// padengine 1: what the engine's own controller code does in the keep, without keeper_pad.
+		in >> a;
+		DevPadEngineOnly = a != 0;
+	} else if (command == "tvui") {
+		in >> a;
+		DevTvUiScale = a != 0;
+	} else if (command == "padname") {
+		// What the on-screen prompts would call these.
+		Output(fmt::format("padname confirm={} cancel={} waypoint={} sell={} spell1={} raid={} zoom={}", InputName(PadAction::Confirm), InputName(PadAction::Cancel), InputName(PadAction::Waypoint), InputName(PadAction::Sell), InputName(KeeperAction::Spell, 0), InputName(KeeperAction::StartRaid), InputName(PadAction::Zoom)));
 	} else if (command == "shot") {
 		in >> word;
 		SDL_RWops *file = SDL_RWFromFile(word.c_str(), "wb");
@@ -802,6 +933,8 @@ void DevctlFrame()
 	}
 	WatchRaid();
 	ReadNewCommands();
+	if (padLayout)
+		GamepadType = *padLayout;
 	// One input a frame, so a screen sees each event as it would from a person.
 	while (!pending.empty() && !IsWaiting()) {
 		const std::string line = std::move(pending.front());
@@ -810,7 +943,7 @@ void DevctlFrame()
 		std::istringstream first(line);
 		std::string command;
 		first >> command;
-		if (IsAnyOf(command, "move", "click", "down", "up", "press", "key", "wheel"))
+		if (IsAnyOf(command, "move", "click", "down", "up", "press", "key", "wheel", "pad", "paddown", "padup", "stick"))
 			break;
 	}
 }

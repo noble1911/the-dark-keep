@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <optional>
 
+#include <vector>
+
 #include "engine/point.hpp"
 #include "engine/rectangle.hpp"
 #include "engine/surface.hpp"
@@ -28,6 +30,8 @@ void DrawRaidRoster(const Surface &out, Point mouse);
 std::optional<Rectangle> RaidRosterRect(const Surface &out);
 /** Click on the roster: selects the hero and returns the tile to centre the camera on. */
 std::optional<Point> OnRaidRosterClick(const Surface &out, Point mouse);
+/** The roster's rows, for a controller to go through. */
+void RaidRosterTargets(const Surface &out, std::vector<Rectangle> &targets);
 
 /** The end-of-raid summary, centred above the HUD (until dismissed or the next raid). */
 void DrawRaidSummary(const Surface &out, int hudTop);

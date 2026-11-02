@@ -18,6 +18,7 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_ui.hpp"
@@ -140,7 +141,7 @@ std::string FooterText(const SpellBar &bar, std::optional<size_t> hovered)
 			return "The spell bar is full: take a spell off first.";
 		return fmt::format("Level {}. {}", GameSpellLevel(*hovered), SpellKinds[*hovered].flavor);
 	}
-	return fmt::format("{} of {} slots filled. Click a spell to add or remove it. Esc closes; Choose spells brings it back until the raid.", filled, NumSpellSlots);
+	return fmt::format("{} of {} slots filled. {} a spell to add or remove it. {} closes; Choose spells brings it back until the raid.", filled, NumSpellSlots, InputName(PadAction::Confirm), InputName(PadAction::Cancel));
 }
 
 void DrawSpellCell(const Surface &out, const Rectangle &cell, size_t spell, const SpellBar &bar, bool hovered)
@@ -154,7 +155,7 @@ void DrawSpellCell(const Surface &out, const Rectangle &cell, size_t spell, cons
 	const std::optional<size_t> slot = SlotOf(bar, spell);
 	if (slot) {
 		// The key that will cast it, as on the spell bar below.
-		DrawString(out, KeyLabel(KeeperAction::Spell, *slot), { icon.position + Displacement { 4, 3 }, { icon.size.width - 8, 14 } },
+		DrawString(out, InputName(KeeperAction::Spell, *slot), { icon.position + Displacement { 4, 3 }, { icon.size.width - 8, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
 	}
 	DrawFrame(out, icon, slot ? PAL16_YELLOW + 2 : (hovered ? PAL16_GRAY : PAL16_GRAY + 8));
@@ -299,7 +300,7 @@ void DrawLobby(const Surface &out, Point mouse, const Rectangle &spellBar, const
 
 	const Rectangle button = ButtonRect(spellBar);
 	DrawPanel(out, button);
-	DrawString(out, panelOpen ? "Close spells (Esc)" : "Choose spells", { button.position + Displacement { 0, 1 }, { button.size.width, 14 } },
+	DrawString(out, panelOpen ? fmt::format("Close spells ({})", InputName(PadAction::Cancel)) : std::string("Choose spells"), { button.position + Displacement { 0, 1 }, { button.size.width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (button.contains(mouse) ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	if (!panelOpen)
 		return;
@@ -317,6 +318,24 @@ void DrawLobby(const Surface &out, Point mouse, const Rectangle &spellBar, const
 	const std::string footer = FitLines(FooterText(bar, hovered), textWidth, FooterHeight, FooterLineHeight);
 	DrawString(out, footer, { { panel.position.x + Padding, panel.position.y + panel.size.height - Padding - FooterHeight }, { textWidth, FooterHeight } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = FooterLineHeight });
+}
+
+bool LobbyPanelOpen()
+{
+	return panelOpen && CanChoose();
+}
+
+bool LobbyPadTargets(const Rectangle &spellBar, std::vector<Rectangle> &targets)
+{
+	if (!CanChoose())
+		return false;
+	if (panelOpen) {
+		const Rectangle panel = PanelRect(spellBar);
+		for (size_t i = 0; i < availableSpells.size(); i++)
+			targets.push_back(CellRect(panel, i));
+	}
+	targets.push_back(ButtonRect(spellBar));
+	return panelOpen;
 }
 
 std::string_view EmptySpellSlotMessage()

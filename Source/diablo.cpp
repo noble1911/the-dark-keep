@@ -63,6 +63,7 @@
 #include "inv.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_input.hpp" // [DARK KEEP]
+#include "keeper/keeper_pad.hpp" // [DARK KEEP]
 #include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_campaign.hpp" // [DARK KEEP]
 #include "keeper/keeper_editor.hpp" // [DARK KEEP]
@@ -248,6 +249,7 @@ bool ProcessInput()
 #endif
 		CheckCursMove();
 		plrctrls_after_check_curs_move();
+		keeper::PadAfterCursMove(); // [DARK KEEP]
 		RepeatPlayerAction();
 	}
 
@@ -762,7 +764,7 @@ void GameEventHandler(const SDL_Event &event, uint16_t modState)
 	StaticVector<ControllerButtonEvent, 4> ctrlEvents = ToControllerButtonEvents(event);
 	for (const ControllerButtonEvent ctrlEvent : ctrlEvents) {
 		GameAction action;
-		if (HandleControllerButtonEvent(event, ctrlEvent, action) && action.type == GameActionType_SEND_KEY) {
+		if ((keeper::PadOnEvent(event, ctrlEvent, action) /* [DARK KEEP] */ || HandleControllerButtonEvent(event, ctrlEvent, action)) && action.type == GameActionType_SEND_KEY) {
 			if ((action.send_key.vk_code & KeymapperMouseButtonMask) != 0) {
 				const unsigned button = action.send_key.vk_code & ~KeymapperMouseButtonMask;
 				if (!action.send_key.up)
