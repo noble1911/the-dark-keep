@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bitset>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -30,6 +31,8 @@ namespace {
 /** Reaching keeper level L takes XpPerLevelStep * L * (L - 1) / 2 XP in all. */
 constexpr int XpPerLevelStep = 120;
 constexpr int RenownPerLevel = 4;
+/** Far past anything earned in play: the sums for levels beyond it would overflow, and a damaged file can say anything. */
+constexpr int HighestKeeperLevel = 5000;
 
 constexpr int HeroSlainXpBase = 10;
 constexpr int HeroSlainXpPerWave = 2;
@@ -259,7 +262,7 @@ bool CanRaise(int level, int unlockRank, int cost, std::string_view *reason)
 void AddXp(int amount)
 {
 	mapXp += amount;
-	profile.xp += amount;
+	profile.xp = amount > INT_MAX - profile.xp ? INT_MAX : profile.xp + amount;
 }
 
 /** Test flags and editor test runs earn nothing. */
@@ -285,7 +288,7 @@ int KeeperLevel()
 {
 	Load();
 	int level = 1;
-	while (profile.xp >= XpForKeeperLevel(level + 1))
+	while (level < HighestKeeperLevel && profile.xp >= XpForKeeperLevel(level + 1))
 		level++;
 	return level;
 }
