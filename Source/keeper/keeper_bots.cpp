@@ -540,6 +540,28 @@ bool IsLivingBot(const Player &player)
 	return IsBot(player) && player.plractive && !player.hasNoLife() && player.isOnActiveLevel();
 }
 
+bool HoldsBotAlive(const Player &player)
+{
+	return IsBot(player) && IsActive() && !IsHost();
+}
+
+int32_t BotLifeForSync(size_t slot)
+{
+	const Player &bot = Players[FirstBotId + slot];
+	return bot.plractive ? std::max(bot._pHitPoints, 0) : -1;
+}
+
+void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
+{
+	Player &bot = Players[FirstBotId + slot];
+	if (hitPoints < 0 || !IsLivingBot(bot))
+		return;
+	if (hitPoints == 0)
+		SyncPlrKill(bot, DeathReason::MonsterOrTrap);
+	else
+		SetPlayerHitPoints(bot, std::min(hitPoints, bot._pMaxHP));
+}
+
 bool SimulatesLocally(const Player &player)
 {
 	return &player == MyPlayer || IsBot(player);

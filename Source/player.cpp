@@ -2869,6 +2869,8 @@ void ApplyPlrDamage(DamageType damageType, Player &player, int dam, int minHP /*
 	if (player._pHitPoints < minHitPoints) {
 		SetPlayerHitPoints(player, minHitPoints);
 	}
+	if (keeper::HoldsBotAlive(player) && player.hasNoLife()) // [DARK KEEP] fights differ between clients: the host says when a bot dies
+		SetPlayerHitPoints(player, 1 << 6);
 	if (player.hasNoLife()) {
 		SyncPlrKill(player, deathReason);
 	}

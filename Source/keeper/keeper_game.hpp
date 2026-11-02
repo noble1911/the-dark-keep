@@ -216,6 +216,12 @@ void GameTick();
 /** True on the client that owns the simulation of the keep (lowest player id on the level). */
 bool IsHost();
 
+/**
+ * Keep monsters follow the host alone. Left to the engine's rule (whoever's player is nearest wins) a joiner
+ * who no longer sees a hero could walk the host's Keep Lord away from that hero for ever, and the raid never ends.
+ */
+bool TakesMonsterSyncFrom(const Player &sender);
+
 /** Placement checks (run locally before sending; the host re-checks). */
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason = nullptr);
 bool CanLockDoorAt(Point tile, std::string_view *reason = nullptr);

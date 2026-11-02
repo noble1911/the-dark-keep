@@ -7,6 +7,8 @@
 
 #include <limits>
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_game.hpp" // [DARK KEEP]
 #include "levels/gendung.h"
 #include "lighting.h"
 #include "monster.h"
@@ -170,7 +172,8 @@ void SyncMonster(bool isOwner, const TSyncMonster &monsterSync)
 			delta = 255;
 		}
 
-		if (delta < monsterSync._mdelta || (delta == monsterSync._mdelta && isOwner)) {
+		// [DARK KEEP] the masters' bodies are parked, so "nearest player" means nothing: OnSyncData took this from the host
+		if (!keeper::IsActive() && (delta < monsterSync._mdelta || (delta == monsterSync._mdelta && isOwner))) {
 			return;
 		}
 		if (monster.position.future == position) {
@@ -307,7 +310,8 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 			if (syncLocalLevel) {
 				if (!IsTSyncEnemyValid(monsterSyncs[i]))
 					continue;
-				SyncMonster(isOwner, monsterSyncs[i]);
+				if (keeper::TakesMonsterSyncFrom(player)) // [DARK KEEP]
+					SyncMonster(isOwner, monsterSyncs[i]);
 			}
 
 			delta_sync_monster(monsterSyncs[i], level);

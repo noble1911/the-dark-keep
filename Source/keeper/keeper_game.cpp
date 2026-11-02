@@ -157,6 +157,7 @@ struct TCmdKeeperState {
 	int32_t bossHitPoints;
 	/** Every upgrade's tier, so a client that joined late still gets them. */
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
+	std::array<int32_t, MaxBots> botHitPoints;
 };
 #pragma pack(pop)
 
@@ -230,6 +231,8 @@ void BroadcastState()
 	const Monster *boss = FindBoss();
 	cmd.bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(boss != nullptr ? boss->hitPoints : -1)));
 	cmd.upgradeTiers = UpgradeTiers();
+	for (size_t i = 0; i < MaxBots; i++)
+		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -1120,6 +1123,19 @@ bool IsHost()
 	return !awaitingKeepSnapshot && MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
 }
 
+bool TakesMonsterSyncFrom(const Player &sender)
+{
+	if (!IsActive())
+		return true;
+	if (IsHost())
+		return false;
+	for (const Player &player : Players) {
+		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && player.getId() < NetPlayerSlots)
+			return &player == &sender;
+	}
+	return false;
+}
+
 void OnPlayerJoinedLevel(const Player &player)
 {
 	if (!IsActive() || &player == MyPlayer || !player.plractive || !player.isOnActiveLevel() || player.getId() >= NetPlayerSlots)
@@ -1637,6 +1653,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			const int bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.bossHitPoints)));
 			if (const Monster *boss = FindBoss(); boss != nullptr && bossHitPoints > 0)
 				const_cast<Monster *>(boss)->hitPoints = std::min(bossHitPoints, boss->maxHitPoints);
+			for (size_t i = 0; i < MaxBots; i++)
+				ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
 		}
 		return sizeof(message);
 	}

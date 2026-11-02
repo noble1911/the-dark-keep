@@ -34,6 +34,11 @@ constexpr size_t FirstBotId = MAX_PLRS;
 bool IsBot(const Player &player);
 /** True for an active bot hero that is still alive. */
 bool IsLivingBot(const Player &player);
+/** A joiner's copy of a bot: fights differ between clients, and it only dies when the host's does. */
+bool HoldsBotAlive(const Player &player);
+/** The host's word on a bot's life, for BroadcastState. -1: no such bot. */
+int32_t BotLifeForSync(size_t slot);
+void ApplyBotLifeSync(size_t slot, int32_t hitPoints);
 /** True if this client applies the player's damage/effects itself: the local master, or any bot. */
 bool SimulatesLocally(const Player &player);
 
