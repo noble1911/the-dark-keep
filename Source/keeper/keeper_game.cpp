@@ -1705,15 +1705,16 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		const auto &message = *reinterpret_cast<const TCmdKeeperState *>(cmd);
 		if (&player != MyPlayer && !IsHost()) {
 			const Phase phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
-			State.wave = message.wave;
-			const bool wasBossDown = State.bossDown;
-			State.bossDown = (message.reserved & 1) != 0;
-			State.portalEscape = (message.reserved & 2) != 0;
-			// Before the phase: leaving a raid removes the bots, and a death has to be counted first.
+			// Before the phase and the wave: leaving a raid removes the bots and moves the wave on, and a
+			// death has to be counted first, at the raid's own bounty.
 			if (phase == Phase::Raid) {
 				for (size_t i = 0; i < MaxBots; i++)
 					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
 			}
+			State.wave = message.wave;
+			const bool wasBossDown = State.bossDown;
+			State.bossDown = (message.reserved & 1) != 0;
+			State.portalEscape = (message.reserved & 2) != 0;
 			AnnouncePhase(State.phase, phase);
 			if (wasBossDown && !State.bossDown && phase != Phase::Defeat)
 				Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
