@@ -24,23 +24,10 @@ if (-not (Test-Path "$DataDir\DIABDAT.MPQ")) { throw "DIABDAT.MPQ not found in $
 
 # The VS multi-config build copies engine assets to build\assets, but the exe in
 # build\Release looks for build\Release\assets. Mirror them every launch (cheap, avoids stale data).
+# The game MPQs are hardlinked (same volume) or copied, once.
 Write-Host "==> Syncing engine assets + mod data next to the exe..." -ForegroundColor Cyan
-Copy-Item -Recurse -Force "$root\build\assets\*" (New-Item -ItemType Directory -Force "$exeDir\assets")
-if (Test-Path "$exeDir\mods") { Remove-Item -Recurse -Force "$exeDir\mods" }
-Copy-Item -Recurse -Force "$root\build\mods" "$exeDir\mods"
-
-# Game MPQs: hardlink (same volume) or copy, once.
-Get-ChildItem -Path $DataDir -Filter *.mpq | ForEach-Object {
-    $dst = Join-Path $exeDir $_.Name
-    if (-not (Test-Path $dst)) {
-        try {
-            New-Item -ItemType HardLink -Path $dst -Target $_.FullName | Out-Null
-        } catch {
-            Copy-Item $_.FullName $dst
-        }
-        Write-Host "    linked $($_.Name)"
-    }
-}
+. "$PSScriptRoot\dev\common.ps1"
+Sync-GameData $DataDir
 
 Write-Host "==> Launching The Dark Keep" -ForegroundColor Green
 if ($GameArgs) {

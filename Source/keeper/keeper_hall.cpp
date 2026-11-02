@@ -45,7 +45,9 @@ namespace devilution::keeper {
 namespace {
 
 constexpr int Margin = 10;
-constexpr int CardWidth = 88;
+constexpr int CardWidth = 108;
+/** Narrower than this and a family's tiers wrap onto more lines instead. */
+constexpr int MinCardWidth = 76;
 constexpr int CardHeight = 104;
 constexpr int CardImageHeight = 66;
 constexpr int ArrowWidth = 14;
@@ -207,10 +209,10 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed)) });
 	}
 	DrawString(out, Fit(info.name, rect.size.width - 4), { rect.position + Displacement { 0, CardImageHeight + 8 }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorBlack)) });
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark)) });
 	const std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
 	DrawString(out, state, { rect.position + Displacement { 0, CardImageHeight + 21 }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorBlack)) });
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark)) });
 
 	uint8_t frame = info.owned ? PAL16_YELLOW + 6 : (info.canBuy ? PAL16_ORANGE + 4 : FrameColor);
 	if (Inside(rect, mouse))
@@ -230,7 +232,10 @@ void DrawCard(const Surface &out, const Rectangle &rect, const CardInfo &info, b
 {
 	if (rect.position.x >= out.w() || rect.position.y >= out.h() || rect.position.x + rect.size.width <= 0 || rect.position.y + rect.size.height <= 0)
 		return;
-	static OwnedSurface card(CardWidth, CardHeight);
+	static std::optional<OwnedSurface> surface;
+	if (!surface || surface->w() != rect.size.width)
+		surface.emplace(rect.size.width, CardHeight);
+	const OwnedSurface &card = *surface;
 	DrawCardBody(card, info, isSelected, mouse - Displacement { rect.position.x, rect.position.y }, kind, icon);
 	const int left = std::max(rect.position.x, 0);
 	const int right = std::min(rect.position.x + rect.size.width, out.w());
@@ -279,35 +284,49 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 			rows.back().kinds.push_back(kind);
 		}
 	}
-	const int rowHeight = FamilyTitleHeight + CardHeight + RowGap;
-	const int content = static_cast<int>(rows.size()) * rowHeight;
+	// Four tiers across if they fit at a readable size: every tier has to be reachable on any screen.
+	const int listWidth = area.size.width - 7 - 2;
+	size_t mostTiers = 1;
+	for (const Row &row : rows)
+		mostTiers = std::max(mostTiers, row.kinds.size());
+	const int tiers = static_cast<int>(mostTiers);
+	const int cardWidth = std::clamp((listWidth - (tiers - 1) * ArrowWidth) / tiers, MinCardWidth, CardWidth);
+	const size_t perLine = static_cast<size_t>(std::max((listWidth + ArrowWidth) / (cardWidth + ArrowWidth), 1));
+	const auto rowHeight = [&](const Row &row) {
+		return FamilyTitleHeight + static_cast<int>((row.kinds.size() + perLine - 1) / perLine) * (CardHeight + RowGap);
+	};
+	int content = 0;
+	for (const Row &row : rows)
+		content += rowHeight(row);
 	const int offset = ApplyScroll(Tab::Monsters, content, area, mouse);
 	const Surface clip = out.subregion(area.position.x, area.position.y, area.size.width - 7, area.size.height);
 	const Point localMouse { mouse.x - area.position.x, mouse.y - area.position.y };
 	const bool mouseInArea = Inside(area, mouse);
 
-	for (size_t r = 0; r < rows.size(); r++) {
-		const int y = static_cast<int>(r) * rowHeight - offset;
-		if (y + rowHeight < 0 || y >= area.size.height)
+	int rowTop = -offset;
+	for (const Row &row : rows) {
+		const int y = rowTop;
+		rowTop += rowHeight(row);
+		if (rowTop < 0 || y >= area.size.height)
 			continue;
 		if (y >= 0)
-			DrawString(clip, FamilyName(static_cast<KindFamily>(rows[r].family)), { { 2, y + 1 }, { clip.w() - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		int x = 2;
-		for (size_t t = 0; t < rows[r].kinds.size(); t++) {
-			const size_t kind = rows[r].kinds[t];
-			const Rectangle card { { x, y + FamilyTitleHeight }, { CardWidth, CardHeight } };
+			DrawString(clip, FamilyName(static_cast<KindFamily>(row.family)), { { 2, y + 1 }, { clip.w() - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+		for (size_t t = 0; t < row.kinds.size(); t++) {
+			const size_t kind = row.kinds[t];
+			const int column = static_cast<int>(t % perLine);
+			const int cardY = y + FamilyTitleHeight + static_cast<int>(t / perLine) * (CardHeight + RowGap);
+			const int x = 2 + column * (cardWidth + ArrowWidth);
+			const Rectangle card { { x, cardY }, { cardWidth, CardHeight } };
 			const bool isSelected = selected.tab == Tab::Monsters && selected.index == kind;
 			DrawCard(clip, card, MonsterInfo(kind), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, kind, std::nullopt);
 			if (clicked && mouseInArea && Inside(card, localMouse))
 				selected = { Tab::Monsters, kind };
-			x += CardWidth;
-			if (t + 1 < rows[r].kinds.size()) {
-				const int arrowY = y + FamilyTitleHeight + CardHeight / 2 - 8;
+			if (t + 1 < row.kinds.size() && (t + 1) % perLine != 0) {
+				const int arrowY = cardY + CardHeight / 2 - 8;
 				if (arrowY >= 0 && arrowY + 16 <= clip.h()) {
-					DrawString(clip, ">", { { x, arrowY }, { ArrowWidth, 16 } },
-					    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (OwnsKind(kind) ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+					DrawString(clip, ">", { { x + cardWidth, arrowY }, { ArrowWidth, 16 } },
+					    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (OwnsKind(kind) ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark) });
 				}
-				x += ArrowWidth;
 			}
 		}
 	}
@@ -495,7 +514,7 @@ void DrawDetails(const Surface &out, const Rectangle &area, Point mouse)
 	DrawString(out, wrapped, { { x, y }, { inner, buttonsTop - statusHeight - y - 4 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 14 });
 	if (!status.empty()) {
 		DrawString(out, WordWrapString(status, inner), { { x, buttonsTop - statusHeight }, { inner, statusHeight } },
-		    { .flags = UiFlags::FontSize12 | (canAct ? UiFlags::ColorGold : UiFlags::ColorRed), .lineHeight = 14 });
+		    { .flags = UiFlags::FontSize12 | (canAct || selected.tab == Tab::Monsters && OwnsKind(selected.index) ? UiFlags::ColorGold : UiFlags::ColorRed), .lineHeight = 14 });
 	}
 
 	int buttonY = buttonsTop;
@@ -576,7 +595,7 @@ void DrawScreen(const Surface &out, Point mouse)
 
 	if (!message.empty() && SDL_GetTicks() < messageUntil) {
 		const int textWidth = GetLineWidth(message) + 16;
-		const Rectangle line { { middleLeft + (middleWidth - textWidth) / 2, out.h() - Margin - 26 }, { textWidth, 20 } };
+		const Rectangle line { { middleLeft + (middleWidth - textWidth) / 2, list.position.y + list.size.height - 26 }, { textWidth, 20 } };
 		Fill(out, line, 0);
 		Frame(out, line, RedFrame);
 		DrawString(out, message, { line.position + Displacement { 0, 3 }, { line.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
@@ -608,6 +627,8 @@ bool HandleEvent(SDL_Event &event)
 
 void UiKeeperScreen()
 {
+	// UiPollAndRender draws and sends events to the last menu's items: the main menu has freed its own.
+	UiInitList_clear();
 	LoadPaletteAndInitBlending("levels\\l1data\\l1_1.pal");
 	UpdateSystemPalette(logical_palette);
 	UiRestartFadeIn();

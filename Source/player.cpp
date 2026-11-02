@@ -646,7 +646,7 @@ bool PlrHitMonst(Player &player, Monster &monster, bool adjacentDamage = false)
 			dam = monster.hitPoints; /* ensure monster is killed with one hit */
 		}
 #endif
-		ApplyMonsterDamage(DamageType::Physical, monster, dam);
+		keeper::IsBot(player) ? ApplySimulatedMonsterDamage(DamageType::Physical, monster, dam) : ApplyMonsterDamage(DamageType::Physical, monster, dam); // [DARK KEEP]
 	}
 
 	int skdam = 0;
@@ -2024,7 +2024,7 @@ void Player::occupyTile(Point tilePosition, bool isMoving) const
 	dPlayer[tilePosition.x][tilePosition.y] = isMoving ? -id : id;
 }
 
-bool Player::isLevelOwnedByLocalClient() const
+const Player *Player::levelOwner() const
 {
 	for (const Player &other : Players) {
 		if (!other.plractive)
@@ -2039,10 +2039,15 @@ bool Player::isLevelOwnedByLocalClient() const
 			continue;
 		if (&other == MyPlayer && gbBufferMsgs != 0)
 			continue;
-		return &other == MyPlayer;
+		return &other;
 	}
 
-	return false;
+	return nullptr;
+}
+
+bool Player::isLevelOwnedByLocalClient() const
+{
+	return levelOwner() == MyPlayer;
 }
 
 Player *PlayerAtPosition(Point position, bool ignoreMovingPlayers /*= false*/)
@@ -2869,6 +2874,8 @@ void ApplyPlrDamage(DamageType damageType, Player &player, int dam, int minHP /*
 	if (player._pHitPoints < minHitPoints) {
 		SetPlayerHitPoints(player, minHitPoints);
 	}
+	if (keeper::HoldsBotAlive(player) && player.hasNoLife()) // [DARK KEEP] fights differ between clients: the host says when a bot dies
+		SetPlayerHitPoints(player, 1 << 6);
 	if (player.hasNoLife()) {
 		SyncPlrKill(player, deathReason);
 	}

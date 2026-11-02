@@ -5,8 +5,11 @@
  */
 #include <cstdint>
 
+#include <algorithm>
 #include <limits>
 
+#include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_game.hpp" // [DARK KEEP]
 #include "levels/gendung.h"
 #include "lighting.h"
 #include "monster.h"
@@ -161,6 +164,16 @@ void SyncMonster(bool isOwner, const TSyncMonster &monsterSync)
 		return;
 	}
 
+	// [DARK KEEP] OnSyncData only lets this through from the host. Its life is the true one; a possessed
+	// monster answers to its master here, and a blow in mid-swing lands before the next sync moves it.
+	if (keeper::IsActive()) {
+		const int hitPoints = SwapSigned32LE(monsterSync._mhitpoints);
+		if (hitPoints > 0)
+			monster.hitPoints = std::min(hitPoints, monster.maxHitPoints);
+		if (keeper::IgnoresMonsterSyncMove(monster))
+			return;
+	}
+
 	const Point position { monsterSync._mx, monsterSync._my };
 	const uint8_t enemyId = monsterSync._menemy;
 
@@ -170,7 +183,8 @@ void SyncMonster(bool isOwner, const TSyncMonster &monsterSync)
 			delta = 255;
 		}
 
-		if (delta < monsterSync._mdelta || (delta == monsterSync._mdelta && isOwner)) {
+		// [DARK KEEP] the masters' bodies are parked, so "nearest player" means nothing: OnSyncData took this from the host
+		if (!keeper::IsActive() && (delta < monsterSync._mdelta || (delta == monsterSync._mdelta && isOwner))) {
 			return;
 		}
 		if (monster.position.future == position) {
@@ -232,6 +246,8 @@ bool IsTSyncEnemyValid(const TSyncMonster &monsterSync)
 
 size_t sync_all_monsters(std::byte *pbBuf, size_t dwMaxLen)
 {
+	if (keeper::IsActive() && !keeper::IsHost()) // [DARK KEEP] nobody listens to a joiner about monsters
+		return dwMaxLen;
 	if (ActiveMonsterCount < 1) {
 		return dwMaxLen;
 	}
@@ -299,6 +315,7 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 	if (IsValidLevelForMultiplayer(level)) {
 		const auto *monsterSyncs = reinterpret_cast<const TSyncMonster *>(&header + 1);
 		const bool isOwner = player.getId() > MyPlayerId;
+		const bool takeSync = keeper::TakesMonsterSyncFrom(player); // [DARK KEEP]
 
 		for (int i = 0; i < monsterCount; i++) {
 			if (!IsTSyncMonsterValid(monsterSyncs[i]))
@@ -307,10 +324,12 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 			if (syncLocalLevel) {
 				if (!IsTSyncEnemyValid(monsterSyncs[i]))
 					continue;
-				SyncMonster(isOwner, monsterSyncs[i]);
+				if (takeSync)
+					SyncMonster(isOwner, monsterSyncs[i]);
 			}
 
-			delta_sync_monster(monsterSyncs[i], level);
+			if (takeSync) // [DARK KEEP] whoHit comes with it: only the host's counts, and masters earn no engine XP from it
+				delta_sync_monster(monsterSyncs[i], level);
 		}
 	}
 

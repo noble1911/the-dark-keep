@@ -524,8 +524,13 @@ std::string_view ClassName(const HeroState &hero)
 	return HeroClasses[static_cast<size_t>(hero.cls)].name;
 }
 
-void HeroEscapes(Monster &monster, HeroState &hero)
+void HeroEscapes(Monster &monster, HeroState &hero, bool throughPortal)
 {
+	if (throughPortal) {
+		State.portalEscape = true;
+		Announce(fmt::format("A {} escaped through the portal!", ClassName(hero)));
+		hero.carried = std::max(hero.carried, 0);
+	}
 	NoteHeroLeft(hero.fleeing && !State.bossDown, std::max(hero.carried, 0));
 	if (hero.carried > 0) {
 		State.goldLost += hero.carried;
@@ -537,6 +542,17 @@ void HeroEscapes(Monster &monster, HeroState &hero)
 	M_ClearSquares(monster);
 	monster.hitPoints = 0;
 	monster.isInvalid = true;
+}
+
+/** Only the host's copy decides it has got out, and tells the others: its life and death are the host's too. */
+void LeaveKeep(Monster &monster, HeroState &hero, bool throughPortal)
+{
+	if (!IsHost()) {
+		KeeperAiDelay(monster, 5);
+		return;
+	}
+	NotifyHeroEscaped(monster.getId(), throughPortal, hero.fleeing, std::max(hero.carried, 0));
+	HeroEscapes(monster, hero, throughPortal);
 }
 
 void HeroSteals(Monster &monster, HeroState &hero)
@@ -628,7 +644,7 @@ void RogueCheckTraps(const Monster &monster, HeroState &hero)
 		hero.trapsKnown |= static_cast<uint16_t>(1U << i);
 		if (GenerateRnd(100) < RogueDisarmPercent) {
 			trap.active = false;
-			Announce("A Rogue disarmed one of your Fire Traps!");
+			Announce(fmt::format("A Rogue disarmed one of your {}s!", TrapKinds[trap.kind].name));
 		}
 	}
 }
@@ -958,10 +974,7 @@ void HeroAi(Monster &monster)
 	if (State.bossDown) {
 		if (Portal.open) {
 			if (FieldAt(ToPortal, monster.position.tile) <= 1) {
-				State.portalEscape = true;
-				Announce(fmt::format("A {} escaped through the portal!", ClassName(hero)));
-				hero.carried = std::max(hero.carried, 0);
-				HeroEscapes(monster, hero);
+				LeaveKeep(monster, hero, true);
 				return;
 			}
 			const DistanceField &route = RouteField(HeroGoal::Portal, hero.trapsKnown);
@@ -1046,7 +1059,7 @@ void HeroAi(Monster &monster)
 	}
 
 	if (FieldAt(ToEntrance, monster.position.tile) <= 1) {
-		HeroEscapes(monster, hero);
+		LeaveKeep(monster, hero, false);
 		return;
 	}
 	const DistanceField &route = RouteField(HeroGoal::Entrance, hero.trapsKnown);
@@ -1202,6 +1215,16 @@ void LeashMonsters()
 			continue;
 		StepHome(monster, home);
 	}
+}
+
+void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried)
+{
+	if (monsterId >= MaxMonsters || !Heroes[monsterId].active)
+		return;
+	HeroState &hero = Heroes[monsterId];
+	hero.fleeing = fleeing;
+	hero.carried = carried;
+	HeroEscapes(Monsters[monsterId], hero, throughPortal);
 }
 
 void SetMonsterHome(size_t monsterId, Point tile)

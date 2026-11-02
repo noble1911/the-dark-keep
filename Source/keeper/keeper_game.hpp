@@ -225,6 +225,14 @@ bool IsHost();
 /** A client that came into a game in play hasn't had the keep's state yet: its phase is only a guess. */
 bool IsAwaitingKeepSnapshot();
 
+/**
+ * Keep monsters follow the host alone. Left to the engine's rule (whoever's player is nearest wins) a joiner
+ * who no longer sees a hero could walk the host's Keep Lord away from that hero for ever, and the raid never ends.
+ */
+bool TakesMonsterSyncFrom(const Player &sender);
+/** The host's position for this monster would interrupt what it is doing: a master drives it, or it is in mid-attack. */
+bool IgnoresMonsterSyncMove(const Monster &monster);
+
 /** Placement checks (run locally before sending; the host re-checks). */
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason = nullptr);
 bool CanLockDoorAt(Point tile, std::string_view *reason = nullptr);
@@ -284,6 +292,13 @@ void RequestOrder(Point tile, int targetMonster);
 void RequestSpawnBot(size_t slot, HeroClassKind cls, Point tile);
 
 constexpr int PossessManaCost = 10;
+
+/** Dev/test (--keeper-devctl): sets off a trap at a tile, whoever stands there. */
+void DevFireTrap(size_t slot, Point victim);
+
+/** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
+void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
+void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 
 /** Handles CMD_KEEPER / CMD_KEEPER_STATE. @return bytes consumed */
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize);

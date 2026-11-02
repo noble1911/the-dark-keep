@@ -946,6 +946,13 @@ if(SCREEN_READER_INTEGRATION)
   )
 endif()
 
+if(KEEPER_DEVCTL) # [DARK KEEP]
+  if(USE_SDL1 OR USE_SDL3 OR NOT DEVILUTIONX_SCREENSHOT_FORMAT STREQUAL DEVILUTIONX_SCREENSHOT_FORMAT_PNG)
+    message(FATAL_ERROR "KEEPER_DEVCTL needs SDL2 and PNG screenshots")
+  endif()
+  list(APPEND libdevilutionx_SRCS keeper/keeper_devctl.cpp)
+endif()
+
 if(DEVILUTIONX_SCREENSHOT_FORMAT STREQUAL DEVILUTIONX_SCREENSHOT_FORMAT_PCX)
   list(APPEND libdevilutionx_SRCS
     utils/surface_to_pcx.cpp

@@ -244,7 +244,7 @@ bool StepOutOfFire(Player &bot)
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const Point tile = bot.position.tile + dir;
 		if (!IsBurning(tile) && PosOkPlayer(bot, tile)) {
-			MakePlrPath(bot, tile, false);
+			MakePlrPath(bot, tile, true); // true: all the way onto it, and without it a next-door tile is no steps at all
 			bot.destAction = ACTION_NONE;
 			return true;
 		}
@@ -328,6 +328,18 @@ void Escape(Player &bot, BotState &state, bool throughPortal)
 	RemoveBot(bot);
 }
 
+/** Positions differ between clients, so only the host's copy decides it has got out. */
+void LeaveKeep(Player &bot, BotState &state, bool throughPortal)
+{
+	if (HoldsBotAlive(bot)) {
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+		return;
+	}
+	NotifyBotEscaped(SlotOf(bot), throughPortal, state.fleeing, std::max(state.carried, 0));
+	Escape(bot, state, throughPortal);
+}
+
 void HandleDeath(Player &bot, BotState &state)
 {
 	if (state.deathHandled)
@@ -385,7 +397,7 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 		state.trapsKnown |= static_cast<uint16_t>(1U << i);
 		if (SyncedRoll(bot, static_cast<uint32_t>(i) + static_cast<uint32_t>(trap.position.x * 256 + trap.position.y) * 16) < RogueDisarmPercent) {
 			trap.active = false;
-			Announce(fmt::format("{} disarmed one of your Fire Traps!", bot._pName));
+			Announce(fmt::format("{} disarmed one of your {}s!", bot._pName, TrapKinds[trap.kind].name));
 		}
 	}
 }
@@ -477,11 +489,11 @@ void Think(Player &bot, BotState &state)
 
 	// Out through the portal (once the Lord is dead) or the entrance (thieves and cowards).
 	if (State.bossDown && PortalPosition() && GoalDistance(HeroGoal::Portal, position) <= 1) {
-		Escape(bot, state, true);
+		LeaveKeep(bot, state, true);
 		return;
 	}
 	if (!State.bossDown && (state.carried != 0 || state.fleeing) && GoalDistance(HeroGoal::Entrance, position) <= 1) {
-		Escape(bot, state, false);
+		LeaveKeep(bot, state, false);
 		return;
 	}
 
@@ -550,6 +562,54 @@ bool IsBot(const Player &player)
 bool IsLivingBot(const Player &player)
 {
 	return IsBot(player) && player.plractive && !player.hasNoLife() && player.isOnActiveLevel();
+}
+
+namespace {
+
+constexpr int32_t BotLifeGone = -1;
+constexpr int32_t BotLifeUnknown = -2;
+
+} // namespace
+
+bool HoldsBotAlive(const Player &player)
+{
+	return IsBot(player) && IsActive() && !IsHost();
+}
+
+int32_t BotLifeForSync(size_t slot)
+{
+	if (PendingSpawn[slot])
+		return BotLifeUnknown; // its spawn message is already on its way, ahead of this one
+	const Player &bot = Players[FirstBotId + slot];
+	return bot.plractive ? std::max(bot._pHitPoints, 0) : BotLifeGone;
+}
+
+void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
+{
+	Player &bot = Players[FirstBotId + slot];
+	if (hitPoints == BotLifeUnknown || !IsLivingBot(bot))
+		return;
+	if (hitPoints == BotLifeGone) {
+		// Not there on the host, and ApplyBotEscaped didn't say why. This copy can't die, so it has to go.
+		RemoveBot(bot);
+		return;
+	}
+	if (hitPoints == 0) {
+		SyncPlrKill(bot, DeathReason::MonsterOrTrap);
+		HandleDeath(bot, Bots[slot]); // now: the raid may end before the next tick looks
+	} else
+		SetPlayerHitPoints(bot, std::min(hitPoints, bot._pMaxHP));
+}
+
+void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
+{
+	Player &bot = Players[FirstBotId + slot];
+	if (!IsLivingBot(bot))
+		return;
+	BotState &state = Bots[slot];
+	state.fleeing = fleeing;
+	state.carried = carried;
+	Escape(bot, state, throughPortal);
 }
 
 bool SimulatesLocally(const Player &player)

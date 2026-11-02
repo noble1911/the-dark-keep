@@ -569,7 +569,9 @@ bool InitMulti(GameData *gameData)
 	const bool isRematch = rematch.role != keeper::RematchRole::None;
 	bool connected = false;
 	if (keeper::AutoNet != keeper::AutoNetMode::None || isRematch) {
-		if (!SNetInitializeProvider(isRematch ? provider : SELCONN_TCP, gameData))
+		if (!isRematch)
+			provider = SELCONN_TCP; // [DARK KEEP] so a test game's Next and Retry stay on it
+		if (!SNetInitializeProvider(provider, gameData))
 			return false;
 		RegisterNetEventHandlers();
 		char *password = PublicGame ? nullptr : selgame_Password;

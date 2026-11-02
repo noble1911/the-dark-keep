@@ -121,6 +121,10 @@ endif()
   mark_as_advanced(DEVILUTIONX_DISPLAY_TEXTURE_FORMAT)
 endif()
 
+# [DARK KEEP] Lets scripts/dev drive a game with no window. Needs SDL2 and PNG screenshots.
+option(KEEPER_DEVCTL "Build the --keeper-devctl test driver" OFF)
+mark_as_advanced(KEEPER_DEVCTL)
+
 if(USE_SDL1)
   # SDL_image in SDL1 does not support PNG, making PCX the only option.
   set(DEVILUTIONX_SCREENSHOT_FORMAT "DEVILUTIONX_SCREENSHOT_FORMAT_PCX")

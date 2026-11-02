@@ -144,6 +144,8 @@ enum class Action : uint8_t {
 	Restart,
 	SyncUpgrade,
 	SyncHostSlot,
+	BotEscaped,
+	HeroEscaped,
 };
 
 #pragma pack(push, 1)
@@ -170,6 +172,7 @@ struct TCmdKeeperState {
 	int32_t bossHitPoints;
 	/** Every upgrade's tier, so a client that joined late still gets them. */
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
+	std::array<int32_t, MaxBots> botHitPoints;
 };
 #pragma pack(pop)
 
@@ -222,6 +225,8 @@ void BroadcastState()
 	const Monster *boss = FindBoss();
 	cmd.bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(boss != nullptr ? boss->hitPoints : -1)));
 	cmd.upgradeTiers = UpgradeTiers();
+	for (size_t i = 0; i < MaxBots; i++)
+		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -318,6 +323,9 @@ void AnnouncePhase(Phase from, Phase to)
 
 void SetPhase(Phase phase)
 {
+	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
+	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
+		BroadcastState();
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
 	switch (phase) {
@@ -457,6 +465,10 @@ void EndRaid()
 
 // ---- host-side request handling ----------------------------------------------
 
+void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile);
+void ApplyDoorLocked(uint8_t slot, Point doorPosition);
+void ApplyBaitPlaced(uint8_t slot, Point tile);
+
 void HostBuild(const Player &requester, size_t kind, Point tile)
 {
 	if (kind >= BuildKinds.size() || !CanBuildAt(kind, tile))
@@ -475,6 +487,9 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 	}
 	State.vaultGold -= BuildKinds[kind].cost;
 	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
+	// Now, not when the message comes back: requests that arrive together (two masters, or one quick one)
+	// must see this one when they check its slot, its tile and the Pop it takes.
+	ApplyBuilt(slot, static_cast<uint8_t>(kind), tile);
 	BroadcastState();
 }
 
@@ -487,6 +502,8 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 		if (slot >= MaxLairs)
 			return;
 		Lair &lair = State.lairs[slot];
+		if (lair.active && lair.kind == kind && lair.position == tile)
+			return; // the host's own placement coming back
 		lair = {};
 		lair.active = true;
 		lair.kind = kind;
@@ -499,6 +516,8 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 		if (slot >= MaxTraps)
 			return;
 		Trap &trap = State.traps[slot];
+		if (trap.active && trap.kind == kind - NumLairKinds && trap.position == tile)
+			return;
 		trap.active = true;
 		trap.position = tile;
 		trap.cooldown = summon;
@@ -513,14 +532,16 @@ void HostLockDoor(Point doorPosition)
 	const auto it = std::find_if(State.locks.begin(), State.locks.end(), [](const DoorLock &lock) { return !lock.active; });
 	if (it == State.locks.end())
 		return;
+	const auto slot = static_cast<uint8_t>(it - State.locks.begin());
 	State.vaultGold -= LockDoorCost;
-	Send(Action::DoorLocked, static_cast<uint8_t>(it - State.locks.begin()), 0, doorPosition);
+	Send(Action::DoorLocked, slot, 0, doorPosition);
+	ApplyDoorLocked(slot, doorPosition);
 	BroadcastState();
 }
 
 void ApplyDoorLocked(uint8_t slot, Point doorPosition)
 {
-	if (slot >= MaxLocks)
+	if (slot >= MaxLocks || (State.locks[slot].active && State.locks[slot].position == doorPosition))
 		return;
 	Object *door = FindObjectAtPosition(doorPosition);
 	if (door == nullptr || !door->isDoor())
@@ -541,14 +562,16 @@ void HostPlaceBait(Point tile)
 	const auto it = std::find_if(State.baits.begin(), State.baits.end(), [](const Bait &bait) { return !bait.active; });
 	if (it == State.baits.end())
 		return;
+	const auto slot = static_cast<uint8_t>(it - State.baits.begin());
 	State.vaultGold -= BaitCost;
-	Send(Action::BaitPlaced, static_cast<uint8_t>(it - State.baits.begin()), 0, tile);
+	Send(Action::BaitPlaced, slot, 0, tile);
+	ApplyBaitPlaced(slot, tile);
 	BroadcastState();
 }
 
 void ApplyBaitPlaced(uint8_t slot, Point tile)
 {
-	if (slot >= MaxBaits)
+	if (slot >= MaxBaits || (State.baits[slot].active && State.baits[slot].position == tile))
 		return;
 	Bait &bait = State.baits[slot];
 	bait.active = true;
@@ -556,12 +579,16 @@ void ApplyBaitPlaced(uint8_t slot, Point tile)
 	bait.uses = BaitUses;
 }
 
+void ApplySold(uint8_t type, uint8_t slot);
+
 void HostSell(StructureRef ref)
 {
 	if (!CanSell(ref))
 		return;
 	State.vaultGold += RefundFor(ref);
 	Send(Action::Sold, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
+	// Now, not when the message comes back: a second request in the same turn mustn't refund again.
+	ApplySold(static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
 	BroadcastState();
 }
 
@@ -1125,6 +1152,18 @@ bool IsHost()
 	return !awaitingKeepSnapshot && MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
 }
 
+bool TakesMonsterSyncFrom(const Player &sender)
+{
+	if (!IsActive())
+		return true;
+	return !IsHost() && MyPlayer->levelOwner() == &sender;
+}
+
+bool IgnoresMonsterSyncMove(const Monster &monster)
+{
+	return IsPossessed(monster) || IsAnyOf(monster.mode, MonsterMode::MeleeAttack, MonsterMode::SpecialMeleeAttack, MonsterMode::RangedAttack, MonsterMode::SpecialRangedAttack);
+}
+
 bool IsAwaitingKeepSnapshot()
 {
 	return awaitingKeepSnapshot;
@@ -1251,6 +1290,12 @@ void GameTick()
 
 	if (--ticksUntilBroadcast <= 0)
 		BroadcastState();
+}
+
+void DevFireTrap(size_t slot, Point victim)
+{
+	if (slot < State.traps.size() && State.traps[slot].active)
+		FireTrap(State.traps[slot], victim);
 }
 
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
@@ -1631,6 +1676,27 @@ void AddVaultGold(int amount)
 	State.vaultGold += amount;
 }
 
+namespace {
+
+/** Escape facts travel in `a` (bit 0: portal, bit 1: fleeing), with the gold split over x and y. */
+void SendEscape(Action action, uint8_t b, uint16_t w, bool throughPortal, bool fleeing, int carried)
+{
+	const int gold = std::clamp(carried, 0, 0xFFFF);
+	Send(action, static_cast<uint8_t>((throughPortal ? 1 : 0) | (fleeing ? 2 : 0)), b, { gold & 0xFF, gold >> 8 }, w);
+}
+
+} // namespace
+
+void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
+{
+	SendEscape(Action::BotEscaped, static_cast<uint8_t>(slot), 0, throughPortal, fleeing, carried);
+}
+
+void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried)
+{
+	SendEscape(Action::HeroEscaped, 0, static_cast<uint16_t>(monsterId), throughPortal, fleeing, carried);
+}
+
 size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 {
 	if (cmd->bCmd == CMD_KEEPER_STATE) {
@@ -1639,6 +1705,12 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		const auto &message = *reinterpret_cast<const TCmdKeeperState *>(cmd);
 		if (&player != MyPlayer && !IsHost()) {
 			const Phase phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
+			// Before the phase and the wave: leaving a raid removes the bots and moves the wave on, and a
+			// death has to be counted first, at the raid's own bounty.
+			if (phase == Phase::Raid) {
+				for (size_t i = 0; i < MaxBots; i++)
+					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
+			}
 			State.wave = message.wave;
 			const bool wasBossDown = State.bossDown;
 			State.bossDown = (message.reserved & 1) != 0;
@@ -1724,7 +1796,16 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			HostSell({ static_cast<StructureType>(message.a), message.b });
 		break;
 	case Action::Sold:
-		ApplySold(message.a, message.b);
+		if (&player != MyPlayer) // the host did it as it sent this, and may have reused the slot since
+			ApplySold(message.a, message.b);
+		break;
+	case Action::BotEscaped:
+		if (&player != MyPlayer && message.b < MaxBots)
+			ApplyBotEscaped(message.b, (message.a & 1) != 0, (message.a & 2) != 0, message.x | (message.y << 8));
+		break;
+	case Action::HeroEscaped:
+		if (&player != MyPlayer)
+			ApplyHeroEscaped(Swap16LE(message.w), (message.a & 1) != 0, (message.a & 2) != 0, message.x | (message.y << 8));
 		break;
 	case Action::RequestRally:
 		if (IsHost())

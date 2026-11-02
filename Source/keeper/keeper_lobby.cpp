@@ -36,15 +36,15 @@ constexpr int FooterLineHeight = 13;
 constexpr int CellGap = 4;
 constexpr int IconSize = SPLICONLENGTH + 4;
 constexpr int CellHeight = IconSize + 26;
-constexpr int ButtonWidth = 120;
+constexpr int ButtonWidth = 144;
 constexpr int ButtonHeight = 16;
 constexpr int ButtonGap = 2;
 constexpr int MastersLeft = 6;
 /** Below the engine's FPS counter. */
 constexpr int MastersTop = 24;
-constexpr int MastersWidth = 170;
+constexpr int MastersWidth = 186;
 constexpr int MastersRowHeight = 14;
-constexpr int MastersTagWidth = 60;
+constexpr int MastersTagWidth = 76;
 
 bool panelOpen = false;
 /** The panel opens by itself once the keep's state has arrived and a raid isn't on. */
@@ -162,7 +162,7 @@ void DrawSpellCell(const Surface &out, const Rectangle &cell, size_t spell, cons
 
 	DrawString(out, FitText(SpellKinds[spell].name, cell.size.width), { cell.position + Displacement { 0, IconSize }, { cell.size.width, 13 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (slot ? UiFlags::ColorGold : UiFlags::ColorWhite) });
-	DrawString(out, fmt::format("{} mana", SpellManaCost(spell)), { cell.position + Displacement { 0, IconSize + 13 }, { cell.size.width, 13 } },
+	DrawString(out, fmt::format("{} MP", SpellManaCost(spell)), { cell.position + Displacement { 0, IconSize + 13 }, { cell.size.width, 13 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorBlue });
 }
 
@@ -350,7 +350,11 @@ void DrawMasters(const Surface &out)
 			tag += host ? ", you" : "you";
 		if (!mine && (player._pLvlChanging || !player.isOnActiveLevel()))
 			tag += tag.empty() ? "arriving" : ", arriving";
-		rows.push_back({ player._pName, std::move(tag), mine });
+		// Everyone's hero is called the same unless they renamed it.
+		const bool sameName = std::any_of(Players.begin(), Players.begin() + NetPlayerSlots, [&](const Player &other) {
+			return &other != &player && other.plractive && std::string_view(other._pName) == player._pName;
+		});
+		rows.push_back({ sameName ? fmt::format("{} {}", player._pName, player.getId() + 1) : std::string(player._pName), std::move(tag), mine });
 	}
 
 	const Rectangle panel { { MastersLeft, MastersTop }, { MastersWidth, 18 + static_cast<int>(rows.size()) * MastersRowHeight + 2 } };

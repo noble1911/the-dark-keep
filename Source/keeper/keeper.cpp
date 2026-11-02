@@ -839,12 +839,12 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 		if (lair.summonTicks > 0) {
 			state = "Summoning...";
 		} else if (const Monster *monster = LairMonster(ref.slot); monster != nullptr) {
-			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At its rally point" : "Guarding its lair");
+			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At rally point" : "Guarding lair");
 			state = fmt::format("{} ({}%)", duty, monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
 		} else {
 			state = "Slain: returns after the raid";
 		}
-		help = fmt::format("Pop {}. Right-click the floor to set a rally point{}. Shift+right-click adds a waypoint.", BuildKinds[lair.kind].supply, lair.hasRally || lair.routeCount > 0 ? ", or the lair to clear it" : "");
+		help = fmt::format("Pop {}. Right-click: rally point. Shift: waypoint.{}", BuildKinds[lair.kind].supply, lair.hasRally || lair.routeCount > 0 ? " On lair: clear." : "");
 		break;
 	}
 	case StructureType::Trap:
@@ -906,7 +906,7 @@ void DrawInfoPanel(const Surface &out)
 			return;
 		}
 		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		const std::string controls = fmt::format("Pick a card, then click in the keep to place it. Click a hero to inspect it, or your own monster or trap to sell it or give it orders. Drag a box to select monsters.\n{}{}{}{} / edges: move  Wheel: zoom\n{}: entrance  {}: vault  {}: possess",
+		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
 		    KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
 		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
 		DrawString(out, WordWrapString(controls, textWidth),
@@ -1649,8 +1649,11 @@ void Tick()
 		if (player.plractive && player.isOnActiveLevel() && !player._pLvlChanging && !IsBot(player)) {
 			ParkPlayer(player);
 			// Many spells scale with the caster's level as well as the spell's.
-			if (player.getCharacterLevel() != masterLevel)
+			if (player.getCharacterLevel() != masterLevel) {
 				player.setCharacterLevel(masterLevel);
+				// What the level changes too: a joiner checks the host's numbers against its own and drops it on any difference.
+				CalcPlrInv(player, false);
+			}
 		}
 	}
 	RevealKeep();
@@ -1671,6 +1674,16 @@ void Tick()
 	}
 	if (tickCounter % 10 == 0)
 		LeashMonsters();
+}
+
+uint32_t DevKeeperTicks()
+{
+	return tickCounter;
+}
+
+void DevCenterCamera(Point tile)
+{
+	CenterCameraOn(tile);
 }
 
 void UpdateCamera()
@@ -2149,7 +2162,7 @@ void DrawUi(const Surface &out)
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
 	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite) });

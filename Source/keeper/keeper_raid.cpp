@@ -158,7 +158,7 @@ Rectangle RowRect(const Rectangle &roster, size_t index)
 
 // ---- summary -----------------------------------------------------------------------
 
-constexpr int SummaryWidth = 250;
+constexpr int SummaryWidth = 280;
 constexpr int SummaryLineHeight = 14;
 constexpr int SummaryTitleHeight = 22;
 
