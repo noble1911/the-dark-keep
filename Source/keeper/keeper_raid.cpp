@@ -329,6 +329,7 @@ void NoteRaidStarted(uint8_t wave)
 	current.wave = wave;
 	raidActive = true;
 	summaryVisible = false;
+	ProfileMarkRaidStart();
 }
 
 void NoteRaidEnded(Phase outcome, int tribute)

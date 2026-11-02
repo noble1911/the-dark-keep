@@ -33,6 +33,7 @@
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "utils/ui_fwd.h"
 #include "utils/utf8.hpp"
@@ -44,6 +45,8 @@ namespace {
 constexpr int DescriptionWidth = 205;
 constexpr size_t VisibleRows = 6;
 constexpr int NothingChosen = -1;
+/** The Continue row of the campaign list; levels and the Keeper row are small numbers. */
+constexpr int ContinueRow = 1000;
 
 struct ScreenItem {
 	std::string text;
@@ -151,8 +154,17 @@ int RunListScreen(const char *title, const char *heading, const std::vector<Scre
 	return chosenValue;
 }
 
+/** What Continue would bring back, while the campaign list is up. */
+std::optional<ResumeData> offeredResume;
+
 void DescribeCampaignLevel(int level)
 {
+	if (level == ContinueRow && offeredResume) {
+		const LevelRules &saved = CampaignLevelRules(offeredResume->level);
+		SetLabel("Continue");
+		SetDescription(fmt::format("{}\n\nRaid {} of {} is coming.\nVault: {} gold\nLairs: {}\n\nPicks up where you left the keep.", saved.name, offeredResume->wave, saved.raids, offeredResume->gold, offeredResume->lairs.size()));
+		return;
+	}
 	const LevelRules &rules = CampaignLevelRules(level);
 	SetLabel(fmt::format("Level {}", KeeperLevel()));
 	if (level == 0) {
@@ -200,11 +212,18 @@ void DescribeGameKind(int kind)
 
 } // namespace
 
-bool UiCampaignLevelSelect()
+namespace {
+
+bool CampaignLevelSelect(bool offerContinue)
 {
 	const int cleared = LevelsCleared();
 	const int rank = NextOpenLevel();
 	std::vector<ScreenItem> items;
+	ClearPendingResume();
+	offeredResume = offerContinue ? ReadResumeFile() : std::nullopt;
+	const size_t firstRows = offeredResume ? 1 : 0;
+	if (offeredResume)
+		items.push_back({ "Continue", ContinueRow, UiFlags::ColorUiGold });
 	items.push_back({ "Keeper", 0, UiFlags::ColorUiSilver });
 	for (int level = 1; level <= NumCampaignLevels; level++) {
 		const std::string_view name = CampaignLevelRules(level).name;
@@ -215,19 +234,31 @@ bool UiCampaignLevelSelect()
 		else
 			items.push_back({ fmt::format("{}. {}", level, name), level, UiFlags::ColorUiGold });
 	}
-	size_t initial = static_cast<size_t>(rank);
+	size_t initial = offeredResume ? 0 : static_cast<size_t>(rank);
 	int level = NothingChosen;
 	while (true) {
 		level = RunListScreen("Campaign", "Select Level", items, initial, DescribeCampaignLevel);
 		if (level != 0)
 			break;
 		UiKeeperScreen();
-		initial = 0;
+		initial = firstRows;
 	}
 	if (level == NothingChosen)
 		return false;
+	if (level == ContinueRow) {
+		SetCurrentSetup(SetupForCampaignLevel(offeredResume->level));
+		SetPendingResume(*offeredResume);
+		return true;
+	}
 	SetCurrentSetup(SetupForCampaignLevel(level));
 	return true;
+}
+
+} // namespace
+
+bool UiCampaignLevelSelect()
+{
+	return CampaignLevelSelect(/*offerContinue=*/true);
 }
 
 bool UiCustomMapSelect()
@@ -275,7 +306,7 @@ bool UiHostGameSelect()
 		if (kind == NothingChosen)
 			return false;
 		initial = static_cast<size_t>(kind);
-		if (kind == static_cast<int>(GameMode::Campaign) ? UiCampaignLevelSelect() : UiCustomMapSelect())
+		if (kind == static_cast<int>(GameMode::Campaign) ? CampaignLevelSelect(/*offerContinue=*/false) : UiCustomMapSelect())
 			return true;
 	}
 }

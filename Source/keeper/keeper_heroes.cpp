@@ -23,6 +23,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -248,6 +249,9 @@ bool CanStepDiagonal(Point from, Displacement step)
 
 void BuildFieldAvoiding(DistanceField &field, Point target, tl::function_ref<bool(Point)> isShut)
 {
+#ifdef KEEPER_DEVCTL
+	const DevPerfScope perf(DevPerfCounter::Field);
+#endif
 	for (auto &column : field)
 		column.fill(Unreachable);
 	if (!InDungeonBounds(target))
@@ -339,6 +343,9 @@ Point GoalTile(HeroGoal goal)
 
 void BuildRoute(DistanceField &field, Point target, uint16_t traps)
 {
+#ifdef KEEPER_DEVCTL
+	const DevPerfScope perf(DevPerfCounter::Route);
+#endif
 	static DistanceField tileCost;
 	for (auto &column : tileCost)
 		column.fill(1);
@@ -1872,6 +1879,33 @@ void ApplyPortalSyncState(const PortalSyncState &state)
 	Portal.caster = state.casterMonster >= 0 && static_cast<size_t>(state.casterMonster) < MaxMonsters ? state.casterMonster : -1;
 	Portal.channel = state.channel;
 	Portal.castTimeout = state.castTimeout;
+}
+
+void ClearRaiders()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		Monster &monster = Monsters[id];
+		if (!IsHero(monster) || monster.isInvalid)
+			continue;
+		// No bounty, no tally: this attempt is being taken back. Even one in its death throes goes.
+		Heroes[id] = {};
+		M_ClearSquares(monster);
+		monster.hitPoints = 0;
+		monster.isInvalid = true;
+	}
+	// Bots are already gone: the raid's end removed them.
+	pendingParty.clear();
+	spawnCooldown = 0;
+}
+
+void HealKeepMonsters()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		Monster &monster = Monsters[ActiveMonsters[i]];
+		if (!IsHero(monster) && IsAliveMonster(monster) && monster.type().type != MT_GOLEM)
+			monster.hitPoints = monster.maxHitPoints;
+	}
 }
 
 void ClosePortal()

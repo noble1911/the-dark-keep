@@ -27,13 +27,17 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "missiles.h"
 #include "monster.h"
+#include "multi.h"
 #include "objects.h"
 #include "player.h"
 #include "utils/display.h"
@@ -125,10 +129,36 @@ void WriteState()
 	line += fmt::format(" heroes={} loot={} monsters={} boss={},{} bossHp={}/{} bossDown={}",
 	    heroes, inKeep ? GoldInFlight() : 0, keepers, boss != nullptr ? boss->position.tile.x : -1, boss != nullptr ? boss->position.tile.y : -1,
 	    boss != nullptr ? boss->hitPoints >> 6 : 0, boss != nullptr ? boss->maxHitPoints >> 6 : 0, State.bossDown);
+	line += fmt::format(" retryGold={} speed={} held={} turn={} ticks={}", State.retryGold, GameSpeedMultiplier(), IsPrepTimerHeld(), MyPlayer != nullptr ? multi_last_turn_from(LobbyHostSlot() != NoHostSlot ? LobbyHostSlot() : 0) : 0, DevKeeperTicks());
 	line += fmt::format(" xp={} mapXp={} klevel={} renown={} cleared={} curs={},{} mouse={},{} screen={}x{} level={} entrance={},{} vault={},{}",
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
 	Output(line);
+}
+
+struct PerfTotals {
+	uint64_t count = 0;
+	uint64_t total = 0;
+	uint64_t worst = 0;
+};
+std::array<PerfTotals, NumDevPerfCounters> perf;
+uint32_t perfSince = 0;
+uint32_t perfTicksAtStart = 0;
+
+void WritePerf()
+{
+	const double frequency = static_cast<double>(SDL_GetPerformanceFrequency()) / 1000.0;
+	const uint32_t now = SDL_GetTicks();
+	std::string line = fmt::format("perf ms={} ticks={} speedDelay={} activeMonsters={} heroes={}", now - perfSince, DevKeeperTicks() - perfTicksAtStart, gnTickDelay, ActiveMonsterCount, IsActive() ? LivingHeroCount() : 0);
+	constexpr std::array<const char *, NumDevPerfCounters> Names { "logic", "draw", "route", "field" };
+	for (size_t i = 0; i < perf.size(); i++) {
+		const PerfTotals &totals = perf[i];
+		line += fmt::format(" {}[n={} avg={:.3f} max={:.3f} total={:.1f}]", Names[i], totals.count, totals.count > 0 ? static_cast<double>(totals.total) / frequency / static_cast<double>(totals.count) : 0.0, static_cast<double>(totals.worst) / frequency, static_cast<double>(totals.total) / frequency);
+	}
+	Output(line);
+	perf = {};
+	perfSince = now;
+	perfTicksAtStart = DevKeeperTicks();
 }
 
 /** Raid events, without having to poll: when heroes reach the vault, and how each raid ended. */
@@ -472,6 +502,19 @@ void Execute(const std::string &line)
 		in >> a;
 		logEvery = a;
 		nextLog = 0;
+	} else if (command == "resumefile") {
+		Output(fmt::format("resumefile exists={}", HasResumeFile()));
+	} else if (command == "ping") {
+		in >> a >> b;
+		Output(fmt::format("ping {},{} sent={}", a, b, RequestPing({ a, b })));
+	} else if (command == "pings") {
+		const uint32_t now = SDL_GetTicks();
+		for (const Ping &ping : Pings()) {
+			if (ping.until > now)
+				Output(fmt::format("live ping {},{} from {} left={}", ping.tile.x, ping.tile.y, ping.player, ping.until - now));
+		}
+	} else if (command == "gamespeed") {
+		CycleGameSpeed();
 	} else if (command == "speed") {
 		in >> a;
 		gnTickDelay = static_cast<uint16_t>(std::max(1000 / std::max(a, 1), 1));
@@ -588,6 +631,10 @@ void Execute(const std::string &line)
 		Output(fmt::format("portal open={} at={},{} channel={} bot={} caster={} bossDown={}", portal.open, portal.position.x, portal.position.y, portal.channel, portal.botSlot, portal.casterMonster, State.bossDown));
 	} else if (command == "raid") {
 		RequestStartRaid();
+	} else if (command == "perf") {
+		WritePerf();
+	} else if (command == "retry") {
+		RequestRetryRaid();
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
@@ -691,6 +738,27 @@ void DevctlNoteMessage(std::string_view text)
 {
 	if (enabled)
 		Output(fmt::format("msg t={} {}", IsActive() ? DevKeeperTicks() - watch.startTick : 0, text));
+}
+
+void DevNoteSpeedSwitch(size_t level, uint32_t turn)
+{
+	if (enabled)
+		Output(fmt::format("speedswitch level={} turn={} tick={}", level, turn, DevKeeperTicks()));
+}
+
+DevPerfScope::DevPerfScope(DevPerfCounter counter)
+    : counter_(counter)
+    , start_(SDL_GetPerformanceCounter())
+{
+}
+
+DevPerfScope::~DevPerfScope()
+{
+	const uint64_t spent = SDL_GetPerformanceCounter() - start_;
+	PerfTotals &totals = perf[static_cast<size_t>(counter_)];
+	totals.count++;
+	totals.total += spent;
+	totals.worst = std::max(totals.worst, spent);
 }
 
 void DevctlFrame()

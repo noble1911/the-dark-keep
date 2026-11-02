@@ -85,12 +85,18 @@ void ForgetHostUnlocks();
 // ---- earning XP ------------------------------------------------------------------------------
 
 void ProfileBeginMap();
+/** A raid began: what ProfileTakeBackRaid goes back to. */
+void ProfileMarkRaidStart();
+/** The lost raid is being retried: its XP and stats didn't happen, and nor did the defeat, unless it's lost for good. */
+void ProfileTakeBackRaid();
 void ProfileNoteHeroSlain(int wave);
 void ProfileNoteMonsterLost();
 void ProfileNoteRaidSurvived(int wave);
 /** Call before the level counts as cleared: the first clear pays best. */
 void ProfileNoteVictory(int campaignLevel, bool firstClear);
 void ProfileNoteDefeat();
+/** A saved keep came back: what it had earned so far (the XP itself never left the profile). */
+void ProfileSetMapXp(int xp);
 /** XP earned on the current map. */
 int MapXpEarned();
 /** Writes the file, unless a test flag or an editor test run is in play. */

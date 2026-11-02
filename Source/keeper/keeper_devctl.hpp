@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,29 @@ void DevctlNoteMonsterDrift(int tiles, int hitPoints);
 void DevctlNoteSent(size_t bytes);
 /** The event log, for raid scripts: EventPlrMsg copies each line here. */
 void DevctlNoteMessage(std::string_view text);
+/** Tells the script what turn a speed change landed on. */
+void DevNoteSpeedSwitch(size_t level, uint32_t turn);
+
+/** What the "perf" command times. */
+enum class DevPerfCounter : uint8_t {
+	Logic,
+	Draw,
+	Route,
+	Field,
+};
+constexpr size_t NumDevPerfCounters = 4;
+/** Adds its lifetime to a counter. */
+class DevPerfScope {
+public:
+	explicit DevPerfScope(DevPerfCounter counter);
+	~DevPerfScope();
+	DevPerfScope(const DevPerfScope &) = delete;
+	DevPerfScope &operator=(const DevPerfScope &) = delete;
+
+private:
+	DevPerfCounter counter_;
+	uint64_t start_;
+};
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }
@@ -39,6 +63,7 @@ inline void DevctlNoteBotLifeDrift(int /*hitPoints*/) { }
 inline void DevctlNoteBotFix(bool /*snap*/) { }
 inline void DevctlNoteMonsterDrift(int /*tiles*/, int /*hitPoints*/) { }
 inline void DevctlNoteSent(size_t /*bytes*/) { }
+inline void DevNoteSpeedSwitch(size_t /*level*/, uint32_t /*turn*/) { }
 #endif
 
 } // namespace devilution::keeper

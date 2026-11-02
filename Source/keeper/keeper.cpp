@@ -36,6 +36,7 @@
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
+#include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
@@ -437,6 +438,20 @@ Rectangle ReadyButtonRect()
 {
 	const Rectangle status = StatusRect();
 	return { { status.position.x, status.position.y + status.size.height - 24 }, { StatusWidth, 20 } };
+}
+
+/** The speed toggle, at the right of the phase line. */
+Rectangle SpeedButtonRect()
+{
+	const Rectangle status = StatusRect();
+	return { { status.position.x + status.size.width - 20, status.position.y + 3 }, { 20, 15 } };
+}
+
+/** The phase line up to the speed toggle: clicking the clock holds it. */
+Rectangle PhaseLineRect()
+{
+	const Rectangle status = StatusRect();
+	return { { status.position.x, status.position.y + 3 }, { status.size.width - 22, 15 } };
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -1245,8 +1260,52 @@ void SelectInBox(const Rectangle &box)
 	SetSelection(std::move(found));
 }
 
+/** A ping in view: rings closing in on the tile. Out of view: an arrow at the edge of the screen pointing to it. */
+void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
+{
+	const int screenMargin = 28 * UiScale();
+	const uint8_t color = PAL16_YELLOW + 2;
+	const uint32_t left = ping.until - now;
+	const int ring = static_cast<int>(left / 500 % 3);
+	DrawTileDiamond(out, ping.tile, color, ring);
+	if (ring != 0)
+		DrawTileDiamond(out, ping.tile, color);
+	if (overlayPass != OverlayPass::Text)
+		return;
+	const int maxY = ScreenHudTop();
+	const Point at = TileCenter(ping.tile);
+	const std::string_view name = Players[ping.player]._pName;
+	if (at.x >= 0 && at.x < out.w() && at.y >= 0 && at.y < maxY) {
+		DrawWorldLabel(out, ping.tile, name, UiFlags::ColorGold, 24);
+		return;
+	}
+	const Point middle { out.w() / 2, maxY / 2 };
+	const float dx = static_cast<float>(at.x - middle.x);
+	const float dy = static_cast<float>(at.y - middle.y);
+	const float length = std::max(std::sqrt(dx * dx + dy * dy), 1.F);
+	const float scale = std::min(std::abs(dx) > 0.F ? (middle.x - screenMargin) / std::abs(dx) : 1e6F, std::abs(dy) > 0.F ? (middle.y - screenMargin) / std::abs(dy) : 1e6F);
+	const Point tip { middle.x + static_cast<int>(dx * scale), middle.y + static_cast<int>(dy * scale) };
+	const float ux = dx / length;
+	const float uy = dy / length;
+	for (int back = 12 * UiScale(); back <= 20 * UiScale(); back += 4) {
+		const Point wingA { tip.x - static_cast<int>(ux * back - uy * back / 2), tip.y - static_cast<int>(uy * back + ux * back / 2) };
+		const Point wingB { tip.x - static_cast<int>(ux * back + uy * back / 2), tip.y - static_cast<int>(uy * back - ux * back / 2) };
+		DrawLine(out, tip, wingA, color, maxY);
+		DrawLine(out, tip, wingB, color, maxY);
+		DrawLine(out, wingA, wingB, color, maxY);
+	}
+	const Rectangle label { { std::clamp(tip.x - 60, 0, out.w() - 120), std::clamp(tip.y + (uy > 0 ? -38 : 22), 0, maxY - 14) }, { 120, 14 } };
+	DrawString(out, name, label, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold | UiFlags::Outlined });
+}
+
 void DrawOverlays(const Surface &out)
 {
+	const uint32_t pingNow = SDL_GetTicks();
+	for (const Ping &ping : Pings()) {
+		if (ping.until > pingNow)
+			DrawPing(out, ping, pingNow);
+	}
+
 	DrawTileDiamond(out, State.vault, PAL16_YELLOW + 2, 1);
 	DrawWorldLabel(out, State.vault, fmt::format("Vault: {} gold", State.vaultGold), UiFlags::ColorGold);
 	DrawTileDiamond(out, State.entrance, PAL16_BLUE + 2, 1);
@@ -1447,8 +1506,9 @@ std::string GameOverContinueLabel(const KeepSetup &next)
 {
 	if (IsEditorTestRun())
 		return "Back to editor (Enter)";
+	// With a raid to retry that one has Enter, and this is the long way round.
 	if (State.phase != Phase::Victory)
-		return "Retry (Enter)";
+		return CanRetryRaid() ? "Restart level (L)" : "Retry (Enter)";
 	if (CurrentSetup().mode != GameMode::Campaign)
 		return "Play again (Enter)";
 	return fmt::format("Next: {} (Enter)", CampaignLevelRules(next.campaignLevel).name);
@@ -1459,7 +1519,28 @@ Rectangle GameOverBanner(int width, int hudTop)
 	return { { 0, hudTop / 2 - GameOverBannerHeight * 3 / 5 }, { width, GameOverBannerHeight } };
 }
 
-/** Button `index` of the `count` in the banner's row (the continue button, if any, comes first). */
+/** The banner's buttons, in order. */
+enum class GameOverChoice : uint8_t {
+	RetryRaid,
+	Continue,
+	Keeper,
+	Leave,
+};
+
+std::vector<GameOverChoice> GameOverChoices()
+{
+	std::vector<GameOverChoice> choices;
+	if (CanRetryRaid())
+		choices.push_back(GameOverChoice::RetryRaid);
+	if (GameOverContinue())
+		choices.push_back(GameOverChoice::Continue);
+	if (gbIsMultiplayer)
+		choices.push_back(GameOverChoice::Keeper);
+	choices.push_back(GameOverChoice::Leave);
+	return choices;
+}
+
+/** Button `index` of the `count` in the banner's row. Three still fit on a small screen. */
 Rectangle GameOverButton(int width, int hudTop, int index, int count)
 {
 	const Rectangle banner = GameOverBanner(width, hudTop);
@@ -1539,6 +1620,28 @@ bool IsMouseOverUi()
 	const std::optional<Rectangle> roster = RaidRosterRect(ui);
 	const std::optional<Rectangle> summary = RaidSummaryRect(ui, HudRect().position.y);
 	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
+}
+
+/** Single player opens the gates. In co-op this says where the vote stands and what a press would do. */
+std::string ReadyButtonLabel()
+{
+	if (!gbIsMultiplayer)
+		return "Open the gates";
+	const std::string count = fmt::format("{}/{}", ReadyMasterCount(), MastersInKeepCount());
+	if (!IsMasterReady(MyPlayerId))
+		return fmt::format("Ready {}", count);
+	const int seconds = (State.readyTicks + 19) / 20;
+	return IsHost() ? fmt::format("Start now {} {}s", count, seconds) : fmt::format("Not ready {} {}s", count, seconds);
+}
+
+void ToggleHeldTimer()
+{
+	if (!CanHoldPrepTimer()) {
+		SetFeedback("Masters decide together in co-op: the timer keeps running");
+		return;
+	}
+	TogglePrepTimerHold();
+	SetFeedback(IsPrepTimerHeld() ? "Timer held: the raid waits until you open the gates" : "Timer running");
 }
 
 void UseToolAt(Point tile)
@@ -1634,9 +1737,12 @@ void OnGameEnded()
 {
 	EditorOnGameEnded();
 	ForgetMapCache();
+	if (active)
+		OnLeavingKeep();
 	SaveProfile();
 	LobbyOnGameEnded();
 	CoopOnGameEnded();
+	OnGameEndedSpeed();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1847,6 +1953,18 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::Sell:
 		SellSelected();
 		return;
+	case KeeperAction::CycleSpeed:
+		CycleGameSpeed();
+		return;
+	case KeeperAction::Ping:
+		if (IsMouseOverUi())
+			SetFeedback("Point at the keep to mark a spot");
+		else if (!RequestPing(cursPosition))
+			SetFeedback("Wait a moment before marking again");
+		return;
+	case KeeperAction::HoldTimer:
+		ToggleHeldTimer();
+		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
 	case KeeperAction::CameraRight:
@@ -1875,7 +1993,17 @@ bool OnKeyDown(SDL_Keycode key)
 			gamemenu_exit_game(false);
 		return true;
 	}
-	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
+	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER)) {
+		if (CanRetryRaid()) {
+			RequestRetryRaid();
+			return true;
+		}
+		if (GameOverContinue()) {
+			ChooseGameOverContinue();
+			return true;
+		}
+	}
+	if (IsGameOver() && key == SDLK_L && CanRetryRaid() && GameOverContinue()) {
 		ChooseGameOverContinue();
 		return true;
 	}
@@ -1970,18 +2098,24 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsGameOver()) {
 		const int width = UiHitSurface().w();
 		const int top = HudRect().position.y;
-		const std::optional<KeepSetup> next = GameOverContinue();
-		const int keeperButton = gbIsMultiplayer ? 1 : 0;
-		const int count = (next ? 2 : 1) + keeperButton;
-		if (next && Contains(GameOverButton(width, top, 0, count), UiMouse())) {
-			ChooseGameOverContinue();
-			return true;
-		}
-		if (keeperButton != 0 && Contains(GameOverButton(width, top, count - 2, count), UiMouse())) {
-			CoopOpenKeeper();
-			return true;
-		}		if (Contains(GameOverButton(width, top, count - 1, count), UiMouse())) {
-			gamemenu_exit_game(false);
+		const std::vector<GameOverChoice> choices = GameOverChoices();
+		for (size_t i = 0; i < choices.size(); i++) {
+			if (!Contains(GameOverButton(width, top, static_cast<int>(i), static_cast<int>(choices.size())), UiMouse()))
+				continue;
+			switch (choices[i]) {
+			case GameOverChoice::RetryRaid:
+				RequestRetryRaid();
+				break;
+			case GameOverChoice::Continue:
+				ChooseGameOverContinue();
+				break;
+			case GameOverChoice::Keeper:
+				CoopOpenKeeper();
+				break;
+			case GameOverChoice::Leave:
+				gamemenu_exit_game(false);
+				break;
+			}
 			return true;
 		}
 	}
@@ -2016,6 +2150,10 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			ScrollOf(currentTab) += scrollStep;
 		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
 			ActivateCard(*card);
+		if (Contains(SpeedButtonRect(), UiMouse()))
+			CycleGameSpeed();
+		if (Contains(PhaseLineRect(), UiMouse()) && CanHoldPrepTimer() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
+			ToggleHeldTimer();
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
 		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && !Selection().empty())
@@ -2212,8 +2350,12 @@ void DrawUi(const Surface &out)
 	// Status column: phase, raid, vault, heroes, mana.
 	std::string phaseLine = std::string(PhaseName(State.phase));
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
-		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
+		phaseLine += IsPrepTimerHeld() ? std::string("  held") : fmt::format("  {}", FormatTicks(State.phaseTicks));
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+	const Rectangle speedButton = SpeedButtonRect();
+	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);
+	DrawString(out, fmt::format("{}x", GameSpeedMultiplier()), { speedButton.position + Displacement { 0, 1 }, { speedButton.size.width, 14 } },
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (GameSpeedLevel() > 0 ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	DrawString(out, fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
 	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
@@ -2234,7 +2376,7 @@ void DrawUi(const Surface &out)
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
 		const std::string raidKey = KeyLabel(KeeperAction::StartRaid);
-		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		DrawString(out, raidKey.empty() ? ReadyButtonLabel() : fmt::format("{}: {}", raidKey, ReadyButtonLabel()), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	DrawCardBar(out);
@@ -2274,27 +2416,44 @@ void DrawUi(const Surface &out)
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
 	}
 
+	if (PauseMode != 0 && !gmenu_is_active()) {
+		const std::string line = "Paused: orders still work";
+		const int width = GetLineWidth(line) + 16;
+		DrawHalfTransparentRectTo(out, (out.w() - width) / 2, 2, width, 18);
+		DrawString(out, line, { { (out.w() - width) / 2, 4 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+	}
+
 	if (IsGameOver() && !CoopHasHostLeft()) {
 		const bool won = State.phase == Phase::Victory;
 		const Rectangle banner = GameOverBanner(out.w(), top);
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
 		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (gbIsMultiplayer ? CoopGameOverLine() : std::string()),
+		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (gbIsMultiplayer ? CoopGameOverLine() : std::string()) + (CanRetryRaid() ? fmt::format(" A retry starts with {} gold and gives back this raid's XP.", std::max(State.retryGold, 0)) : ""),
 		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
-		const std::optional<KeepSetup> next = GameOverContinue();
-		const int keeperButton = gbIsMultiplayer ? 1 : 0;
-		const int count = (next ? 2 : 1) + keeperButton;
+		const std::vector<GameOverChoice> choices = GameOverChoices();
 		const auto drawButton = [&](int index, std::string_view label) {
-			const Rectangle button = GameOverButton(out.w(), top, index, count);
+			const Rectangle button = GameOverButton(out.w(), top, index, static_cast<int>(choices.size()));
 			DrawHalfTransparentRectTo(out, button.position.x, button.position.y, button.size.width, button.size.height);
 			const UiFlags color = Contains(button, UiMouse()) ? UiFlags::ColorGold : UiFlags::ColorWhite;
 			DrawString(out, FitText(label, button.size.width - 4), { button.position + Displacement { 0, 3 }, { button.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
 		};
-		if (next)
-			drawButton(0, CoopStartingTicks() > 0 ? std::string("Start now (Enter)") : GameOverContinueLabel(*next));
-		if (keeperButton != 0)
-			drawButton(count - 2, fmt::format("Keeper: {} Renown", RenownAvailable()));		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+		for (size_t i = 0; i < choices.size(); i++) {
+			switch (choices[i]) {
+			case GameOverChoice::RetryRaid:
+				drawButton(static_cast<int>(i), fmt::format("Retry raid {} (Enter)", State.wave));
+				break;
+			case GameOverChoice::Continue:
+				drawButton(static_cast<int>(i), CoopStartingTicks() > 0 ? std::string("Start now (Enter)") : GameOverContinueLabel(*GameOverContinue()));
+				break;
+			case GameOverChoice::Keeper:
+				drawButton(static_cast<int>(i), fmt::format("Keeper: {} Renown", RenownAvailable()));
+				break;
+			case GameOverChoice::Leave:
+				drawButton(static_cast<int>(i), IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+				break;
+			}
+		}
 	}
 	DrawCoopHostLeft(out, top);
 	EditorDrawTestBanner(out);

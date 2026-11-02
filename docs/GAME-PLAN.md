@@ -55,6 +55,14 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] Co-op: joiners pick their spell bar in the keep from what the host has
 - [ ] Tune XP, Renown prices and difficulty
 
+## Raid flow
+- [x] Retry the lost raid: raid-start gold back, structures stay, that attempt's XP taken back; Restart level (L) stays
+- [x] Game speed 1x, 2x, 3x (N), in co-op on the same turn on every client by way of the host
+- [x] Single player: hold the prep timer (H), and pause (P) to plan with orders still working
+- [x] Co-op ready vote: all masters, or 30 seconds after the first, or the host pressing again
+- [x] Pings (M), with an arrow when off screen
+- [x] Single-player campaign: autosave between raids, Continue on the Campaign screen
+
 ## Known issues
 - [ ] Balance: scaled on paper across the campaign, never playtested
 - [x] Mid-game joiners see structures built before they joined

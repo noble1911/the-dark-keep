@@ -18,11 +18,14 @@
 #include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_devctl.hpp"
+#include "keeper/keeper_editor.hpp"
+#include "keeper/keeper_flow.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -171,6 +174,10 @@ enum class Action : uint8_t {
 	SyncPortalCaster,
 	SyncHeroPace,
 	SyncBotPace,
+	RequestRetryRaid,
+	RequestSpeed,
+	SetSpeed,
+	Ping,
 };
 
 #pragma pack(push, 1)
@@ -201,6 +208,10 @@ struct TCmdKeeperState {
 	/** Where the host's bots are: see ApplyBotPositionSync. */
 	std::array<std::array<uint8_t, 2>, MaxBots> botTiles;
 	std::array<uint8_t, MaxBots> botPotions;
+	int32_t retryGold;
+	uint8_t speedLevel;
+	uint8_t readyMask;
+	uint16_t readyTicks;
 };
 #pragma pack(pop)
 
@@ -231,6 +242,30 @@ int joinerRestartWait = 0;
 /** Host: masters still have this long before the restart notice goes out, and it has run this long. */
 int restartGraceTicks = 0;
 int restartGraceElapsed = 0;
+/** Host: goldLost when the raid began, to go back to on a retry. */
+int retryGoldLost = 0;
+
+/**
+ * Turns ahead the host names for a speed change: long enough for the word to reach everyone first (a
+ * high-priority message goes out within two ticks, a turn is eight). One arriving late just switches at
+ * once; clients stay in step regardless, as none can run a turn ahead of the turns it has from the others.
+ */
+constexpr uint32_t SpeedSwitchLeadTurns = 2;
+/** How long the rest have once one master is ready. */
+constexpr int ReadyVoteTimeoutTicks = 30 * TicksPerSecond;
+/** A resumed keep gives the master at least this long to look around, even if the clock had run out. */
+constexpr int ResumeMinPrepTicks = 30 * TicksPerSecond;
+/** A speed change the host has announced, waiting for its turn. */
+struct PendingSpeed {
+	bool active = false;
+	uint8_t level = 0;
+	uint16_t atTurn = 0;
+	uint8_t sender = 0;
+};
+PendingSpeed pendingSpeed;
+/** State snapshots that disagreed with this client's speed in a row. One can be from just before the switch. */
+int speedMismatches = 0;
+
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
 	TCmdKeeper cmd;
@@ -265,6 +300,10 @@ void BroadcastState()
 		cmd.botTiles[i] = { static_cast<uint8_t>(facts.tile.x), static_cast<uint8_t>(facts.tile.y) };
 		cmd.botPotions[i] = facts.potions;
 	}
+	cmd.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.retryGold)));
+	cmd.speedLevel = static_cast<uint8_t>(GameSpeedLevel());
+	cmd.readyMask = State.readyMask;
+	cmd.readyTicks = Swap16LE(static_cast<uint16_t>(std::clamp(State.readyTicks, 0, 0xFFFF)));
 	DevctlNoteSent(sizeof(cmd) + sizeof(TPktHdr));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = State.phase == Phase::Raid && DevctlBotSyncOn() ? RaidStateBroadcastInterval : StateBroadcastInterval;
@@ -326,11 +365,40 @@ int TributeFor(uint8_t wave)
 	return ScaleByHeroStrength(100 + 25 * wave);
 }
 
+/**
+ * What a retried raid takes back and what it leaves.
+ *
+ * Back as they were at the raid's start: the vault (less what was built in the raid: a lair bought with
+ * bounty gold isn't free, and one sold mid-raid is gone) and the master's XP and stats from the raid. Each
+ * attempt pays only if it isn't taken back, so retrying can't farm XP however often it's done; leaving
+ * instead of retrying keeps that attempt's XP, as it always has.
+ * Left alone: every structure, and what the raid used up of them (spent bait, broken locks, disarmed traps).
+ *
+ * Runs on every client. Nothing here is sent: each client has the same raiders to clear.
+ */
+void ClearLostRaid()
+{
+	for (size_t pid = 0; pid < State.possessed.size(); pid++)
+		EndPossession(pid);
+	ClearRaiders();
+	// The Lord, if it fell, comes back through UpdateBoss now that the siege is on again.
+	State.bossDown = false;
+	State.portalEscape = false;
+	for (Trap &trap : State.traps)
+		trap.cooldown = 0;
+	HealKeepMonsters();
+	DismissRaidSummary();
+	ProfileTakeBackRaid();
+}
+
 /** Runs on every client when the phase changes (locally on the host, from the snapshot elsewhere). */
 void AnnouncePhase(Phase from, Phase to)
 {
 	if (from == to)
 		return;
+	// Only a retry leaves a defeat. Every client gets here, whichever way it hears of the new phase.
+	if (from == Phase::Defeat)
+		ClearLostRaid();
 	// Raid stats: every client sees the phase change, so each keeps its own tally.
 	if (from == Phase::Raid)
 		NoteRaidEnded(to, to == Phase::Breather ? TributeFor(State.wave - 1) : 0);
@@ -346,7 +414,9 @@ void AnnouncePhase(Phase from, Phase to)
 		Announce(State.wave >= NumWaves() ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
 		break;
 	case Phase::Breather:
-		if (State.wave > 1)
+		if (from == Phase::Defeat)
+			Announce(fmt::format("The keep holds on: raid {} will come again.", State.wave), UiFlags::ColorRed);
+		else if (State.wave > 1)
 			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
 		break;
 	case Phase::Victory:
@@ -363,8 +433,73 @@ void AnnouncePhase(Phase from, Phase to)
 	}
 }
 
+/** Only a single player's own campaign: progress is at stake nowhere else, and a test flag's game isn't a real one. */
+bool CanSaveKeep()
+{
+	return !gbIsMultiplayer && CurrentSetup().mode == GameMode::Campaign && !IsEditorTestRun() && OverrideRank() == 0 && TestStartWave == 0;
+}
+
+/** Writes the keep as it stands. Called when not raiding: nothing about a raid is in the file. */
+void SaveKeep()
+{
+	if (!CanSaveKeep())
+		return;
+	ResumeData data;
+	const KeepSetup &setup = CurrentSetup();
+	data.level = setup.campaignLevel;
+	data.seed = setup.seed;
+	data.mapFile = setup.mapFile;
+	data.entrance = State.entrance;
+	data.vault = State.vault;
+	data.wave = State.wave;
+	data.phase = static_cast<int>(State.phase);
+	data.phaseTicks = State.phaseTicks;
+	data.gold = State.vaultGold;
+	data.goldLost = State.goldLost;
+	data.mana = State.mana[MyPlayerId];
+	data.mapXp = MapXpEarned();
+	data.upgrades = UpgradeTiers();
+	for (const Lair &lair : State.lairs) {
+		if (!lair.active)
+			continue;
+		ResumeData::SavedLair saved;
+		saved.kind = lair.kind;
+		saved.monsterType = static_cast<int>(BuildKinds[lair.kind].type);
+		saved.cost = BuildKinds[lair.kind].cost;
+		saved.position = lair.position;
+		saved.hasRally = lair.hasRally;
+		saved.rally = lair.rally;
+		saved.route.assign(lair.route.begin(), lair.route.begin() + lair.routeCount);
+		data.lairs.push_back(std::move(saved));
+	}
+	for (const Trap &trap : State.traps) {
+		if (trap.active)
+			data.traps.push_back({ trap.kind, trap.position, 0, TrapKinds[trap.kind].cost });
+	}
+	for (const DoorLock &lock : State.locks) {
+		if (lock.active)
+			data.locks.push_back({ 0, lock.position, std::clamp(lock.strength, 0, 255), LockDoorCost * lock.strength / LockStrength });
+	}
+	for (const Bait &bait : State.baits) {
+		if (bait.active)
+			data.baits.push_back({ 0, bait.position, std::clamp(bait.uses, 0, 255), BaitCost * bait.uses / BaitUses });
+	}
+	WriteResumeFile(data);
+}
+
+void AnnounceReadyChanges(uint8_t before, uint8_t after)
+{
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		const auto bit = static_cast<uint8_t>(1U << id);
+		if ((after & bit) != 0 && (before & bit) == 0 && Players[id].plractive)
+			Announce(fmt::format("{} is ready for the raid.", Players[id]._pName));
+	}
+}
+
 void SetPhase(Phase phase)
 {
+	State.readyMask = 0;
+	State.readyTicks = 0;
 	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
 	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
 		BroadcastState();
@@ -383,6 +518,10 @@ void SetPhase(Phase phase)
 	}
 	if (IsHost())
 		BroadcastState();
+	if (phase == Phase::Breather)
+		SaveKeep();
+	else if ((phase == Phase::Defeat || phase == Phase::Victory) && CanSaveKeep())
+		DeleteResumeFile(); // what's decided stays decided; a retry writes it again from its respite
 }
 
 bool IsMemberAlive(int16_t monsterId, _monster_id type)
@@ -479,9 +618,111 @@ void RefillLairs()
 
 void StartRaid()
 {
+	// Leaving mid-raid comes back to this moment, with what the respite built.
+	SaveKeep();
+	State.retryGold = State.vaultGold;
+	retryGoldLost = State.goldLost;
 	SetPhase(Phase::Raid);
 	if (IsHost())
 		StartWave(State.wave);
+}
+
+/** Host: gold spent on (negative: got back from) a structure. A raid's own building survives a retry, so a retry doesn't refund it. */
+void NoteRaidBuilding(int cost)
+{
+	if (State.phase == Phase::Raid)
+		State.retryGold -= cost;
+}
+
+/** Host: the raid comes if everyone here is ready, or the vote has run out. @return true if it did. */
+bool UpdateReadyVote()
+{
+	if (State.readyMask == 0)
+		return false;
+	// Someone who left doesn't stay ready for whoever gets their slot, and doesn't hold anyone either.
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (!Players[id].plractive)
+			State.readyMask &= static_cast<uint8_t>(~(1U << id));
+	}
+	if (State.readyMask == 0) {
+		State.readyTicks = 0;
+		return false;
+	}
+	if (ReadyMasterCount() < MastersInKeepCount() && --State.readyTicks > 0)
+		return false;
+	StartRaid();
+	return true;
+}
+
+void HostVoteReady(const Player &voter)
+{
+	if (State.phase != Phase::Setup && State.phase != Phase::Breather)
+		return;
+	if (!gbIsMultiplayer) {
+		StartRaid();
+		return;
+	}
+	const auto bit = static_cast<uint8_t>(1U << voter.getId());
+	if ((State.readyMask & bit) != 0) {
+		// The host's second word is the override. Anyone else has changed their mind.
+		if (&voter == MyPlayer) {
+			StartRaid();
+			return;
+		}
+		State.readyMask &= static_cast<uint8_t>(~bit);
+		if (State.readyMask == 0)
+			State.readyTicks = 0;
+		BroadcastState();
+		return;
+	}
+	if (State.readyMask == 0)
+		State.readyTicks = ReadyVoteTimeoutTicks;
+	AnnounceReadyChanges(State.readyMask, State.readyMask | bit);
+	State.readyMask |= bit;
+	if (!UpdateReadyVote())
+		BroadcastState();
+}
+
+void AnnounceSpeed()
+{
+	Announce(fmt::format("Game speed: {}x", GameSpeedMultiplier()));
+}
+
+void HostRequestSpeed(uint8_t level)
+{
+	if (level >= GameSpeeds.size())
+		return;
+	if (!gbIsMultiplayer) {
+		ApplyGameSpeedLevel(level);
+		AnnounceSpeed();
+		return;
+	}
+	Send(Action::SetSpeed, level, 0, {}, static_cast<uint16_t>(multi_last_turn_from(MyPlayerId) + SpeedSwitchLeadTurns));
+}
+
+void UpdatePendingSpeed()
+{
+	if (!pendingSpeed.active)
+		return;
+	const auto turnsLeft = static_cast<int16_t>(pendingSpeed.atTurn - static_cast<uint16_t>(multi_last_turn_from(pendingSpeed.sender)));
+	if (turnsLeft > 0)
+		return;
+	pendingSpeed.active = false;
+	speedMismatches = 0;
+	ApplyGameSpeedLevel(pendingSpeed.level);
+	DevNoteSpeedSwitch(pendingSpeed.level, multi_last_turn_from(pendingSpeed.sender));
+	AnnounceSpeed();
+}
+
+void HostRetryRaid()
+{
+	if (State.phase != Phase::Defeat)
+		return;
+	State.vaultGold = std::max(State.retryGold, 0);
+	State.goldLost = retryGoldLost;
+	// Told first: the monsters RefillLairs raises must arrive after the raiders' slots are clear.
+	SetPhase(Phase::Breather);
+	RefillLairs();
 }
 
 void EndRaid()
@@ -528,6 +769,7 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 		slot = static_cast<uint8_t>(it - State.traps.begin());
 	}
 	State.vaultGold -= BuildKinds[kind].cost;
+	NoteRaidBuilding(BuildKinds[kind].cost);
 	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
 	// Now, not when the message comes back: requests that arrive together (two masters, or one quick one)
 	// must see this one when they check its slot, its tile and the Pop it takes.
@@ -579,6 +821,7 @@ void HostLockDoor(Point doorPosition)
 	if (!State.locks[slot].active)
 		return; // no structure, no charge
 	State.vaultGold -= LockDoorCost;
+	NoteRaidBuilding(LockDoorCost);
 	Send(Action::DoorLocked, slot, 0, doorPosition);
 	BroadcastState();
 }
@@ -613,6 +856,7 @@ void HostPlaceBait(Point tile)
 		return;
 	const auto slot = static_cast<uint8_t>(it - State.baits.begin());
 	State.vaultGold -= BaitCost;
+	NoteRaidBuilding(BaitCost);
 	Send(Action::BaitPlaced, slot, 0, tile);
 	ApplyBaitPlaced(slot, tile);
 	BroadcastState();
@@ -634,7 +878,9 @@ void HostSell(StructureRef ref)
 {
 	if (!CanSell(ref))
 		return;
-	State.vaultGold += RefundFor(ref);
+	const int refund = RefundFor(ref);
+	State.vaultGold += refund;
+	NoteRaidBuilding(-refund);
 	Send(Action::Sold, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
 	// Now, not when the message comes back: a second request in the same turn mustn't refund again.
 	ApplySold(static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
@@ -764,6 +1010,86 @@ void ApplyLairMember(uint8_t slot, uint8_t index, int monsterId)
 	lair.patrolLeg[index] = 0;
 	if (lair.hasRally || lair.routeCount > 0)
 		ApplyMemberPost(lair, index);
+}
+
+// ---- resuming a saved keep -------------------------------------------------------
+
+bool IsFloorForResume(Point tile)
+{
+	return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile);
+}
+
+/**
+ * Puts the saved keep back. Single player, so the requests' host-side work is done directly. Anything that
+ * can't come back (a monster respecced away since, a floor that has moved) is paid back at its respite price.
+ */
+void ApplyResume(const ResumeData &data)
+{
+	if (data.level != CurrentSetup().campaignLevel || data.entrance != State.entrance || data.vault != State.vault) {
+		// The map isn't the one that was saved: this is a fresh start on it, and the file is no use.
+		DeleteResumeFile();
+		Announce("The saved keep no longer fits this map: starting the level afresh.", UiFlags::ColorRed);
+		return;
+	}
+	State.wave = static_cast<uint8_t>(data.wave);
+	State.phase = static_cast<Phase>(data.phase);
+	State.phaseTicks = std::max(data.phaseTicks, ResumeMinPrepTicks);
+	State.vaultGold = data.gold;
+	State.retryGold = data.gold;
+	State.goldLost = data.goldLost;
+	State.mana[MyPlayerId] = data.mana;
+	ProfileSetMapXp(data.mapXp);
+	for (size_t i = 0; i < NumUpgrades; i++)
+		SetUpgradeTierQuietly(static_cast<UpgradeId>(i), data.upgrades[i]);
+
+	int refund = 0;
+	uint8_t slot = 0;
+	for (const ResumeData::SavedLair &saved : data.lairs) {
+		const auto kind = static_cast<size_t>(saved.kind);
+		if (!IsLairKind(kind) || !IsKindMustered(kind) || static_cast<int>(BuildKinds[kind].type) != saved.monsterType || !IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBuilt(slot, static_cast<uint8_t>(kind), saved.position);
+		if (saved.hasRally)
+			ApplyRally(slot, true, saved.rally);
+		for (size_t i = 0; i < saved.route.size(); i++)
+			ApplyWaypoint(slot, static_cast<uint8_t>(i), saved.route[i]);
+		slot++;
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.traps) {
+		if (static_cast<size_t>(saved.kind) >= NumTrapKinds || !IsTrapAvailable(static_cast<size_t>(saved.kind)) || !IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBuilt(slot++, static_cast<uint8_t>(NumLairKinds + saved.kind), saved.position);
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.locks) {
+		ApplyDoorLocked(slot, saved.position);
+		if (State.locks[slot].active) {
+			State.locks[slot].strength = saved.amount;
+			slot++;
+		} else {
+			refund += saved.cost;
+		}
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.baits) {
+		if (!IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBaitPlaced(slot, saved.position);
+		State.baits[slot++].uses = saved.amount;
+	}
+	State.vaultGold += refund;
+	State.retryGold += refund;
+	if (refund > 0)
+		Announce(fmt::format("Some of the saved keep couldn't come back: {} gold returned to the vault.", refund));
+	Announce(fmt::format("Welcome back, master. Raid {} is coming.", State.wave));
+	BroadcastState();
 }
 
 // ---- mid-game joiners ----------------------------------------------------------
@@ -1384,6 +1710,10 @@ void ResetGame(Point entrance, Point vault)
 	joinerRestartWait = 0;
 	restartGraceTicks = 0;
 	restartGraceElapsed = 0;
+	pendingSpeed = {};
+	speedMismatches = 0;
+	ClearPings();
+	OnKeepLoadedSpeed();
 	ResetHeroes();
 	ResetRaidStats();
 }
@@ -1415,6 +1745,13 @@ void GameTick()
 	if (awaitingKeepSnapshot && --keepSnapshotTimeout <= 0)
 		awaitingKeepSnapshot = false;
 
+	if (std::optional<ResumeData> resume = TakePendingResume(); resume && CanSaveKeep())
+		ApplyResume(*resume);
+
+	UpdatePendingSpeed();
+	if (!IsHost() && State.readyTicks > 0)
+		State.readyTicks--;
+
 	// Mana regenerates for every master, on every client (snapshots correct any drift).
 	const int manaRegen = UpgradedManaRegen(ManaRegenPerTick);
 	for (size_t i = 0; i < State.mana.size(); i++) {
@@ -1423,7 +1760,8 @@ void GameTick()
 			State.spellCooldown[i]--;
 	}
 
-	if (State.phaseTicks > 0)
+	const bool prep = State.phase == Phase::Setup || State.phase == Phase::Breather;
+	if (State.phaseTicks > 0 && !(prep && IsPrepTimerHeld()))
 		State.phaseTicks--;
 
 	// Possession drains mana (2/s net); an empty pool breaks the link. Every client runs this.
@@ -1463,6 +1801,8 @@ void GameTick()
 	case Phase::Breather:
 		if (State.phaseTicks == 0)
 			StartRaid();
+		else
+			UpdateReadyVote();
 		break;
 	case Phase::Raid:
 		if (State.bossDown && State.portalEscape) {
@@ -1485,6 +1825,19 @@ void DevForceVictory()
 	if (IsHost()) {
 		SetPhase(Phase::Victory);
 		BroadcastState();
+	}
+}
+
+void OnLeavingKeep()
+{
+	if (!CanSaveKeep())
+		return;
+	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
+		// Includes whatever this respite has built so far.
+		SaveKeep();
+	} else if (State.phase == Phase::Raid && HasResumeFile()) {
+		// Continue brings the raid back: this attempt pays nothing, as for a retry.
+		ProfileTakeBackRaid();
 	}
 }
 
@@ -1899,6 +2252,60 @@ void RequestStartRaid()
 	Send(Action::RequestStartRaid);
 }
 
+bool IsMasterVoting(size_t playerId)
+{
+	if (playerId >= NetPlayerSlots)
+		return false;
+	const Player &player = Players[playerId];
+	return player.plractive && !player._pLvlChanging && player._pmode != PM_NEWLVL && player.plrlevel == KeepLevel && !player.plrIsOnSetLevel;
+}
+
+int MastersInKeepCount()
+{
+	int count = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (IsMasterVoting(id))
+			count++;
+	}
+	return count;
+}
+
+int ReadyMasterCount()
+{
+	int count = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (IsMasterVoting(id) && IsMasterReady(id))
+			count++;
+	}
+	return count;
+}
+
+bool IsMasterReady(size_t playerId)
+{
+	return playerId < NetPlayerSlots && (State.readyMask & (1U << playerId)) != 0;
+}
+
+void SendPing(Point tile)
+{
+	Send(Action::Ping, 0, 0, tile);
+}
+
+void RequestGameSpeed(size_t level)
+{
+	Send(Action::RequestSpeed, static_cast<uint8_t>(level));
+}
+
+void RequestRetryRaid()
+{
+	if (CanRetryRaid())
+		Send(Action::RequestRetryRaid);
+}
+
+bool CanRetryRaid()
+{
+	return State.phase == Phase::Defeat && !IsEditorTestRun() && (!IsJoinedGame() || IsHost());
+}
+
 void RequestPossess(size_t monsterId)
 {
 	Send(Action::Possess, 0, 0, {}, static_cast<uint16_t>(monsterId));
@@ -2016,12 +2423,22 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.bossDown = (message.reserved & 1) != 0;
 			State.portalEscape = (message.reserved & 2) != 0;
 			AnnouncePhase(State.phase, phase);
-			if (wasBossDown && !State.bossDown && phase != Phase::Defeat)
+			if (wasBossDown && !State.bossDown && phase != Phase::Defeat && State.phase != Phase::Defeat)
 				Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
 			State.phase = phase;
 			State.phaseTicks = static_cast<int>(Swap32LE(message.phaseTicks));
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
+			State.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGold)));
+			// A joiner who wasn't there for the change, or missed it. Waits for a second word: this one may have left the host before the switch.
+			AnnounceReadyChanges(State.readyMask, message.readyMask);
+			State.readyMask = message.readyMask;
+			State.readyTicks = Swap16LE(message.readyTicks);
+			speedMismatches = message.speedLevel != GameSpeedLevel() && !pendingSpeed.active ? speedMismatches + 1 : 0;
+			if (speedMismatches >= 2) {
+				speedMismatches = 0;
+				ApplyGameSpeedLevel(message.speedLevel);
+			}
 			for (size_t i = 0; i < 4; i++)
 				State.mana[i] = Swap16LE(message.mana[i]) * ManaScale;
 			// Before the Lord's health below, which is capped by a maximum these can raise.
@@ -2055,8 +2472,23 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		ApplyCast(player, message.a, tile);
 		break;
 	case Action::RequestStartRaid:
-		if (IsHost() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
-			StartRaid();
+		if (IsHost())
+			HostVoteReady(player);
+		break;
+	case Action::Ping:
+		ApplyPing(player.getId(), tile);
+		break;
+	case Action::RequestSpeed:
+		if (IsHost())
+			HostRequestSpeed(message.a);
+		break;
+	case Action::SetSpeed:
+		if (message.a < GameSpeeds.size())
+			pendingSpeed = { true, message.a, Swap16LE(message.w), static_cast<uint8_t>(player.getId()) };
+		break;
+	case Action::RequestRetryRaid:
+		if (IsHost())
+			HostRetryRaid();
 		break;
 	case Action::RequestLockDoor:
 		if (IsHost())

@@ -155,6 +155,8 @@ set(libdevilutionx_SRCS
   keeper/keeper_barricade.cpp
   keeper/keeper_map.cpp
   keeper/keeper_editor.cpp
+  keeper/keeper_flow.cpp
+  keeper/keeper_resume.cpp
   keeper/keeper_lobby.cpp
   keeper/keeper_coop.cpp
 

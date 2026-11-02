@@ -85,6 +85,7 @@ void NetSendLoPri(uint8_t playerId, const std::byte *data, size_t size);
 void NetSendHiPri(uint8_t playerId, const std::byte *data, size_t size);
 void multi_send_msg_packet(uint32_t pmask, const std::byte *data, size_t size);
 void multi_msg_countdown();
+uint32_t multi_last_turn_from(uint8_t pnum); // [DARK KEEP]
 void multi_player_left(uint8_t pnum, leaveinfo_t reason);
 void multi_net_ping();
 

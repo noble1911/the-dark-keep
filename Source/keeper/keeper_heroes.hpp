@@ -216,6 +216,9 @@ void UpdateBoss();
 void UpdatePortal();
 /** Closes the heroes' portal and forgets any channel (end of raid). */
 void ClosePortal();
+/** A raid is being retried: every hero monster leaves the map, unpaid. Each client does this for itself. */
+void ClearRaiders();
+void HealKeepMonsters();
 /** Where the open portal stands, if any. */
 std::optional<Point> PortalPosition();
 /** Percent of the portal channel completed (-1 = nobody channelling). */

@@ -46,11 +46,11 @@ struct ActionInfo {
 };
 
 /** One-key actions. Card slots and spells are added in loops, as they have an index. */
-const std::array<ActionInfo, 14> SimpleActions { {
+const std::array<ActionInfo, 17> SimpleActions { {
 	{ KeeperAction::LockDoor, "KeeperLockDoor", N_("Keep: lock a door"), N_("Picks the door lock."), 'G' },
 	{ KeeperAction::Bait, "KeeperBait", N_("Keep: bait"), N_("Picks the pile of fool's gold."), 'T' },
 	{ KeeperAction::NextTab, "KeeperNextTab", N_("Keep: next tab"), N_("Switches between the tabs of the card bar."), static_cast<uint32_t>(SDLK_TAB) },
-	{ KeeperAction::StartRaid, "KeeperStartRaid", N_("Keep: open the gates"), N_("Starts the next raid early."), 'R' },
+	{ KeeperAction::StartRaid, "KeeperStartRaid", N_("Keep: open the gates"), N_("Starts the next raid early. In co-op: says you are ready. The host pressing again starts it for everyone."), 'R' },
 	{ KeeperAction::CenterEntrance, "KeeperCenterEntrance", N_("Keep: go to the entrance"), N_("Centres the view on the entrance."), static_cast<uint32_t>(SDLK_SPACE) },
 	{ KeeperAction::CenterVault, "KeeperCenterVault", N_("Keep: go to the vault"), N_("Centres the view on the vault."), 'V' },
 	{ KeeperAction::ZoomIn, "KeeperZoomIn", N_("Keep: zoom in"), N_("Zooms the view in."), static_cast<uint32_t>(SDLK_EQUALS) },
@@ -61,6 +61,9 @@ const std::array<ActionInfo, 14> SimpleActions { {
 	{ KeeperAction::CameraRight, "KeeperCameraRight", N_("Keep: camera right"), N_("Moves the view right."), 'D' },
 	{ KeeperAction::CameraUp, "KeeperCameraUp", N_("Keep: camera up"), N_("Moves the view up."), 'W' },
 	{ KeeperAction::CameraDown, "KeeperCameraDown", N_("Keep: camera down"), N_("Moves the view down."), 'S' },
+	{ KeeperAction::CycleSpeed, "KeeperCycleSpeed", N_("Keep: game speed"), N_("Switches between normal, double and triple speed."), 'N' },
+	{ KeeperAction::Ping, "KeeperPing", N_("Keep: mark the map"), N_("Shows every master the spot under the cursor, with a sound."), 'M' },
+	{ KeeperAction::HoldTimer, "KeeperHoldTimer", N_("Keep: hold the timer"), N_("Single player: stops the clock on preparation, so the raid waits for you."), 'H' },
 } };
 
 /** Spell bar hotkeys, by slot. */
