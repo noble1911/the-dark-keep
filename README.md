@@ -54,7 +54,7 @@ The first two levels show short tips as you go; close them, or just get on with 
 ### The heroes
 
 Up to four heroes per raid are real Diablo characters: Warriors with swords, Rogues with bows, Sorcerers
-casting Firebolt. They drink potions, flee when beaten and cast a real Town Portal. Bigger parties are filled
+casting Firebolt, and Monks with staves. They drink potions, flee when beaten and cast a real Town Portal. Bigger parties are filled
 out with lesser heroes. Rogues may spot and disarm traps, greedy heroes detour to fool's gold they can see,
 Warriors bash through locked doors fastest, and badly hurt heroes may lose their nerve, drop their loot and flee.
 
