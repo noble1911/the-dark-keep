@@ -1878,6 +1878,15 @@ bool IsBurning(Point tile)
 	return false;
 }
 
+bool IsHazardous(Point tile)
+{
+	for (const Missile &missile : Missiles) {
+		if (IsAnyOf(missile._mitype, MissileID::FireWall, MissileID::LightningWall, MissileID::Inferno, MissileID::FlameWave) && !missile._miDelFlag && missile.position.tile == tile)
+			return true;
+	}
+	return false;
+}
+
 bool AreHostile(const Monster &a, const Monster &b)
 {
 	return IsHero(a) != IsHero(b);

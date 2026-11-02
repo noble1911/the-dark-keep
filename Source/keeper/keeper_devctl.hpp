@@ -9,6 +9,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
 namespace devilution::keeper {
 
@@ -18,6 +19,9 @@ void DevctlInit(std::string path);
 
 /** Runs due commands. Called once per presented frame, whatever screen is up. */
 void DevctlFrame();
+
+/** The event log, for raid scripts: EventPlrMsg copies each line here. */
+void DevctlNoteMessage(std::string_view text);
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }

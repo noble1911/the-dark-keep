@@ -311,6 +311,8 @@ bool IsHero(const Monster &monster);
 bool AreHostile(const Monster &a, const Monster &b);
 /** True if a wall of fire burns on `tile` (heroes step out of it and won't walk into it). */
 bool IsBurning(Point tile);
+/** Any damaging floor effect on this tile: fire, a lightning wall, an inferno jet, a flame wave. */
+bool IsHazardous(Point tile);
 /** A living hero (monster or bot) stands on `tile`. */
 bool IsHeroAt(Point tile);
 
