@@ -45,7 +45,7 @@ namespace devilution::keeper {
 namespace {
 
 constexpr int Margin = 10;
-constexpr int CardWidth = 88;
+constexpr int CardWidth = 108;
 constexpr int CardHeight = 104;
 constexpr int CardImageHeight = 66;
 constexpr int ArrowWidth = 14;
@@ -207,10 +207,10 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed)) });
 	}
 	DrawString(out, Fit(info.name, rect.size.width - 4), { rect.position + Displacement { 0, CardImageHeight + 8 }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorBlack)) });
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark)) });
 	const std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
 	DrawString(out, state, { rect.position + Displacement { 0, CardImageHeight + 21 }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorBlack)) });
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark)) });
 
 	uint8_t frame = info.owned ? PAL16_YELLOW + 6 : (info.canBuy ? PAL16_ORANGE + 4 : FrameColor);
 	if (Inside(rect, mouse))
@@ -305,7 +305,7 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 				const int arrowY = y + FamilyTitleHeight + CardHeight / 2 - 8;
 				if (arrowY >= 0 && arrowY + 16 <= clip.h()) {
 					DrawString(clip, ">", { { x, arrowY }, { ArrowWidth, 16 } },
-					    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (OwnsKind(kind) ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+					    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (OwnsKind(kind) ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark) });
 				}
 				x += ArrowWidth;
 			}
@@ -576,7 +576,7 @@ void DrawScreen(const Surface &out, Point mouse)
 
 	if (!message.empty() && SDL_GetTicks() < messageUntil) {
 		const int textWidth = GetLineWidth(message) + 16;
-		const Rectangle line { { middleLeft + (middleWidth - textWidth) / 2, out.h() - Margin - 26 }, { textWidth, 20 } };
+		const Rectangle line { { middleLeft + (middleWidth - textWidth) / 2, list.position.y + list.size.height - 26 }, { textWidth, 20 } };
 		Fill(out, line, 0);
 		Frame(out, line, RedFrame);
 		DrawString(out, message, { line.position + Displacement { 0, 3 }, { line.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
