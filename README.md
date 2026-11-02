@@ -64,7 +64,7 @@ Most keys can be rebound under Settings > Keymapping.
 **Gold is for the current map:** lairs, traps, locks, bait and the Upgrades tab. **XP is permanent:**
 heroes slain, raids survived and levels cleared earn XP (first clears pay best), XP raises your keeper
 level, and each level gives Renown. Spend Renown on the Keeper screen (main menu, level select, and
-between maps) to unlock monsters, spells and trap types and to level spells and traps, up to 15. A spell's
+between maps), which shows your character and every monster, spell and trap, to unlock monsters, spells and trap types and to level spells and traps, up to 15. A spell's
 level works as in the base game: stronger, longer or wider depending on the spell, and cheaper in mana. A
 trap's level adds damage and speeds its rearm. Choose your six spells there too. Respec is free. Trap
 types are Fire, Arrow, Shock and Snare (which holds a hero in place). In co-op the game uses the host's unlocks.

@@ -121,6 +121,7 @@ void UiRenderListItems();
 void UiInitList_clear();
 
 void UiClearScreen();
+void UiRestartFadeIn(); // [DARK KEEP] for screens that draw themselves
 void UiPollAndRender(std::optional<tl::function_ref<bool(SDL_Event &)>> eventHandler = std::nullopt);
 void UiRenderItem(const UiItemBase &item);
 void UiRenderItems(const std::vector<UiItemBase *> &items);

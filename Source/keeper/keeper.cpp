@@ -640,92 +640,15 @@ void DrawCentred(const Surface &area, ClxSprite sprite, int drop = 0)
 	ClxDraw(area, { x, y }, sprite);
 }
 
-/** A monster trimmed and shrunk to fit a card, kept for good so its sprites needn't stay in memory. */
-struct CardImage {
-	bool built = false;
-	int width = 0;
-	int height = 0;
-	std::vector<uint8_t> pixels;
-};
-std::array<CardImage, NumLairKinds> cardImages;
-
-/**
- * Monster frames are wide and mostly empty and big ones are far taller than a card, so this trims the
- * empty space and shrinks what is left, keeping its proportions.
- */
-void BuildCardImage(size_t kind, int areaWidth, int areaHeight)
-{
-	CardImage &image = cardImages[kind];
-	image.built = true;
-	const OptionalClxSpriteList sprites = KindPortrait(kind);
-	if (!sprites || sprites->numSprites() == 0)
-		return;
-	const ClxSprite sprite = (*sprites)[0];
-	const int width = sprite.width();
-	const int height = sprite.height();
-	OwnedSurface canvas(width, height);
-	for (int y = 0; y < height; y++)
-		std::memset(canvas.at(0, y), 0, width);
-	ClxDraw(canvas, { 0, height }, sprite);
-
-	int left = width;
-	int right = -1;
-	int top = height;
-	int bottom = -1;
-	for (int y = 0; y < height; y++) {
-		const uint8_t *row = canvas.at(0, y);
-		for (int x = 0; x < width; x++) {
-			if (row[x] == 0)
-				continue;
-			left = std::min(left, x);
-			right = std::max(right, x);
-			top = std::min(top, y);
-			bottom = std::max(bottom, y);
-		}
-	}
-	if (right < 0)
-		return;
-	const int bodyWidth = right - left + 1;
-	const int bodyHeight = bottom - top + 1;
-	// Whole-number maths: a fraction `scaleTop / scaleBottom`, never enlarging.
-	int scaleTop = 1;
-	int scaleBottom = 1;
-	if (bodyWidth * areaHeight > bodyHeight * areaWidth) {
-		if (bodyWidth > areaWidth) {
-			scaleTop = areaWidth;
-			scaleBottom = bodyWidth;
-		}
-	} else if (bodyHeight > areaHeight) {
-		scaleTop = areaHeight;
-		scaleBottom = bodyHeight;
-	}
-	image.width = std::max(bodyWidth * scaleTop / scaleBottom, 1);
-	image.height = std::max(bodyHeight * scaleTop / scaleBottom, 1);
-	image.pixels.resize(static_cast<size_t>(image.width) * image.height);
-	for (int y = 0; y < image.height; y++) {
-		const uint8_t *row = canvas.at(left, top + y * scaleBottom / scaleTop);
-		for (int x = 0; x < image.width; x++)
-			image.pixels[static_cast<size_t>(y) * image.width + x] = row[x * scaleBottom / scaleTop];
-	}
-}
+std::array<KindImage, NumLairKinds> cardImages;
 
 void DrawKindPortrait(const Surface &area, size_t kind)
 {
 	if (kind >= NumLairKinds)
 		return;
 	if (!cardImages[kind].built)
-		BuildCardImage(kind, area.w(), area.h());
-	const CardImage &image = cardImages[kind];
-	const int offsetX = (area.w() - image.width) / 2;
-	const int offsetY = area.h() - image.height;
-	for (int y = 0; y < image.height; y++) {
-		uint8_t *out = area.at(offsetX, offsetY + y);
-		const uint8_t *row = &image.pixels[static_cast<size_t>(y) * image.width];
-		for (int x = 0; x < image.width; x++) {
-			if (row[x] != 0)
-				out[x] = row[x];
-		}
-	}
+		cardImages[kind] = MakeKindImage(kind, area.w(), area.h());
+	DrawKindImage(area, cardImages[kind]);
 }
 
 void DrawSpellPortrait(const Surface &area, SpellID spell)
@@ -1717,7 +1640,7 @@ void OnLevelLoaded()
 	if (!IsEditorActive()) {
 		for (const size_t kind : MusterKinds()) {
 			if (!cardImages[kind].built)
-				BuildCardImage(kind, CardWidth - 4, PortraitHeight);
+				cardImages[kind] = MakeKindImage(kind, CardWidth - 4, PortraitHeight);
 		}
 	}
 	EditorOnLevelLoaded();

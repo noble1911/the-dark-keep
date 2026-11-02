@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "engine/clx_sprite.hpp"
+#include "engine/surface.hpp"
 
 namespace devilution::keeper {
 
@@ -97,6 +98,17 @@ const std::vector<size_t> &MusterKinds();
 bool IsKindMustered(size_t kind);
 /** Memory limit on small devices: false if loading this kind too would go over it. */
 bool HasRoomToLoadKind(size_t kind);
+/** A monster trimmed and shrunk to fit a box, kept so its sprites needn't stay in memory. */
+struct KindImage {
+	bool built = false;
+	int width = 0;
+	int height = 0;
+	std::vector<uint8_t> pixels;
+};
+/** Trims away the empty space of a monster's frame and shrinks what is left, keeping its proportions. */
+KindImage MakeKindImage(size_t kind, int maxWidth, int maxHeight);
+/** Draws it at the bottom middle of `area`, whose size should be what it was made for. */
+void DrawKindImage(const Surface &area, const KindImage &image);
 /** The kind's standing sprites facing south. Only the last kind asked for stays loaded. */
 OptionalClxSpriteList KindPortrait(size_t kind);
 

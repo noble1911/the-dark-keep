@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <iterator>
 #include <optional>
 #include <string>
@@ -487,6 +488,79 @@ OptionalClxSpriteList KindPortrait(size_t kind)
 	}
 	const ClxSpriteListOrSheet sprites { *portrait };
 	return sprites.isSheet() ? sprites.sheet()[0] : sprites.list();
+}
+
+KindImage MakeKindImage(size_t kind, int maxWidth, int maxHeight)
+{
+	KindImage image;
+	image.built = true;
+	const OptionalClxSpriteList sprites = KindPortrait(kind);
+	if (!sprites || sprites->numSprites() == 0)
+		return image;
+	const ClxSprite sprite = (*sprites)[0];
+	const int width = sprite.width();
+	const int height = sprite.height();
+	OwnedSurface canvas(width, height);
+	for (int y = 0; y < height; y++)
+		std::memset(canvas.at(0, y), 0, width);
+	ClxDraw(canvas, { 0, height }, sprite);
+
+	int left = width;
+	int right = -1;
+	int top = height;
+	int bottom = -1;
+	for (int y = 0; y < height; y++) {
+		const uint8_t *row = canvas.at(0, y);
+		for (int x = 0; x < width; x++) {
+			if (row[x] == 0)
+				continue;
+			left = std::min(left, x);
+			right = std::max(right, x);
+			top = std::min(top, y);
+			bottom = std::max(bottom, y);
+		}
+	}
+	if (right < 0)
+		return image;
+	const int bodyWidth = right - left + 1;
+	const int bodyHeight = bottom - top + 1;
+	// Whole-number maths: a fraction `scaleTop / scaleBottom`, never enlarging.
+	int scaleTop = 1;
+	int scaleBottom = 1;
+	if (bodyWidth * maxHeight > bodyHeight * maxWidth) {
+		if (bodyWidth > maxWidth) {
+			scaleTop = maxWidth;
+			scaleBottom = bodyWidth;
+		}
+	} else if (bodyHeight > maxHeight) {
+		scaleTop = maxHeight;
+		scaleBottom = bodyHeight;
+	}
+	image.width = std::max(bodyWidth * scaleTop / scaleBottom, 1);
+	image.height = std::max(bodyHeight * scaleTop / scaleBottom, 1);
+	image.pixels.resize(static_cast<size_t>(image.width) * image.height);
+	for (int y = 0; y < image.height; y++) {
+		const uint8_t *row = canvas.at(left, top + y * scaleBottom / scaleTop);
+		for (int x = 0; x < image.width; x++)
+			image.pixels[static_cast<size_t>(y) * image.width + x] = row[x * scaleBottom / scaleTop];
+	}
+	return image;
+}
+
+void DrawKindImage(const Surface &area, const KindImage &image)
+{
+	const int offsetX = (area.w() - image.width) / 2;
+	const int offsetY = area.h() - image.height;
+	if (offsetX < 0 || offsetY < 0)
+		return;
+	for (int y = 0; y < image.height; y++) {
+		uint8_t *out = area.at(offsetX, offsetY + y);
+		const uint8_t *row = &image.pixels[static_cast<size_t>(y) * image.width];
+		for (int x = 0; x < image.width; x++) {
+			if (row[x] != 0)
+				out[x] = row[x];
+		}
+	}
 }
 
 const std::vector<size_t> &MusterKinds()

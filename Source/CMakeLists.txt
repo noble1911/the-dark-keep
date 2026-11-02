@@ -148,6 +148,7 @@ set(libdevilutionx_SRCS
   keeper/keeper_roster.cpp
   keeper/keeper_game.cpp
   keeper/keeper_input.cpp
+  keeper/keeper_hall.cpp
   keeper/keeper_heroes.cpp
   keeper/keeper_upgrades.cpp
   keeper/keeper_map.cpp

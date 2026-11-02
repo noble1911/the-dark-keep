@@ -759,6 +759,11 @@ bool UiLoadBlackBackground()
 	return true;
 }
 
+void UiRestartFadeIn() // [DARK KEEP]
+{
+	UiOnBackgroundChange();
+}
+
 void LoadBackgroundArt(const char *pszFile, int frames)
 {
 	ArtBackground = std::nullopt;
