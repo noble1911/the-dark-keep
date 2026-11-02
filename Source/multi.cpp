@@ -473,16 +473,17 @@ void HandleEvents(_SNETEVENT *pEvt)
 	const uint32_t playerId = pEvt->playerid;
 	switch (pEvt->eventid) {
 	case EVENT_TYPE_PLAYER_CREATE_GAME: {
-		GameData gameData;
-		if (pEvt->databytes < sizeof(GameData))
-			app_fatal(StrCat("Invalid packet size (<sizeof(GameData)): ", pEvt->databytes));
-		std::memcpy(&gameData, pEvt->data, sizeof(gameData));
-		gameData.swapLE();
-		if (gameData.size != sizeof(GameData))
-			app_fatal(StrCat("Invalid size of game data: ", gameData.size));
+		GameData gameData {};
+		// [DARK KEEP] A different build's GameData can have any size: it gets a refusal, not a crash (see keeper::IsSameBuild).
+		if (pEvt->databytes >= sizeof(GameData)) {
+			std::memcpy(&gameData, pEvt->data, sizeof(gameData));
+			gameData.swapLE();
+		}
 		sgGameInitInfo = gameData;
-		// [DARK KEEP] Only joiners get this event: take the host's setup, and the map after the GameData.
-		keeper::ApplyHostSetup(gameData, static_cast<const std::byte *>(pEvt->data) + sizeof(GameData), pEvt->databytes - sizeof(GameData));
+		if (gameData.size == sizeof(GameData) && keeper::IsSameBuild(gameData)) {
+			// [DARK KEEP] Only joiners get this event: take the host's setup, and the map after the GameData.
+			keeper::ApplyHostSetup(gameData, static_cast<const std::byte *>(pEvt->data) + sizeof(GameData), pEvt->databytes - sizeof(GameData));
+		}
 		sgbPlayerTurnBitTbl[playerId] = true;
 	} break;
 	case EVENT_TYPE_PLAYER_LEAVE_GAME: {
@@ -588,6 +589,8 @@ bool InitMulti(GameData *gameData)
 		}
 		if (!connected && !isRematch)
 			app_fatal(StrCat("Dark Keep auto-net failed: ", SDL_GetError()));
+		if (connected && !keeper::IsSameBuild(sgGameInitInfo) && (isRematch ? rematch.role == keeper::RematchRole::Joiner : keeper::AutoNet == keeper::AutoNetMode::Join))
+			app_fatal("The host is running a different build of The Dark Keep. Everyone needs the same build to play together.");
 		if (!connected)
 			gbSelectProvider = true; // the others are gone: fall back to the menus
 	}

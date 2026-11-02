@@ -21,11 +21,15 @@
 #include <fmt/format.h>
 
 #include "appfat.h"
+#include "config.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_upgrades.hpp"
 #include "multi.h"
 #include "storm/storm_net.hpp"
+#include "utils/endian_read.hpp"
+#include "utils/endian_write.hpp"
 #include "utils/file_util.h"
 #include "utils/log.hpp"
 #include "utils/paths.h"
@@ -94,13 +98,15 @@ bool progressLoaded = false;
 /** A progress file from a newer build is left alone rather than overwritten. */
 bool progressWritable = true;
 int levelsCleared = 0;
+/** Levels past the next open one that this master has won in someone else's game (bit 0 = level 1). */
+uint32_t levelsWonAhead = 0;
 
 std::string ProgressPath()
 {
 	return paths::PrefPath() + std::string(ProgressFileName);
 }
 
-bool ReadProgressFile(const std::string &path, int &cleared)
+bool ReadProgressFile(const std::string &path, int &cleared, uint32_t &wonAhead)
 {
 	FILE *file = OpenFile(path.c_str(), "rb");
 	if (file == nullptr)
@@ -108,9 +114,10 @@ bool ReadProgressFile(const std::string &path, int &cleared)
 	char header[32] {};
 	int version = 0;
 	int value = 0;
-	const int fields = std::fscanf(file, "%31s %d %d", header, &version, &value);
+	unsigned ahead = 0; // not in files from before co-op credit, and older builds ignore it
+	const int fields = std::fscanf(file, "%31s %d %d %u", header, &version, &value, &ahead);
 	std::fclose(file);
-	if (fields != 3 || ProgressHeader != header) {
+	if (fields < 3 || ProgressHeader != header) {
 		LogError("Ignoring unreadable campaign progress file {}", path);
 		return false;
 	}
@@ -120,6 +127,7 @@ bool ReadProgressFile(const std::string &path, int &cleared)
 		return false;
 	}
 	cleared = std::clamp(value, 0, NumCampaignLevels);
+	wonAhead = fields == 4 ? ahead : 0;
 	return true;
 }
 
@@ -131,8 +139,8 @@ void LoadProgress()
 	levelsCleared = 0;
 	const std::string path = ProgressPath();
 	// Saving removes the old file just before moving the new one in; survive a crash between the two.
-	if (!ReadProgressFile(path, levelsCleared) && progressWritable)
-		ReadProgressFile(path + ".tmp", levelsCleared);
+	if (!ReadProgressFile(path, levelsCleared, levelsWonAhead) && progressWritable)
+		ReadProgressFile(path + ".tmp", levelsCleared, levelsWonAhead);
 }
 
 void SaveProgress()
@@ -146,7 +154,7 @@ void SaveProgress()
 		LogError("Cannot write campaign progress file {}", temp);
 		return;
 	}
-	const std::string text = fmt::format("{} {} {}\n", ProgressHeader, ProgressVersion, levelsCleared);
+	const std::string text = fmt::format("{} {} {} {}\n", ProgressHeader, ProgressVersion, levelsCleared, levelsWonAhead);
 	const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
 	const bool closed = std::fclose(file) == 0;
 	if (!written || !closed) {
@@ -350,17 +358,31 @@ int NextOpenLevel()
 	return std::min(LevelsCleared() + 1, NumCampaignLevels);
 }
 
+bool IsLevelCredited(int level)
+{
+	LoadProgress();
+	return level <= levelsCleared || (levelsWonAhead & (1U << (level - 1))) != 0;
+}
+
+bool IsTestRun()
+{
+	return OverrideRank() != 0 || TestStartWave > 0 || TestLordHitPoints > 0;
+}
+
 void NoteVictory()
 {
 	const bool campaign = currentSetup.mode == GameMode::Campaign;
-	ProfileNoteVictory(campaign ? currentSetup.campaignLevel : 1, campaign && !joinedGame && currentSetup.campaignLevel == LevelsCleared() + 1);
-	if (joinedGame || !campaign)
+	const int level = currentSetup.campaignLevel;
+	ProfileNoteVictory(campaign ? level : 1, campaign && !IsLevelCredited(level));
+	if (!campaign || IsTestRun() || IsLevelCredited(level))
 		return;
-	// The menus only offer levels up to the rank, so this is the only way forward. Being strict
-	// also keeps --keeper-level from unlocking the whole campaign in a real profile.
-	if (currentSetup.campaignLevel != LevelsCleared() + 1)
-		return;
-	levelsCleared = currentSetup.campaignLevel;
+	// A master unlocks levels in order, whoever's game they win them in. A level won further on, in a
+	// host's game, is remembered and counts as soon as the levels before it have been cleared.
+	levelsWonAhead |= 1U << (level - 1);
+	while (levelsCleared < NumCampaignLevels && (levelsWonAhead & (1U << levelsCleared)) != 0) {
+		levelsWonAhead &= ~(1U << levelsCleared);
+		levelsCleared++;
+	}
 	SaveProgress();
 }
 
@@ -376,6 +398,30 @@ bool IsJoinedGame()
 	return joinedGame;
 }
 
+uint32_t BuildStamp()
+{
+	// The AI is simulated on every client, so anything less than the same build drifts apart.
+	uint32_t hash = 2166136261U;
+	const auto add = [&](uint32_t value) {
+		for (int shift = 0; shift < 32; shift += 8)
+			hash = (hash ^ ((value >> shift) & 0xFF)) * 16777619U;
+	};
+	for (const char c : std::string_view(PROJECT_VERSION))
+		add(static_cast<unsigned char>(c));
+	add(KeeperProtocolVersion);
+	add(sizeof(GameData));
+	add(NumLairKinds);
+	add(NumSpellKinds);
+	add(NumTrapKinds);
+	add(NumUpgrades);
+	return hash + static_cast<uint32_t>(TestBuildStamp);
+}
+
+bool IsSameBuild(const GameData &gameData)
+{
+	return LoadLE32(gameData.reserved) == BuildStamp();
+}
+
 bool HostGame(GameData &gameData, const char *gameName, const char *password, int *playerId)
 {
 	gameData.nDifficulty = DIFF_NORMAL; // how hard a game is comes from the campaign
@@ -383,6 +429,7 @@ bool HostGame(GameData &gameData, const char *gameName, const char *password, in
 	gameData.keeperLevel = static_cast<uint8_t>(currentSetup.campaignLevel);
 	WriteHostUnlocks(gameData);
 	gameData.keeperSeed = currentSetup.seed;
+	WriteLE32(gameData.reserved, BuildStamp());
 
 	GameData wire = gameData;
 	wire.swapLE();

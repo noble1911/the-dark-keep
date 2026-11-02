@@ -284,7 +284,10 @@ void RequestCastSpell(size_t spell, Point tile);
 void RequestStartRaid();
 /** The game's creator, once the siege is over: everyone leaves and meets again in `next`. */
 void RequestRestart(const KeepSetup &next);
-void RequestPossess(size_t monsterId);
+/** Tells everyone this master is in the Keeper screen, or back out of it. */
+void RequestKeeperStatus(bool inKeeper);
+/** A joiner has heard the host is about to leave for the next map. */
+bool IsRestartComing();void RequestPossess(size_t monsterId);
 void RequestRelease();
 /** Possessed monster: walk to `tile`, or attack `targetMonster` (-1 = just walk). */
 void RequestOrder(Point tile, int targetMonster);
@@ -295,6 +298,8 @@ constexpr int PossessManaCost = 10;
 
 /** Dev/test (--keeper-devctl): sets off a trap at a tile, whoever stands there. */
 void DevFireTrap(size_t slot, Point victim);
+/** Dev/test: the keep stands, as if the last raid had been repelled. */
+void DevForceVictory();
 
 /** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
 void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);

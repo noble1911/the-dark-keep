@@ -33,12 +33,14 @@
 #include "gmenu.h"
 #include "init.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_map.hpp"
+#include "keeper/keeper_menu.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -65,6 +67,7 @@ int TestLordHitPoints = 0;
 int TestStartWave = 0;
 int TestCampaignLevel = 0;
 int TestRank = 0;
+int TestBuildStamp = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -1454,9 +1457,10 @@ Rectangle GameOverBanner(int width, int hudTop)
 Rectangle GameOverButton(int width, int hudTop, int index, int count)
 {
 	const Rectangle banner = GameOverBanner(width, hudTop);
-	const int row = count * GameOverButtonWidth + (count - 1) * GameOverButtonGap;
-	return { { (width - row) / 2 + index * (GameOverButtonWidth + GameOverButtonGap), banner.position.y + banner.size.height - GameOverButtonHeight - 6 },
-		{ GameOverButtonWidth, GameOverButtonHeight } };
+	const int buttonWidth = std::min(GameOverButtonWidth, (width - (count + 1) * GameOverButtonGap) / count);
+	const int row = count * buttonWidth + (count - 1) * GameOverButtonGap;
+	return { { (width - row) / 2 + index * (buttonWidth + GameOverButtonGap), banner.position.y + banner.size.height - GameOverButtonHeight - 6 },
+		{ buttonWidth, GameOverButtonHeight } };
 }
 
 void ChooseGameOverContinue()
@@ -1601,6 +1605,7 @@ void OnLevelLoaded()
 	ResetUnits();
 	LoadSpellBar();
 	LobbyOnLevelLoaded(equippedSpells);
+	CoopOnLevelLoaded();
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1625,6 +1630,7 @@ void OnGameEnded()
 	ForgetMapCache();
 	SaveProfile();
 	LobbyOnGameEnded();
+	CoopOnGameEnded();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1638,11 +1644,16 @@ void Tick()
 	// The host chose what comes next: leave, then StartGame's loop brings this client into it.
 	if (TakeRestartRequest()) {
 		LobbyNoteRematch();
+		CloseKeeperOverlay();
 		gamemenu_exit_game(false);
 		ReturnToMainMenu = false;
 		return;
 	}
-
+	if (CoopHasHostLeft()) {
+		if (CoopHostLeftTick())
+			gamemenu_exit_game(false);
+		return;
+	}
 	// Remote masters arrive later than us; park every body on the keep level, every tick (cheap, idempotent).
 	const auto masterLevel = static_cast<uint8_t>(1 + MasterLevelsPerCampaignLevel * (CurrentLevelNumber() - 1));
 	for (Player &player : Players) {
@@ -1662,6 +1673,7 @@ void Tick()
 
 	GameTick();
 	LobbyTick();
+	CoopTick();
 	UpdateUnitMarkers();
 
 	tickCounter++;
@@ -1846,6 +1858,15 @@ bool OnKeyDown(SDL_Keycode key)
 	if (EditorOnTestKey(key))
 		return true;
 
+	if (IsKeeperOverlayOpen()) {
+		if (key == SDLK_ESCAPE)
+			CloseKeeperOverlay();
+		return true;
+	}
+	if (CoopHasHostLeft() && key == SDLK_ESCAPE) {
+		gamemenu_exit_game(false);
+		return true;
+	}
 	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
 		ChooseGameOverContinue();
 		return true;
@@ -1927,6 +1948,10 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
+	if (IsKeeperOverlayOpen()) {
+		KeeperOverlayClick();
+		return true;
+	}
 	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
 		if (currentTool.type == ToolType::Spell && std::find(equippedSpells.begin(), equippedSpells.end(), currentTool.index) == equippedSpells.end())
 			currentTool = {}; // it just came off the bar
@@ -1936,12 +1961,16 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		const int width = UiHitSurface().w();
 		const int top = HudRect().position.y;
 		const std::optional<KeepSetup> next = GameOverContinue();
-		const int count = next ? 2 : 1;
+		const int keeperButton = gbIsMultiplayer ? 1 : 0;
+		const int count = (next ? 2 : 1) + keeperButton;
 		if (next && Contains(GameOverButton(width, top, 0, count), UiMouse())) {
 			ChooseGameOverContinue();
 			return true;
 		}
-		if (Contains(GameOverButton(width, top, count - 1, count), UiMouse())) {
+		if (keeperButton != 0 && Contains(GameOverButton(width, top, count - 2, count), UiMouse())) {
+			CoopOpenKeeper();
+			return true;
+		}		if (Contains(GameOverButton(width, top, count - 1, count), UiMouse())) {
 			gamemenu_exit_game(false);
 			return true;
 		}
@@ -2023,6 +2052,8 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
+	if (IsKeeperOverlayOpen())
+		return true;
 	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
@@ -2044,6 +2075,10 @@ bool OnMouseWheel(int deltaY)
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseWheel(deltaY);
+	if (IsKeeperOverlayOpen()) {
+		KeeperOverlayWheel(deltaY);
+		return true;
+	}
 	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
 		return true;
 	if (Contains(BarRect(), UiMouse())) {
@@ -2145,6 +2180,11 @@ namespace {
 
 void DrawUi(const Surface &out)
 {
+	if (IsKeeperOverlayOpen()) {
+		DrawKeeperOverlay(out, UiMouse());
+		DrawCoopKeeperBanner(out);
+		return;
+	}
 	const Rectangle hud = HudRect();
 	const int top = hud.position.y;
 	const int height = out.h() - top;
@@ -2228,20 +2268,23 @@ void DrawUi(const Surface &out)
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
 		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (IsJoinedGame() ? " The host chooses what is next." : ""),
+		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (gbIsMultiplayer ? CoopGameOverLine() : std::string()),
 		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 		const std::optional<KeepSetup> next = GameOverContinue();
-		const int count = next ? 2 : 1;
+		const int keeperButton = gbIsMultiplayer ? 1 : 0;
+		const int count = (next ? 2 : 1) + keeperButton;
 		const auto drawButton = [&](int index, std::string_view label) {
 			const Rectangle button = GameOverButton(out.w(), top, index, count);
 			DrawHalfTransparentRectTo(out, button.position.x, button.position.y, button.size.width, button.size.height);
 			const UiFlags color = Contains(button, UiMouse()) ? UiFlags::ColorGold : UiFlags::ColorWhite;
-			DrawString(out, label, { button.position + Displacement { 0, 3 }, { button.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
+			DrawString(out, FitText(label, button.size.width - 4), { button.position + Displacement { 0, 3 }, { button.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
 		};
 		if (next)
-			drawButton(0, GameOverContinueLabel(*next));
-		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+			drawButton(0, CoopStartingTicks() > 0 ? std::string("Start now (Enter)") : GameOverContinueLabel(*next));
+		if (keeperButton != 0)
+			drawButton(count - 2, fmt::format("Keeper: {} Renown", RenownAvailable()));		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
 	}
+	DrawCoopHostLeft(out, top);
 	EditorDrawTestBanner(out);
 }
 

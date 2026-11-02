@@ -101,7 +101,11 @@ std::vector<std::string> ListMapFiles(bool includeScratch);
 int LevelsCleared();
 /** The furthest campaign level open to this machine's master: LevelsCleared() + 1, capped at 20. */
 int NextOpenLevel();
-/** The keep stands. Saves progress when this client's own campaign game cleared its next level. */
+/** This campaign level pays no first-clear reward any more: cleared, or already won in a host's game. */
+bool IsLevelCredited(int level);
+/** A test flag is in play, so nothing is earned or saved. */
+bool IsTestRun();
+/** The keep stands. Saves progress, in the host's game or this master's own. */
 void NoteVictory();
 
 // ---- co-op -------------------------------------------------------------------------------
@@ -117,6 +121,11 @@ bool IsJoinedGame();
 bool HostGame(GameData &gameData, const char *gameName, const char *password, int *playerId);
 /** A joiner received the host's init blob: adopts the setup and rank, and stores the map. */
 void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t mapSize);
+/** Bump when the co-op protocol changes without the version changing. */
+constexpr uint32_t KeeperProtocolVersion = 1;
+/** Identifies this build: clients of different builds refuse to play together. */
+uint32_t BuildStamp();
+bool IsSameBuild(const GameData &gameData);
 /** One line about a hosted game, for the public game list. */
 std::string DescribeHostedGame(const GameData &gameData);
 

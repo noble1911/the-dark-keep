@@ -16,6 +16,7 @@
 #include "engine/render/text_render.hpp"
 #include "game_mode.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
@@ -236,8 +237,12 @@ void LobbyTick()
 	if (hostSlot != NoHostSlot) {
 		if (Players[hostSlot].plractive)
 			hostSeenActive = true;
-		else if (hostSeenActive)
+		else if (hostSeenActive) {
 			hostSlot = NoHostSlot;
+			// Leaving for the next map is the host's way of starting it.
+			if (IsJoinedGame() && !IsRestartComing())
+				CoopNoteHostLeft();
+		}
 	}
 
 	if (!CanChoose()) {
@@ -350,6 +355,8 @@ void DrawMasters(const Surface &out)
 			tag += host ? ", you" : "you";
 		if (!mine && (player._pLvlChanging || !player.isOnActiveLevel()))
 			tag += tag.empty() ? "arriving" : ", arriving";
+		else if (CoopIsInKeeper(id))
+			tag = host ? "host, Keeper" : "Keeper";
 		// Everyone's hero is called the same unless they renamed it.
 		const bool sameName = std::any_of(Players.begin(), Players.begin() + NetPlayerSlots, [&](const Player &other) {
 			return &other != &player && other.plractive && std::string_view(other._pName) == player._pName;

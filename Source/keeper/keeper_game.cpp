@@ -17,6 +17,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_heroes.hpp"
+#include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
@@ -146,6 +147,18 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+	/** A master opened or closed the Keeper screen between maps. */
+	InKeeper,
+	/** The host chose the next map: how long until it goes, in `w`. */
+	NextMapSoon,
+	// Mid-raid state for a master who joins, on top of the rest of the snapshot.
+	SyncHero,
+	SyncHeroMind,
+	SyncBotState,
+	SyncBotMind,
+	SyncBotPetrified,
+	SyncPortal,
+	SyncPortalCaster,
 };
 
 #pragma pack(push, 1)
@@ -176,6 +189,10 @@ struct TCmdKeeperState {
 };
 #pragma pack(pop)
 
+// The high priority buffer stores each message's length in one byte, and CopyPacket trusts it.
+static_assert(sizeof(TCmdKeeperState) <= 255);
+static_assert(sizeof(TCmdKeeper) <= 255);
+
 int ticksUntilBroadcast = 0;
 /** This client joined a keep already in play, and doesn't act as its host until it has been told about it. */
 bool awaitingKeepSnapshot = false;
@@ -196,7 +213,9 @@ KeepSetup restartSetup;
 int restartCountdown = 0;
 /** Joiner: ticks until it leaves, once the host has surely gone. */
 int joinerRestartWait = 0;
-
+/** Host: masters still have this long before the restart notice goes out, and it has run this long. */
+int restartGraceTicks = 0;
+int restartGraceElapsed = 0;
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
 	TCmdKeeper cmd;
@@ -759,6 +778,53 @@ private:
 	std::array<TCmdKeeper, 493 / sizeof(TCmdKeeper)> commands_;
 };
 
+/** Carried gold fits in two bytes, with -1 ("robbed nothing, but heading out anyway") as zero. */
+Point PackCarried(int carried)
+{
+	const int value = std::clamp(carried + 1, 0, 0xFFFF);
+	return { value & 0xFF, value >> 8 };
+}
+
+int UnpackCarried(uint8_t low, uint8_t high)
+{
+	return (low | (high << 8)) - 1;
+}
+
+uint8_t PackHeroFlags(bool fleeing, bool fearRolled, bool fellBack)
+{
+	return static_cast<uint8_t>((fleeing ? 1 : 0) | (fearRolled ? 2 : 0) | (fellBack ? 4 : 0));
+}
+
+/** What a raid in progress needs beyond where everyone stands: the heroes' loot and morale, the bots' minds, the portal. */
+void AddRaidJoinState(DirectCommands &out)
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const size_t id = ActiveMonsters[i];
+		const std::optional<HeroSyncState> hero = GetHeroSyncState(id);
+		if (!hero)
+			continue;
+		const auto w = static_cast<uint16_t>(id + 1);
+		out.Add(Action::SyncHero, PackHeroFlags(hero->fleeing, hero->fearRolled, hero->fellBack), hero->baitsVisited, PackCarried(hero->carried), w);
+		out.Add(Action::SyncHeroMind, static_cast<uint8_t>(hero->trapsKnown), static_cast<uint8_t>(hero->trapsKnown >> 8), static_cast<uint8_t>(hero->trapsSeen), static_cast<uint8_t>(hero->trapsSeen >> 8), w);
+	}
+	for (size_t i = 0; i < MaxBots; i++) {
+		const std::optional<BotSyncState> bot = GetBotSyncState(i);
+		if (!bot)
+			continue;
+		const auto a = static_cast<uint8_t>(i);
+		out.Add(Action::SyncBotState, a, PackHeroFlags(bot->fleeing, bot->fearRolled, bot->fellBack), PackCarried(bot->carried), static_cast<uint16_t>(std::clamp(bot->potions, 0, 0xFFFF)));
+		out.Add(Action::SyncBotMind, a, bot->baitsVisited, static_cast<uint8_t>(bot->trapsKnown), static_cast<uint8_t>(bot->trapsKnown >> 8), bot->trapsSeen);
+		if (bot->petrifiedTicks > 0)
+			out.Add(Action::SyncBotPetrified, a, 0, 0, 0, static_cast<uint16_t>(std::clamp(bot->petrifiedTicks, 0, 0xFFFF)));
+	}
+	const PortalSyncState portal = GetPortalSyncState();
+	if (State.bossDown || portal.open) {
+		const auto flags = static_cast<uint8_t>((portal.open ? 1 : 0) | (portal.awaitingBotCast ? 2 : 0) | (State.bossDown ? 4 : 0) | (State.portalEscape ? 8 : 0));
+		out.Add(Action::SyncPortal, flags, static_cast<uint8_t>(std::clamp(portal.castTimeout, 0, 0xFF)), portal.position, static_cast<uint16_t>(std::clamp(portal.channel, 0, 0xFFFF)));
+		out.Add(Action::SyncPortalCaster, static_cast<uint8_t>(portal.botSlot + 1), 0, 0, 0, static_cast<uint16_t>(portal.casterMonster + 1));
+	}
+}
+
 /**
  * Tells a master who just arrived what the keep looks like. Most of it isn't in the engine's level
  * delta at all, and that delta only remembers a monster it never saw die as "spawned somewhere".
@@ -821,6 +887,7 @@ void SendKeepSnapshot(size_t playerId)
 		if (const std::optional<BotSummary> summary = GetBotSummary(bot); summary)
 			out.Add(Action::SyncBot, static_cast<uint8_t>(i), static_cast<uint8_t>(summary->cls), bot.position.tile, static_cast<uint16_t>(std::clamp(bot._pHitPoints >> 6, 0, 0xFFFF)));
 	}
+	AddRaidJoinState(out);
 	out.Add(Action::SyncEnd);
 	out.Flush();
 }
@@ -966,6 +1033,67 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 			Players[FirstBotId + message.a]._pHitPoints = Swap16LE(message.w) << 6;
 		}
 		break;
+	case Action::SyncHero:
+	case Action::SyncHeroMind:
+		if (IsMonsterInPlay(monsterId)) {
+			std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(monsterId));
+			if (!hero)
+				break;
+			if (message.action == Action::SyncHero) {
+				hero->fleeing = (message.a & 1) != 0;
+				hero->fearRolled = (message.a & 2) != 0;
+				hero->fellBack = (message.a & 4) != 0;
+				hero->baitsVisited = message.b;
+				hero->carried = UnpackCarried(message.x, message.y);
+			} else {
+				hero->trapsKnown = static_cast<uint16_t>(message.a | (message.b << 8));
+				hero->trapsSeen = static_cast<uint16_t>(message.x | (message.y << 8));
+			}
+			ApplyHeroSyncState(static_cast<size_t>(monsterId), *hero);
+		}
+		break;
+	case Action::SyncBotState:
+	case Action::SyncBotMind:
+	case Action::SyncBotPetrified:
+		if (message.a < MaxBots) {
+			std::optional<BotSyncState> bot = GetBotSyncState(message.a);
+			if (!bot)
+				break;
+			if (message.action == Action::SyncBotState) {
+				bot->fleeing = (message.b & 1) != 0;
+				bot->fearRolled = (message.b & 2) != 0;
+				bot->fellBack = (message.b & 4) != 0;
+				bot->carried = UnpackCarried(message.x, message.y);
+				bot->potions = Swap16LE(message.w);
+			} else if (message.action == Action::SyncBotMind) {
+				bot->baitsVisited = message.b;
+				bot->trapsKnown = static_cast<uint16_t>(message.x | (message.y << 8));
+				bot->trapsSeen = Swap16LE(message.w);
+			} else {
+				bot->petrifiedTicks = Swap16LE(message.w);
+			}
+			ApplyBotSyncState(message.a, *bot);
+		}
+		break;
+	case Action::SyncPortal: {
+		State.bossDown = (message.a & 4) != 0;
+		State.portalEscape = (message.a & 8) != 0;
+		PortalSyncState portal = GetPortalSyncState();
+		portal.open = (message.a & 1) != 0;
+		portal.awaitingBotCast = (message.a & 2) != 0;
+		portal.castTimeout = message.b;
+		portal.channel = Swap16LE(message.w);
+		portal.position = tile;
+		ApplyPortalSyncState(portal);
+		break;
+	}
+	case Action::SyncPortalCaster: {
+		PortalSyncState portal = GetPortalSyncState();
+		portal.botSlot = static_cast<int>(message.a) - 1;
+		portal.casterMonster = monsterId;
+		ApplyPortalSyncState(portal);
+		break;
+	}
 	case Action::SyncEnd:
 		ApplySyncEnd();
 		break;
@@ -1206,6 +1334,8 @@ void ResetGame(Point entrance, Point vault)
 	restartChosen = false;
 	restartCountdown = 0;
 	joinerRestartWait = 0;
+	restartGraceTicks = 0;
+	restartGraceElapsed = 0;
 	ResetHeroes();
 	ResetRaidStats();
 }
@@ -1215,6 +1345,16 @@ void GameTick()
 	// The word goes out repeatedly: a message can wait for the next turn, and a joiner may be loading.
 	if (joinerRestartWait > 0 && --joinerRestartWait == 0)
 		MarkRestartRequested();
+	if (restartGraceTicks > 0) {
+		// Long enough for everyone to see it coming, longer while someone is in the Keeper, within reason.
+		const int pastMinimum = std::max(CoopMinGraceTicks - ++restartGraceElapsed, 0);
+		restartGraceTicks = CoopAnyMasterInKeeper() ? restartGraceTicks - 1 : std::min(restartGraceTicks - 1, pastMinimum);
+		if (restartGraceElapsed % TicksPerSecond == 1 || restartGraceTicks == 0)
+			Send(Action::NextMapSoon, 0, 0, {}, static_cast<uint16_t>(restartGraceTicks));
+		CoopNoteStarting(restartGraceTicks);
+		if (restartGraceTicks == 0)
+			restartCountdown = RestartNoticeTicks;
+	}
 	if (restartCountdown > 0) {
 		if (restartCountdown % RestartResendTicks == 0)
 			Send(Action::Restart);
@@ -1290,6 +1430,14 @@ void GameTick()
 
 	if (--ticksUntilBroadcast <= 0)
 		BroadcastState();
+}
+
+void DevForceVictory()
+{
+	if (IsHost()) {
+		SetPhase(Phase::Victory);
+		BroadcastState();
+	}
 }
 
 void DevFireTrap(size_t slot, Point victim)
@@ -1634,8 +1782,12 @@ void RequestCastSpell(size_t spell, Point tile)
 
 void RequestRestart(const KeepSetup &next)
 {
-	if (restartChosen)
+	if (restartChosen) {
+		// Asked again while everyone was given time: start now.
+		if (restartGraceTicks > 1)
+			restartGraceTicks = 1;
 		return;
+	}
 	restartChosen = true;
 	if (!gbIsMultiplayer) {
 		SetPostMapSetup(next); // by way of the character screen
@@ -1643,7 +1795,25 @@ void RequestRestart(const KeepSetup &next)
 		return;
 	}
 	restartSetup = next;
-	restartCountdown = RestartNoticeTicks;
+	const bool alone = std::none_of(Players.begin(), Players.begin() + NetPlayerSlots, [](const Player &other) { return &other != MyPlayer && other.plractive; });
+	if (alone) {
+		restartCountdown = RestartNoticeTicks;
+		return;
+	}
+	restartGraceTicks = CoopMaxGraceTicks;
+	restartGraceElapsed = 0;
+	CoopNoteStarting(restartGraceTicks);
+	Send(Action::NextMapSoon, 0, 0, {}, static_cast<uint16_t>(restartGraceTicks));
+}
+
+void RequestKeeperStatus(bool inKeeper)
+{
+	Send(Action::InKeeper, inKeeper ? 1 : 0);
+}
+
+bool IsRestartComing()
+{
+	return joinerRestartWait > 0;
 }
 
 void RequestStartRaid()
@@ -1703,7 +1873,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		if (maxCmdSize < sizeof(TCmdKeeperState))
 			return maxCmdSize;
 		const auto &message = *reinterpret_cast<const TCmdKeeperState *>(cmd);
-		if (&player != MyPlayer && !IsHost()) {
+		// Not while this client is loading or waiting for the level: ResetGame is still to come, and it hasn't got a keep to apply this to.
+		if (gbBufferMsgs != 1 && IsActive() && &player != MyPlayer && !IsHost()) {
 			const Phase phase = static_cast<Phase>(std::min<uint8_t>(message.phase, static_cast<uint8_t>(Phase::Defeat)));
 			// Before the phase and the wave: leaving a raid removes the bots and moves the wave on, and a
 			// death has to be counted first, at the raid's own bounty.
@@ -1835,6 +2006,13 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::PatrolLeg:
 		ApplyPatrolLeg(message.a, message.b, message.x);
 		break;
+	case Action::SyncHero:
+	case Action::SyncHeroMind:
+	case Action::SyncBotState:
+	case Action::SyncBotMind:
+	case Action::SyncBotPetrified:
+	case Action::SyncPortal:
+	case Action::SyncPortalCaster:
 	case Action::SyncBegin:
 	case Action::SyncHostSlot:
 	case Action::SyncUpgrade:
@@ -1851,6 +2029,13 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncBot:
 	case Action::SyncEnd:
 		ApplySnapshotEntry(message);
+		break;
+	case Action::InKeeper:
+		CoopNoteInKeeper(player.getId(), message.a != 0);
+		break;
+	case Action::NextMapSoon:
+		if (&player != MyPlayer)
+			CoopNoteStarting(Swap16LE(message.w));
 		break;
 	case Action::Restart:
 		// Only the game's creator picks what comes next; everyone else comes back to its new game.

@@ -623,7 +623,58 @@ bool HandleEvent(SDL_Event &event)
 	}
 }
 
+bool overlayOpen = false;
+
+void ResetScreenState()
+{
+	if (selected.tab == Tab::Monsters && !BestiaryKinds().empty() && !IsKindOnRoster(selected.index))
+		selected.index = BestiaryKinds().front();
+	endScreen = false;
+	confirmRespec = false;
+	clicked = false;
+	wheel = 0;
+}
+
 } // namespace
+
+void OpenKeeperOverlay()
+{
+	ResetScreenState();
+	overlayOpen = true;
+}
+
+void CloseKeeperOverlay()
+{
+	if (!overlayOpen)
+		return;
+	overlayOpen = false;
+	cardImages = {};
+	keeperImage = {};
+}
+
+bool IsKeeperOverlayOpen()
+{
+	return overlayOpen;
+}
+
+void DrawKeeperOverlay(const Surface &out, Point mouse)
+{
+	DrawScreen(out, mouse);
+	clicked = false;
+	wheel = 0;
+	if (endScreen)
+		CloseKeeperOverlay();
+}
+
+void KeeperOverlayClick()
+{
+	clicked = true;
+}
+
+void KeeperOverlayWheel(int deltaY)
+{
+	wheel += deltaY;
+}
 
 void UiKeeperScreen()
 {
@@ -636,12 +687,7 @@ void UiKeeperScreen()
 
 	const int scale = std::clamp(gnScreenHeight / 720, 1, 4);
 	OwnedSurface canvas(gnScreenWidth / scale, gnScreenHeight / scale);
-	if (selected.tab == Tab::Monsters && !BestiaryKinds().empty() && !IsKindOnRoster(selected.index))
-		selected.index = BestiaryKinds().front();
-	endScreen = false;
-	confirmRespec = false;
-	clicked = false;
-	wheel = 0;
+	ResetScreenState();
 
 	while (!endScreen) {
 		const Point mouse { MousePosition.x / scale, MousePosition.y / scale };
