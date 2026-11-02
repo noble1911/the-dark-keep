@@ -54,7 +54,6 @@ namespace {
 constexpr int TicksPerSecond = 20;
 constexpr int SetupTicks = 4 * 60 * TicksPerSecond;
 constexpr int BreatherTicks = 75 * TicksPerSecond;
-constexpr int StartingVaultGold = 1200;
 /** Mana regenerated per tick, in hundredths (100 = 1 mana per tick). */
 constexpr int ManaRegenPerTick = 6; // 1.2 mana per second
 /** Minimum spacing between placements (tiles) and distance from the entrance/vault. */
@@ -115,6 +114,7 @@ enum class Action : uint8_t {
 	SyncPossessed,
 	SyncBot,
 	SyncEnd,
+	Restart,
 };
 
 #pragma pack(push, 1)
@@ -157,6 +157,8 @@ struct PatrolWatch {
 	int idleTicks = 0;
 };
 std::array<std::array<PatrolWatch, MaxLairMembers>, MaxLairs> patrolWatch;
+/** This client already chose what comes after the siege (the choice changes the setup). */
+bool restartChosen = false;
 
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
@@ -262,13 +264,14 @@ void AnnouncePhase(Phase from, Phase to)
 	}
 	switch (to) {
 	case Phase::Raid:
-		Announce(State.wave >= NumWaves ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
+		Announce(State.wave >= NumWaves() ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
 		break;
 	case Phase::Breather:
 		if (State.wave > 1)
 			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
 		break;
 	case Phase::Victory:
+		NoteVictory();
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
@@ -406,7 +409,7 @@ void EndRaid()
 		State.portalEscape = false;
 		Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
 	}
-	if (State.wave >= NumWaves) {
+	if (State.wave >= NumWaves()) {
 		SetPhase(Phase::Victory);
 		return;
 	}
@@ -1032,8 +1035,8 @@ void ResetGame(Point entrance, Point vault)
 	State = {};
 	State.entrance = entrance;
 	State.vault = vault;
-	State.vaultGold = StartingVaultGold;
-	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, static_cast<int>(NumWaves)));
+	State.vaultGold = StartingGold();
+	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, NumWaves()));
 	State.phase = Phase::Setup;
 	State.phaseTicks = SetupTicks;
 	for (int &mana : State.mana)
@@ -1045,6 +1048,7 @@ void ResetGame(Point entrance, Point vault)
 	patrolWatch = {};
 	awaitingKeepSnapshot = IsAnotherMasterInKeep();
 	keepSnapshotTimeout = JoinSyncTimeoutTicks;
+	restartChosen = false;
 	ResetHeroes();
 	ResetRaidStats();
 }
@@ -1159,7 +1163,7 @@ int SupplyUsed()
 
 int SupplyCap()
 {
-	return BaseSupply + SupplyPerRaid * (std::clamp<int>(State.wave, 1, NumWaves) - 1);
+	return BaseSupply + SupplyPerRaid * (std::clamp<int>(State.wave, 1, NumWaves()) - 1);
 }
 
 bool IsStructureActive(StructureRef ref)
@@ -1415,6 +1419,15 @@ void RequestCastSpell(size_t spell, Point tile)
 	Send(Action::Cast, static_cast<uint8_t>(spell), 0, tile);
 }
 
+void RequestRestart(const KeepSetup &next)
+{
+	if (restartChosen)
+		return;
+	restartChosen = true;
+	SetCurrentSetup(next);
+	Send(Action::Restart);
+}
+
 void RequestStartRaid()
 {
 	Send(Action::RequestStartRaid);
@@ -1582,6 +1595,11 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncBot:
 	case Action::SyncEnd:
 		ApplySnapshotEntry(message);
+		break;
+	case Action::Restart:
+		// Only the game's creator picks what comes next; everyone else comes back to its new game.
+		if (IsJoinedGame() ? &player != MyPlayer : &player == MyPlayer)
+			MarkRestartRequested();
 		break;
 	}
 	return sizeof(message);

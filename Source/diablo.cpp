@@ -1166,6 +1166,9 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-start-wave") { // [DARK KEEP] dev/test: begin at a later raid
 			if (i + 1 < argc)
 				keeper::TestStartWave = std::atoi(argv[++i]);
+		} else if (arg == "--keeper-level") { // [DARK KEEP] dev/test: autostart or host this campaign level
+			if (i + 1 < argc)
+				keeper::TestCampaignLevel = std::atoi(argv[++i]);
 		} else if (arg == "--keeper-lord-hp") { // [DARK KEEP] dev/test: override the Keep Lord's hit points
 			if (i + 1 < argc)
 				keeper::TestLordHitPoints = std::atoi(argv[++i]);

@@ -29,6 +29,7 @@
 #include "engine/render/text_render.hpp"
 #include "engine/trn.hpp"
 #include "game_mode.hpp"
+#include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
 #include "keeper/keeper_bots.hpp"
@@ -56,6 +57,7 @@ namespace devilution::keeper {
 bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
+int TestCampaignLevel = 0;
 AutoNetMode AutoNet = AutoNetMode::None;
 char AutoJoinAddress[128] = "127.0.0.1";
 
@@ -1340,6 +1342,50 @@ bool IsGameOver()
 	return State.phase == Phase::Victory || State.phase == Phase::Defeat;
 }
 
+// ---- the choice after the siege -----------------------------------------------
+
+constexpr int GameOverBannerHeight = 100;
+constexpr int GameOverButtonWidth = 240;
+constexpr int GameOverButtonHeight = 20;
+constexpr int GameOverButtonGap = 12;
+
+/** What the "continue" button starts: only the game's creator gets one. */
+std::optional<KeepSetup> GameOverContinue()
+{
+	if (IsJoinedGame())
+		return std::nullopt;
+	return ContinueSetup(State.phase == Phase::Victory);
+}
+
+std::string GameOverContinueLabel(const KeepSetup &next)
+{
+	if (State.phase != Phase::Victory)
+		return "Retry (Enter)";
+	if (CurrentSetup().mode != GameMode::Campaign)
+		return "Play again (Enter)";
+	return fmt::format("Next: {} (Enter)", CampaignLevelRules(next.campaignLevel).name);
+}
+
+Rectangle GameOverBanner(int width, int hudTop)
+{
+	return { { 0, hudTop / 2 - GameOverBannerHeight * 3 / 5 }, { width, GameOverBannerHeight } };
+}
+
+/** Button `index` of the `count` in the banner's row (the continue button, if any, comes first). */
+Rectangle GameOverButton(int width, int hudTop, int index, int count)
+{
+	const Rectangle banner = GameOverBanner(width, hudTop);
+	const int row = count * GameOverButtonWidth + (count - 1) * GameOverButtonGap;
+	return { { (width - row) / 2 + index * (GameOverButtonWidth + GameOverButtonGap), banner.position.y + banner.size.height - GameOverButtonHeight - 6 },
+		{ GameOverButtonWidth, GameOverButtonHeight } };
+}
+
+void ChooseGameOverContinue()
+{
+	if (const std::optional<KeepSetup> next = GameOverContinue(); next)
+		RequestRestart(*next);
+}
+
 const Monster *MyPossessed()
 {
 	const int16_t id = State.possessed[MyPlayerId];
@@ -1485,6 +1531,13 @@ void Tick()
 {
 	if (!IsActive())
 		return;
+
+	// The host chose what comes next: leave, then StartGame's loop brings this client into it.
+	if (TakeRestartRequest()) {
+		gamemenu_exit_game(false);
+		ReturnToMainMenu = false;
+		return;
+	}
 
 	// Remote masters arrive later than us; park every body on the keep level, every tick (cheap, idempotent).
 	for (Player &player : Players) {
@@ -1662,6 +1715,10 @@ bool OnKeyDown(SDL_Keycode key)
 	if (!IsActive())
 		return false;
 
+	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
+		ChooseGameOverContinue();
+		return true;
+	}
 	if (DispatchBoundKey(static_cast<uint32_t>(key)))
 		return true;
 
@@ -1720,6 +1777,10 @@ bool OnKeyDown(SDL_Keycode key)
 			ClearSelectedHero();
 			return true;
 		}
+		if (IsGameOver()) {
+			gamemenu_exit_game(false);
+			return true;
+		}
 		return false;
 	default:
 		return false;
@@ -1731,6 +1792,20 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (!IsActive())
 		return false;
 
+	if (IsGameOver()) {
+		const int width = UiHitSurface().w();
+		const int top = HudRect().position.y;
+		const std::optional<KeepSetup> next = GameOverContinue();
+		const int count = next ? 2 : 1;
+		if (next && Contains(GameOverButton(width, top, 0, count), UiMouse())) {
+			RequestRestart(*next);
+			return true;
+		}
+		if (Contains(GameOverButton(width, top, count - 1, count), UiMouse())) {
+			gamemenu_exit_game(false);
+			return true;
+		}
+	}
 	if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot) {
 		SelectTool(ToolType::Spell, *slot);
 		return true;
@@ -1932,7 +2007,7 @@ void DrawUi(const Surface &out)
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += fmt::format("  {}", FormatTicks(State.phaseTicks));
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves), NumWaves), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("Raid {} of {}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
 	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite) });
@@ -1992,12 +2067,23 @@ void DrawUi(const Surface &out)
 
 	if (IsGameOver()) {
 		const bool won = State.phase == Phase::Victory;
-		const Rectangle banner { { 0, top / 2 - 40 }, { out.w(), 80 } };
+		const Rectangle banner = GameOverBanner(out.w(), top);
 		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
 		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
 		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, won ? fmt::format("All {} raids repelled with {} gold left. Esc for the menu.", NumWaves, State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped. Esc for the menu."),
+		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + (IsJoinedGame() ? " The host chooses what is next." : ""),
 		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+		const std::optional<KeepSetup> next = GameOverContinue();
+		const int count = next ? 2 : 1;
+		const auto drawButton = [&](int index, std::string_view label) {
+			const Rectangle button = GameOverButton(out.w(), top, index, count);
+			DrawHalfTransparentRectTo(out, button.position.x, button.position.y, button.size.width, button.size.height);
+			const UiFlags color = Contains(button, UiMouse()) ? UiFlags::ColorGold : UiFlags::ColorWhite;
+			DrawString(out, label, { button.position + Displacement { 0, 3 }, { button.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
+		};
+		if (next)
+			drawButton(0, GameOverContinueLabel(*next));
+		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
 	}
 }
 

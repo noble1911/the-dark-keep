@@ -149,7 +149,7 @@ bool SNetCreateGame(const char *pszGameName, const char *pszGamePassword, char *
 #ifndef NONET
 	std::lock_guard<SdlMutex> lg(storm_net_mutex);
 #endif
-	if (gameTemplateSize != sizeof(GameData))
+	if (gameTemplateSize < static_cast<int>(sizeof(GameData))) // [DARK KEEP] a map may follow the GameData
 		ABORT();
 	net::buffer_t gameInitInfo(gameTemplateData, gameTemplateData + gameTemplateSize);
 	dvlnet_inst->setup_gameinfo(std::move(gameInitInfo));

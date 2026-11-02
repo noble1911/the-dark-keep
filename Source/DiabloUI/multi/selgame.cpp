@@ -21,7 +21,6 @@
 #include <fmt/format.h>
 
 #include "DiabloUI/diabloui.h"
-#include "DiabloUI/hero/selhero.h"
 #include "DiabloUI/scrollbar.h"
 #include "DiabloUI/selok.h"
 #include "DiabloUI/ui_flags.hpp"
@@ -30,6 +29,8 @@
 #include "diablo.h"
 #include "engine/point.hpp"
 #include "engine/render/text_render.hpp"
+#include "keeper/keeper_campaign.hpp" // [DARK KEEP]
+#include "keeper/keeper_menu.hpp" // [DARK KEEP]
 #include "levels/gendung.h"
 #include "menu.h"
 #include "multi.h"
@@ -53,7 +54,6 @@ bool selgame_endMenu;
 int *gdwPlayerId;
 _difficulty nDifficulty;
 int nTickRate;
-int heroLevel;
 
 static GameData *m_game_data;
 extern int provider;
@@ -234,10 +234,10 @@ void selgame_GameSelection_Focus(size_t value)
 	const UiListItem &item = *vecSelGameDlgItems[value];
 	switch (item.m_value) {
 	case 0:
-		CopyUtf8(selgame_Description, _("Create a new game with a difficulty setting of your choice."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, _("Create a new password-protected game: a campaign level or a custom map."), sizeof(selgame_Description));
 		break;
 	case 1:
-		CopyUtf8(selgame_Description, _("Create a new public game that anyone can join with a difficulty setting of your choice."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, _("Create a new public game that anyone can join: a campaign level or a custom map."), sizeof(selgame_Description));
 		break;
 	case 2:
 		if (provider == SELCONN_ZT) {
@@ -251,19 +251,7 @@ void selgame_GameSelection_Focus(size_t value)
 		std::string infoString = std::string(_("Join the public game already in progress."));
 		infoString.append("\n\n");
 		if (IsGameCompatible(gameInfo.gameData)) {
-			std::string_view difficulty;
-			switch (gameInfo.gameData.nDifficulty) {
-			case DIFF_NORMAL:
-				difficulty = _("Normal");
-				break;
-			case DIFF_NIGHTMARE:
-				difficulty = _("Nightmare");
-				break;
-			case DIFF_HELL:
-				difficulty = _("Hell");
-				break;
-			}
-			infoString.append(fmt::format(fmt::runtime(_(/* TRANSLATORS: {:s} means: Game Difficulty. */ "Difficulty: {:s}")), difficulty));
+			infoString.append(keeper::DescribeHostedGame(gameInfo.gameData)); // [DARK KEEP]
 			infoString += '\n';
 			switch (gameInfo.gameData.nTickRate) {
 			case 20:
@@ -303,25 +291,10 @@ void selgame_GameSelection_Focus(size_t value)
 	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH), sizeof(selgame_Description));
 }
 
-/**
- * @brief Load the current hero level from save file
- * @param pInfo Hero info
- * @return always true
- */
-bool UpdateHeroLevel(_uiheroinfo *pInfo)
-{
-	if (pInfo->saveNumber == gSaveNumber)
-		heroLevel = pInfo->level;
-
-	return true;
-}
-
 void selgame_GameSelection_Select(size_t value)
 {
 	selgame_enteringGame = true;
 	selgame_selectedGame = value;
-
-	gfnHeroInfo(UpdateHeroLevel);
 
 	selgame_FreeVectors();
 
@@ -348,24 +321,20 @@ void selgame_GameSelection_Select(size_t value)
 	switch (value) {
 	case 0:
 	case 1: {
-		title = _("Create Game").data();
-
-		const SDL_Rect rect4 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 211), 295, 35 };
-		vecSelGameDialog.push_back(std::make_unique<UiArtText>(_("Select Difficulty").data(), rect4, UiFlags::AlignCenter | UiFlags::FontSize30 | UiFlags::ColorUiSilver, 3));
-
-		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Normal"), DIFF_NORMAL));
-		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Nightmare"), DIFF_NIGHTMARE));
-		vecSelGameDlgItems.push_back(std::make_unique<UiListItem>(_("Hell"), DIFF_HELL));
-
-		vecSelGameDialog.push_back(std::make_unique<UiList>(vecSelGameDlgItems, vecSelGameDlgItems.size(), uiPosition.x + 300, (uiPosition.y + 282), 295, 26, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiGold));
-
-		const SDL_Rect rect5 = { (Sint16)(uiPosition.x + 299), (Sint16)(uiPosition.y + 427), 140, 35 };
-		vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("OK"), &UiFocusNavigationSelect, rect5, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
-
-		const SDL_Rect rect6 = { (Sint16)(uiPosition.x + 449), (Sint16)(uiPosition.y + 427), 140, 35 };
-		vecSelGameDialog.push_back(std::make_unique<UiArtTextButton>(_("CANCEL"), &UiFocusNavigationEsc, rect6, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
-
-		UiInitList(selgame_Diff_Focus, selgame_Diff_Select, selgame_Diff_Esc, vecSelGameDialog, true);
+		// [DARK KEEP] No difficulty to choose: the host picks the game, and its level sets how hard it is.
+		selgame_Free();
+		const bool chosen = keeper::UiHostGameSelect();
+		selgame_Init();
+		if (!chosen) {
+			if (provider == SELCONN_LOOPBACK) {
+				selgame_GameSelection_Esc();
+				return;
+			}
+			HighlightedItem = 0;
+			selgame_GameSelection_Init();
+			return;
+		}
+		selgame_GameSpeedSelection();
 		break;
 	}
 	case 2: {
@@ -410,97 +379,8 @@ void selgame_GameSelection_Esc()
 	selgame_endMenu = true;
 }
 
-void selgame_Diff_Focus(size_t value)
-{
-	switch (vecSelGameDlgItems[value]->m_value) {
-	case DIFF_NORMAL:
-		CopyUtf8(selgame_Label, _("Normal"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Normal Difficulty\nThis is where a starting character should begin the quest to defeat Diablo."), sizeof(selgame_Description));
-		break;
-	case DIFF_NIGHTMARE:
-		CopyUtf8(selgame_Label, _("Nightmare"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Nightmare Difficulty\nThe denizens of the Labyrinth have been bolstered and will prove to be a greater challenge. This is recommended for experienced characters only."), sizeof(selgame_Description));
-		break;
-	case DIFF_HELL:
-		CopyUtf8(selgame_Label, _("Hell"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Hell Difficulty\nThe most powerful of the underworld's creatures lurk at the gateway into Hell. Only the most experienced characters should venture in this realm."), sizeof(selgame_Description));
-		break;
-	}
-	CopyUtf8(selgame_Description, WordWrapString(selgame_Description, DESCRIPTION_WIDTH), sizeof(selgame_Description));
-}
-
-bool IsDifficultyAllowed(int value)
-{
-	if (value == 0 || (value == 1 && heroLevel >= 20) || (value == 2 && heroLevel >= 30)) {
-		return true;
-	}
-
-	selgame_Free();
-
-	if (value == 1)
-		UiSelOkDialog(title, _("Your character must reach level 20 before you can enter a multiplayer game of Nightmare difficulty.").data(), false);
-	if (value == 2)
-		UiSelOkDialog(title, _("Your character must reach level 30 before you can enter a multiplayer game of Hell difficulty.").data(), false);
-
-	selgame_Init();
-
-	return false;
-}
-
-void selgame_Diff_Select(size_t value)
-{
-	if (selhero_isMultiPlayer && !IsDifficultyAllowed(vecSelGameDlgItems[value]->m_value)) {
-		selgame_GameSelection_Select(selgame_selectedGame);
-		return;
-	}
-
-	nDifficulty = (_difficulty)vecSelGameDlgItems[value]->m_value;
-
-	if (!selhero_isMultiPlayer) {
-		// This is part of a dangerous hack to enable difficulty selection in single-player.
-		// FIXME: Dialogs should not refer to each other's variables.
-
-		// We're in the selhero loop instead of the selgame one.
-		// Free the selgame data and flag the end of the selhero loop.
-		selhero_endMenu = true;
-
-		// We only call FreeVectors because ArtBackground.Unload()
-		// will be called by selheroFree().
-		selgame_FreeVectors();
-
-		// We must clear the InitList because selhero's loop will perform
-		// one more iteration after this function exits.
-		UiInitList_clear();
-
-		return;
-	}
-
-	selgame_GameSpeedSelection();
-}
-
-void selgame_Diff_Esc()
-{
-	if (!selhero_isMultiPlayer) {
-		selgame_Free();
-
-		selhero_Init();
-		selhero_List_Init();
-		return;
-	}
-
-	if (provider == SELCONN_LOOPBACK) {
-		selgame_GameSelection_Esc();
-		return;
-	}
-
-	HighlightedItem = 0;
-	selgame_GameSelection_Init();
-}
-
 void selgame_GameSpeedSelection()
 {
-	gfnHeroInfo(UpdateHeroLevel);
-
 	selgame_FreeVectors();
 
 	UiAddBackground(&vecSelGameDialog);
@@ -616,7 +496,7 @@ void selgame_Password_Init(size_t /*value*/)
 static bool IsGameCompatibleWithErrorMessage(const GameData &data)
 {
 	if (IsGameCompatible(data))
-		return IsDifficultyAllowed(data.nDifficulty);
+		return true;
 
 	selgame_Free();
 
@@ -682,15 +562,12 @@ void selgame_Password_Select(size_t /*value*/)
 		return;
 	}
 
-	m_game_data->nDifficulty = nDifficulty;
 	m_game_data->nTickRate = nTickRate;
 	m_game_data->bRunInTown = *GetOptions().Gameplay.runInTown ? 1 : 0;
 	m_game_data->bTheoQuest = *GetOptions().Gameplay.theoQuest ? 1 : 0;
 	m_game_data->bCowQuest = *GetOptions().Gameplay.cowQuest ? 1 : 0;
 
-	GameData gameInitInfo = *m_game_data;
-	gameInitInfo.swapLE();
-	if (SNetCreateGame(nullptr, gamePassword, reinterpret_cast<char *>(&gameInitInfo), sizeof(gameInitInfo), gdwPlayerId)) {
+	if (keeper::HostGame(*m_game_data, nullptr, gamePassword, gdwPlayerId)) { // [DARK KEEP] sends the setup and map too
 		UiInitList_clear();
 		selgame_endMenu = true;
 	} else {

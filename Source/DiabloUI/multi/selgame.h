@@ -5,14 +5,12 @@
 namespace devilution {
 
 extern _difficulty nDifficulty;
+extern char selgame_Password[16]; // [DARK KEEP] kept for rematches, see InitMulti
 
 void selgame_GameSelection_Init();
 void selgame_GameSelection_Focus(size_t value);
 void selgame_GameSelection_Select(size_t value);
 void selgame_GameSelection_Esc();
-void selgame_Diff_Focus(size_t value);
-void selgame_Diff_Select(size_t value);
-void selgame_Diff_Esc();
 void selgame_GameSpeedSelection();
 void selgame_Speed_Focus(size_t value);
 void selgame_Speed_Select(size_t value);

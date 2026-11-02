@@ -417,16 +417,18 @@ tl::expected<void, PacketError> base_protocol<P>::recv_ingame(packet &pkt, endpo
 		} else if (pkt.Type() == PT_INFO_REQUEST) {
 			if ((plr_self != PLR_BROADCAST) && (get_master() == plr_self)) {
 				buffer_t buf;
-				buf.resize(game_init_info.size() + (PlayerNameLength * MAX_PLRS) + gamename.size());
-				std::memcpy(buf.data(), &game_init_info[0], game_init_info.size());
+				// [DARK KEEP] Only the GameData: a map may follow it in game_init_info, too big for this reply.
+				const size_t gameDataSize = sizeof(GameData);
+				buf.resize(gameDataSize + (PlayerNameLength * MAX_PLRS) + gamename.size());
+				std::memcpy(buf.data(), &game_init_info[0], gameDataSize);
 				for (size_t i = 0; i < NetPlayerSlots; i++) {
 					if (Players[i].plractive) {
-						std::memcpy(buf.data() + game_init_info.size() + (i * PlayerNameLength), &Players[i]._pName, PlayerNameLength);
+						std::memcpy(buf.data() + gameDataSize + (i * PlayerNameLength), &Players[i]._pName, PlayerNameLength);
 					} else {
-						std::memset(buf.data() + game_init_info.size() + (i * PlayerNameLength), '\0', PlayerNameLength);
+						std::memset(buf.data() + gameDataSize + (i * PlayerNameLength), '\0', PlayerNameLength);
 					}
 				}
-				std::memcpy(buf.data() + game_init_info.size() + (PlayerNameLength * MAX_PLRS), &gamename[0], gamename.size());
+				std::memcpy(buf.data() + gameDataSize + (PlayerNameLength * MAX_PLRS), &gamename[0], gamename.size());
 				tl::expected<std::unique_ptr<packet>, PacketError> reply
 				    = pktfty->make_packet<PT_INFO_REPLY>(PLR_BROADCAST, PLR_MASTER, buf);
 				if (!reply.has_value()) {

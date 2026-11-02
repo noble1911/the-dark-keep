@@ -226,6 +226,8 @@ void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
 void RequestCastSpell(size_t spell, Point tile);
 void RequestStartRaid();
+/** The game's creator, once the siege is over: everyone leaves and meets again in `next`. */
+void RequestRestart(const KeepSetup &next);
 void RequestPossess(size_t monsterId);
 void RequestRelease();
 /** Possessed monster: walk to `tile`, or attack `targetMonster` (-1 = just walk). */

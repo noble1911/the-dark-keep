@@ -94,7 +94,7 @@ tl::expected<void, PacketError> base::HandleAccept(packet &pkt)
 		return tl::make_unexpected(infoPkt.error());
 	const buffer_t &info = **infoPkt;
 	if (game_init_info != info) {
-		if (info.size() != sizeof(GameData)) {
+		if (info.size() < sizeof(GameData)) { // [DARK KEEP] a map may follow the GameData
 			ABORT();
 		}
 		// we joined and did not create
