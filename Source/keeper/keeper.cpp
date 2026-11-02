@@ -1801,6 +1801,9 @@ void OnLevelLoaded()
 	lastCameraTicks = SDL_GetTicks();
 	NoteMapLevelLoaded();
 	ClearTabCards();
+	// A new game starts on the monsters, wherever the last one left the bar.
+	currentTab = BarTab::Lairs;
+	tabScroll.fill(0);
 	// Built during the load rather than as cards scroll into view, which would stutter.
 	if (!IsEditorActive()) {
 		for (const size_t kind : MusterKinds()) {
