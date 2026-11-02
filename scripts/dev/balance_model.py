@@ -32,11 +32,13 @@ TRAP_PASS_SECONDS = 12  # a party takes this long to pass a trap, in and out: he
 SHOCK_HITS = 3          # a Shock Trap's lightning hits several times: measured 42 from 14 a hit
 TRAP_GOLD_SHARE = 0.25  # share of the gold the typical player puts into traps
 SPELL_EFFICIENCY = 0.5  # a typical player lands this share of what mana and cooldowns allow
-TRAP_EFFICIENCY = 0.5   # share of traps a party actually walks past
+TRAP_EFFICIENCY = 0.2   # traps removed about 10 points of a party's life in real raids: Rogues disarm most of them
+NOVA_HITS = 15          # balls of a Nova's ring that reach each victim: it bursts on them. Measured: 4 casts killed a party
 UPGRADE_GOLD_SHARE = 0.25  # share of a level's gold the typical player puts into upgrades
 FEAR_ALONE = 0.5        # share of badly hurt heroes with no healthy friend near: those always run
 FLEE_ESCAPES = 0.5      # share of runners who get away, paying no bounty or XP
 LEAK_SHARE = 0.25       # share of a party that gets past the army to the Lord, for his survival figure
+SWARM_POWER_FLOOR = 4   # the typical player fields nothing weaker than a quarter of their strongest kind
 MAX_SUPPORT = 0.8       # however strong, spells and traps don't win a raid without an army
 ATTACK_PAUSE = 0.3      # seconds a unit spends between swings on top of the attack animation
 HERO_SWING = 16 / 20    # hero monsters: 16-frame attack at one frame per tick
@@ -48,7 +50,7 @@ MASTER_MAGIC_TO_HIT = 10 + 50  # the master is a Warrior: 10 magic + 50 base (Ge
 HERO_MONSTER_LEVEL = 5  # RegisterHeroMonsterData
 
 # Spell hits and victims, from the engine's missile code (see BALANCE.md).
-SPELL_TARGETS = {"Nova": 2, "Wall": 2, "Guard": 1, "Stone": 1, "Inferno": 1, "Fireball": 2, "Chain": 4,
+SPELL_TARGETS = {"Nova": 2, "Wall": 2, "Guard": 1, "Stone": 1, "Inferno": 1, "Fireball": 1, "Chain": 4,
                  "Shock Wall": 3, "Wave": 4, "Ring": 3, "Apocalypse": 8}
 
 
@@ -318,7 +320,8 @@ class Game:
         if "HalfEngineLevelDamagePercent" in self.g and (raised - 1) % per_raise != 0:
             half_step = 1 + self.g["HalfEngineLevelDamagePercent"] / 100
         if name == "Nova":
-            return 2 * ((12.5 + clvl + 5) / 2) * scale * half_step  # AddNova; two balls of the ring on a victim
+            percent = self.g.get("NovaDamagePercent", 100) / 100
+            return NOVA_HITS * ((12.5 + clvl + 5) / 2) * scale * half_step * percent  # AddNova
         if name == "Fireball":
             return (2 * (clvl + 9) + 4) * scale * half_step  # AddFireball
         if name == "Wall":
@@ -430,10 +433,9 @@ class Player:
         options = self.family_next(keeper_level)
         if not options:
             return None
-        def score(kind):
-            bonus = 1.5 if kind["family"] in self.families else 1.0
-            return bonus * kind["power"] / kind["pop"] * (1 + kind["power"] / 100)
-        return max(options.values(), key=score)
+        # The strongest thing on offer. Real raids: a level 20 army of Reapers won 16 of 16 where the same
+        # player one level earlier, still on rank 10 Night Clans, won 0 of 8.
+        return max(options.values(), key=lambda kind: kind["power"])
 
     def spend(self, keeper_level):
         budget = self.game.p["RenownPerLevel"] * (keeper_level - 1) - sum(self.spent.values())
@@ -573,6 +575,9 @@ def trap_output(game, level, wave, gold, trap_levels, party):
 def best_army(game, level, gold, pop, owned, party, life_percent, damage_percent, armor_bonus):
     """Best one- or two-kind army that gold and Pop allow."""
     kinds = [k for k in game.kinds if k["id"] in owned]
+    # Real raids: a horde of far weaker monsters doesn't stop a late party, whatever the sums say.
+    strongest = max(k["power"] for k in kinds)
+    kinds = [k for k in kinds if k["power"] * SWARM_POWER_FLOOR >= strongest]
     # The top units by square-law density: enough candidates that the search stays quick.
     def density(k):
         hero = party[len(party) // 2]

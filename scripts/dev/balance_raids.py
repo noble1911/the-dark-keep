@@ -35,7 +35,8 @@ EXE_DIR = ROOT / "build" / "Release"
 EXE = EXE_DIR / "devilutionx.exe"
 CREATE_NO_WINDOW = 0x08000000
 SPEED = 200  # ticks a second, as asked of `speed`: raids are timed in ticks, so this only saves waiting
-GAME_SECONDS_LIMIT = 900
+GAME_SECONDS_LIMIT = 300  # real seconds; even the longest raids run in about a minute at this speed
+COOP_PORT = 6128  # co-op test games elsewhere share 6112 and could join each other: keep one worker to stay on this port
 INI = """[Graphics]
 Fullscreen=0
 Fit to Screen=0
@@ -50,14 +51,15 @@ Hellfire Intro=0
 Splash=0
 [Network]
 Bind Address=127.0.0.1
+Port={port}
 """
 
 
 class Game:
-    def __init__(self, profile, plan, extra=()):
+    def __init__(self, profile, plan, role="--keeper-autostart", port=6112):
         self.dir = ROOT / "build" / "test-profiles" / profile
         self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / "diablo.ini").write_text(INI)
+        (self.dir / "diablo.ini").write_text(INI.format(port=port))
         self.ctl = self.dir / "ctl.txt"
         self.out = self.dir / "ctl.txt.out"
         self.out.unlink(missing_ok=True)
@@ -68,7 +70,7 @@ class Game:
         lines += [f"trap {i} {level}" for i, level in plan["trap_levels"].items()]
         (self.dir / "keeper_profile.txt").write_text("\n".join(lines) + "\n")
         args = [str(EXE), "--config-dir", str(self.dir), "--save-dir", str(self.dir), "--keeper-devctl", str(self.ctl),
-                "--keeper-autostart", "--keeper-level", str(plan["level"]), "--keeper-start-wave", str(plan["wave"]), "--keeper-rank", "20", *extra]
+                *role.split(), "--keeper-level", str(plan["level"]), "--keeper-start-wave", str(plan["wave"]), "--keeper-rank", "20"]
         env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
         self.process = subprocess.Popen(args, cwd=EXE_DIR, env=env, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -123,11 +125,16 @@ def floor_plan(game):
     token = f"map-end-{time.time()}"
     game.send("map", f"echo {token}")
     rows = []
+    doors = []
     deadline = time.time() + 30
     while time.time() < deadline:
         lines = game.read()
-        rows += [line for line in lines if len(line) > 50 and set(line) <= set("#.")]
+        rows += [list(line) for line in lines if len(line) > 50 and set(line) <= set("#.")]
+        doors += re.findall(r"^door at=(\d+),(\d+)", "\n".join(lines), re.MULTILINE)
         if any(token in line for line in lines):
+            # Closed doors count as solid in the map, but heroes come through them.
+            for x, y in doors:
+                rows[int(y)][int(x)] = "."
             return rows
         time.sleep(0.02)
     raise TimeoutError("map")
@@ -164,17 +171,27 @@ def place(game, kind, count, candidates, used, spacing_gap=0.03):
     return built
 
 
-def one_raid(plan, mode, profile, extra_label=""):
-    game = Game(profile, plan)
+def wait_for_keep(game):
+    deadline = time.time() + 120
+    while True:
+        s = state(game)
+        if s.get("inKeep") == "true":
+            return s
+        if time.time() > deadline:
+            raise TimeoutError("never reached the keep")
+        time.sleep(0.2)
+
+
+def one_raid(plan, mode, profile, coop_port=0):
+    """A co-op raid has a second master casting too, and runs at the normal speed."""
+    game = Game(profile, plan, "--keeper-host", coop_port) if coop_port else Game(profile, plan)
+    joiner = None
     try:
-        deadline = time.time() + 120
-        while True:
+        s = wait_for_keep(game)
+        if coop_port:
+            joiner = Game(profile + "j", plan, f"--keeper-join 127.0.0.1:{coop_port}", coop_port)
+            wait_for_keep(joiner)
             s = state(game)
-            if s.get("inKeep") == "true" or s.get("inKeep") == "1":
-                break
-            if time.time() > deadline:
-                raise TimeoutError("never reached the keep")
-            time.sleep(0.2)
         entrance = tuple(int(v) for v in s["entrance"].split(","))
         vault = tuple(int(v) for v in s["vault"].split(","))
         game.ask("gold 9999999\nwait 50\necho gold-ready", "gold-ready")
@@ -206,11 +223,14 @@ def one_raid(plan, mode, profile, extra_label=""):
         cast = ""
         if mode in ("full", "spells") and plan["casts"]:
             cast = f"autocast {','.join(str(c) for c in plan['casts'])} {plan['cast_every_ticks']}"
-        game.ask(f"gold {plan['gold_left']}\nwait 100\nfillmana\nspeed {SPEED}\n{cast}\nraid\necho raid-sent", "raid-sent")
+        if joiner:
+            joiner.ask(f"fillmana\n{cast}\necho joiner-ready", "joiner-ready")
+        speed = "" if coop_port else f"speed {SPEED}"
+        game.ask(f"gold {plan['gold_left']}\nwait 100\nfillmana\n{speed}\n{cast}\nraid\necho raid-sent", "raid-sent")
         started = time.time()
         reach = ""
         casts = 0
-        while time.time() - started < GAME_SECONDS_LIMIT:
+        while time.time() - started < (GAME_SECONDS_LIMIT * 3 if coop_port else GAME_SECONDS_LIMIT):
             if game.process.poll() is not None:
                 raise RuntimeError(f"game exited with {game.process.returncode}")
             for line in game.read():
@@ -223,9 +243,16 @@ def one_raid(plan, mode, profile, extra_label=""):
                     row.update(level=plan["level"], mode=mode, built=f"{built}/{want}", traps=traps_built, reach=reach, casts=casts)
                     return row
             time.sleep(0.1)
+        # A raid that never ends is worth a look: leave what it looked like beside the results.
+        game.send("speed 20", "state", "mons", "echo stuck-end")
+        time.sleep(5)
+        with open(ROOT / "build" / "test-profiles" / "stuck-raids.log", "a") as log:
+            log.write(f"== level {plan['level']} {mode}\n" + "\n".join(game.read()) + "\n")
         return dict(level=plan["level"], mode=mode, result="timeout", built=f"{built}/{want}", traps=traps_built, reach=reach, casts=casts)
     finally:
         game.stop()
+        if joiner:
+            joiner.stop()
 
 
 FIELDS = ["label", "level", "mode", "result", "ticks", "peakHeroes", "peakPartyLife", "partyLifeLeft", "heroesLeft", "keepStart", "keepEnd", "lordStart", "lordLow", "goldLost", "built", "traps", "reach", "casts", "trapFires", "trapsLeft"]
@@ -240,6 +267,7 @@ def main():
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--out", required=True)
     parser.add_argument("--label", default="")
+    parser.add_argument("--coop", action="store_true", help="host and joiner, on ports of their own")
     args = parser.parse_args()
     plans = {p["level"]: p for p in json.loads(Path(args.plan).read_text())}
     jobs = [(plans[int(level)], mode, run) for level in args.levels.split(",") for mode in args.modes.split(",") for run in range(args.runs)]
@@ -257,7 +285,7 @@ def main():
             profile = profiles.popleft()
         try:
             try:
-                row = one_raid(plan, mode, profile)
+                row = one_raid(plan, mode, profile, COOP_PORT + int(profile[3:]) if args.coop else 0)
             except (RuntimeError, TimeoutError) as error:
                 row = dict(level=plan["level"], mode=mode, result=f"error:{error}".replace(",", ";"))
             row["label"] = args.label

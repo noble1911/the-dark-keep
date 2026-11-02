@@ -43,7 +43,7 @@ const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Inferno", MissileID::InfernoControl, 15, 2, 20 * 2, 3, SpellID::Inferno, "A short jet of fire from the target towards the entrance." },
 	{ "Fireball", MissileID::Fireball, 20, 3, 20 * 3, 5, SpellID::Fireball, "An explosion at the target, burning everything close by." },
 	{ "Chain", MissileID::ChainLightning, 30, 3, 20 * 5, 8, SpellID::ChainLightning, "Lightning leaps from the target to every hero in reach." },
-	{ "Shock Wall", MissileID::LightningWallControl, 30, 3, 20 * 5, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
+	{ "Shock Wall", MissileID::LightningWallControl, 40, 0, 20 * 5, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
 	{ "Wave", MissileID::FlameWaveControl, 25, 3, 20 * 4, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
 	{ "Ring", MissileID::RingOfFire, 40, 3, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
 	{ "Apocalypse", MissileID::Apocalypse, 80, 1, 20 * 25, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
@@ -93,6 +93,11 @@ constexpr int ApocalypseDamagePerLevel = 8;
 constexpr int RaisesPerEngineSpellLevel = 2;
 /** Nova and Fireball on a raise that gives no engine level take this much more damage instead (percent): half of 12.5% compounding. */
 constexpr int HalfEngineLevelDamagePercent = 6;
+/**
+ * Nova's damage, in percent. The engine fires its ring from the caster, but here it bursts on the target, so a
+ * hero there can take most of its 36 balls: four casts killed a whole level 10 party (measured, docs/BALANCE.md).
+ */
+constexpr int NovaDamagePercent = 30;
 /**
  * A Guardian's shots ignore its spell, so their damage is set here, plus a percentage per raise. Master
  * level is left out: it already gives a Guardian more shots.
@@ -1062,6 +1067,8 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		missile->_midam = missile->_midam * (100 + ApocalypseDamagePerLevel * (level - 1)) / 100;
 	if (kind.missile == MissileID::Guardian)
 		missile->_midam = GuardianDamageBase * (100 + GuardianDamagePerRaise * (level - 1)) / 100;
+	if (kind.missile == MissileID::Nova)
+		missile->_midam = std::max(missile->_midam * NovaDamagePercent / 100, 1);
 	if ((kind.missile == MissileID::Nova || kind.missile == MissileID::Fireball) && (level - 1) % RaisesPerEngineSpellLevel != 0)
 		missile->_midam = missile->_midam * (100 + HalfEngineLevelDamagePercent) / 100;
 }
