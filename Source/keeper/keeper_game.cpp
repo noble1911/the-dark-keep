@@ -1052,20 +1052,25 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		if (tile != State.entrance)
 			dir = GetDirection(tile, State.entrance);
 		// Both begin a step on from their source: starting a step short of the target is what puts it in the fire.
-		if (const Point behind = tile + Opposite(dir); InDungeonBounds(behind)) {
-			src = behind;
-			dst = tile;
-		} else {
-			dst = tile + dir;
-		}
+		src = tile + Opposite(dir);
+		dst = tile;
 		caster._pdir = dir; // the flame wave rolls the way its caster faces
 		break;
 	case MissileID::ChainLightning:
-		// Its bolts can't strike the tile they leave from: they leave from beside the target.
-		for (const Direction side : { Direction::NorthWest, Direction::NorthEast, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West }) {
-			if (const Point beside = tile + side; InDungeonBounds(beside) && !TileHasAny(beside, TileProperties::BlockMissile)) {
-				src = beside;
-				break;
+		// Its bolts can't strike the tile they leave from: they leave from beside the target, off any other hero if it can.
+		{
+			bool found = false;
+			for (const Direction side : { Direction::NorthWest, Direction::NorthEast, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West }) {
+				const Point beside = tile + side;
+				if (TileHasAny(beside, TileProperties::BlockMissile))
+					continue;
+				if (!found)
+					src = beside;
+				found = true;
+				if (!IsHeroAt(beside)) {
+					src = beside;
+					break;
+				}
 			}
 		}
 		break;
