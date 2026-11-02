@@ -91,7 +91,7 @@ using enum KindFamily;
  * Hork Demon, Hell Bug, Na-Krul.
  */
 constexpr RosterEntry Roster[] = {
-	{ MT_NZOMBIE, "Zombie", Zombies, "Slow, tough shamblers that soak up punishment.", 1, 40, 1 },
+	{ MT_NZOMBIE, "Zombie", Zombies, "Slow, cheap shamblers that get in the heroes' way.", 1, 40, 1 },
 	{ MT_BZOMBIE, "Ghoul", Zombies, "A hungrier zombie with a harder swing." },
 	{ MT_GZOMBIE, "Carcass", Zombies, "Rotting, patient and hard to put down." },
 	{ MT_YZOMBIE, "Black Death", Zombies, "The worst of the shamblers, with a crushing blow." },
