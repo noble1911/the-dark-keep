@@ -373,7 +373,7 @@ void gamemenu_save_game(bool /*bActivate*/)
 void gamemenu_on()
 {
 	isGameMenuOpen = true;
-	if (!gbIsMultiplayer) {
+	if (!gbIsMultiplayer && !keeper::IsActive()) { // [DARK KEEP] progress saves itself, so the keep has no Save or Load
 		gmenu_set_items(sgSingleMenu, GamemenuUpdateSingle);
 	} else {
 		gmenu_set_items(sgMultiMenu, nullptr);

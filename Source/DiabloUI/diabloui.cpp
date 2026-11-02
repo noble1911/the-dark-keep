@@ -788,8 +788,8 @@ void UiAddBackground(std::vector<std::unique_ptr<UiItemBase>> *vecDialog)
 
 void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int y)
 {
-	vecDialog->push_back(std::make_unique<UiImageAnimatedClx>(
-	    *ArtLogo, MakeSdlRect(0, y, 0, 0), UiFlags::AlignCenter));
+	// [DARK KEEP] The game's own name in the game's own font, where the Hellfire logo was.
+	vecDialog->push_back(std::make_unique<UiArtText>("The Dark Keep", MakeSdlRect(GetUIRectangle().position.x, y + 66, 640, 56), UiFlags::AlignCenter | UiFlags::FontSize46 | UiFlags::ColorUiGold, 4));
 }
 
 void UiFadeIn()

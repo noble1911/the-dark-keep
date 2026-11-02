@@ -421,15 +421,15 @@ void selgame_Speed_Focus(size_t value)
 	switch (vecSelGameDlgItems[value]->m_value) {
 	case 20:
 		CopyUtf8(selgame_Label, _("Normal"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Normal Speed\nThis is where a starting character should begin the quest to defeat Diablo."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, _("Normal Speed\nThe game as it is meant to play. Start here."), sizeof(selgame_Description));
 		break;
 	case 30:
 		CopyUtf8(selgame_Label, _("Fast"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Fast Speed\nThe denizens of the Labyrinth have been hastened and will prove to be a greater challenge. This is recommended for experienced characters only."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, _("Fast Speed\nHeroes, monsters and timers all run faster, so there is less time to think."), sizeof(selgame_Description));
 		break;
 	case 40:
 		CopyUtf8(selgame_Label, _("Faster"), sizeof(selgame_Label));
-		CopyUtf8(selgame_Description, _("Faster Speed\nMost monsters of the dungeon will seek you out quicker than ever before. Only an experienced champion should try their luck at this speed."), sizeof(selgame_Description));
+		CopyUtf8(selgame_Description, _("Faster Speed\nFor masters who know their keep. Raids move quickly."), sizeof(selgame_Description));
 		break;
 	case 50:
 		CopyUtf8(selgame_Label, _("Fastest"), sizeof(selgame_Label));

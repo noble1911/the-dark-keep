@@ -119,7 +119,8 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 		while (MainMenuResult == MAINMENU_NONE) {
 			UiClearScreen();
 			UiPollAndRender();
-			if (SDL_GetTicks() >= dwAttractTicks && (HaveIntro() || gbIsHellfire)) {
+			// [DARK KEEP] No attract mode: another game's intro has no business playing over an idle menu.
+			if (false && SDL_GetTicks() >= dwAttractTicks && (HaveIntro() || gbIsHellfire)) {
 				MainMenuResult = MAINMENU_ATTRACT_MODE;
 			}
 		}

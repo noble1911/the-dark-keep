@@ -254,17 +254,9 @@ void gmenu_draw(const Surface &out)
 		GameMenuMove();
 		if (gmenu_current_option != nullptr)
 			gmenu_current_option();
-		if (sgpLogo->numSprites() > 1) {
-			const uint32_t ticks = SDL_GetTicks();
-			if ((int)(ticks - LogoAnim_tick) > 25) {
-				++LogoAnim_frame;
-				LogoAnim_frame = LogoAnim_frame % sgpLogo->numSprites();
-				LogoAnim_tick = ticks;
-			}
-		}
 		const int uiPositionY = GetUIRectangle().position.y;
-		const ClxSprite sprite = (*sgpLogo)[LogoAnim_frame];
-		ClxDraw(out, { (gnScreenWidth - sprite.width()) / 2, 102 + uiPositionY }, sprite);
+		// [DARK KEEP] The game's own name, where the Hellfire logo was.
+		DrawString(out, "The Dark Keep", { { 0, 48 + uiPositionY }, { gnScreenWidth, 54 } }, { .flags = UiFlags::FontSize46 | UiFlags::ColorGold | UiFlags::AlignCenter, .spacing = 4 });
 		int y = 110 + uiPositionY;
 		TMenuItem *i = sgpCurrentMenu;
 		if (sgpCurrentMenu->fnMenu != nullptr) {

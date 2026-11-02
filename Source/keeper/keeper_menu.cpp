@@ -153,13 +153,14 @@ int RunListScreen(const char *title, const char *heading, const std::vector<Scre
 void DescribeCampaignLevel(int level)
 {
 	const LevelRules &rules = CampaignLevelRules(level);
-	SetLabel(fmt::format("Level {}", KeeperLevel()));
 	if (level == 0) {
-		SetDescription(fmt::format("Your character screen.\n\nRenown to spend: {}", RenownAvailable()));
+		SetLabel("Keeper");
+		SetDescription(fmt::format("Unlock monsters, spells and traps with Renown.\n\nKeeper level: {}\nRenown to spend: {}", KeeperLevel(), RenownAvailable()));
 		return;
 	}
+	SetLabel(fmt::format("Level {}", level));
 	const std::string status = level > NextOpenLevel() ? fmt::format("Locked: clear level {} first", level - 1) : (level <= LevelsCleared() ? "Cleared *" : "Not yet cleared");
-	SetDescription(fmt::format("{}\n\nRaids: {}\nStarting gold: {}\nHero strength: {}%\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, status));
+	SetDescription(fmt::format("{}\n\nRaids to survive: {}\nStarting gold: {}\nHero strength: {}%\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, status));
 }
 
 void DescribeCustomMap(int /*value*/)
@@ -170,7 +171,7 @@ void DescribeCustomMap(int /*value*/)
 
 void DescribeGameKind(int kind)
 {
-	SetLabel(fmt::format("Level {}", KeeperLevel()));
+	SetLabel(kind == static_cast<int>(GameMode::Campaign) ? "Campaign" : "Custom Map");
 	if (kind == static_cast<int>(GameMode::Campaign))
 		SetDescription("Defend a campaign level you have reached, with friends. Levels cleared here count for you, the host.");
 	else

@@ -17,6 +17,13 @@
 #include "engine/rectangle.hpp"
 #include "keeper/keeper_game.hpp"
 
+namespace devilution {
+
+struct OptionCategoryBase;
+class OptionEntryBase;
+
+} // namespace devilution
+
 namespace devilution::keeper {
 
 // ---- key bindings -------------------------------------------------------------------
@@ -40,10 +47,14 @@ enum class KeeperAction : uint8_t {
 	CameraRight,
 	CameraUp,
 	CameraDown,
+	Help,
 };
 
 /** Hotkeys bind "card slot N of the current tab", never a kind: the roster can grow freely. */
 constexpr size_t NumCardSlotKeys = 9;
+
+/** Settings lists what a dungeon master can use: no hero options, other games' modes or hero keys. */
+bool IsSettingShown(const OptionCategoryBase &category, const OptionEntryBase &entry);
 
 /** Registers the keeper's actions. Called from InitKeymapActions, so they head the settings list. */
 void AddKeymapActions();
@@ -56,6 +67,8 @@ void ReapplyKeyBindings();
 
 /** Runs the keeper action bound to `key` (an SDL keycode or mouse button id). @return true if there was one. */
 bool DispatchBoundKey(uint32_t key);
+
+bool IsKeyBoundTo(KeeperAction action, uint32_t key);
 
 /** Short name of the key bound to an action, for HUD labels. Empty when unbound. */
 std::string KeyLabel(KeeperAction action, size_t index = 0);
