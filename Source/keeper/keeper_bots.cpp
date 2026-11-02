@@ -166,6 +166,9 @@ constexpr int BotStatsPerRaid = 2;
 /** Potions a bot carries: each heals half its life, so they count for as much as its life does. */
 constexpr int BotPotionsBase = 1;
 constexpr int BotRaidsPerPotion = 4;
+/** Gold for killing a bot. Bots who run and get away pay nothing, which is a good third of them. */
+constexpr int BotBountyBase = 45;
+constexpr int BotBountyPerWave = 15;
 
 void ScaleBot(Player &bot, bool champion)
 {
@@ -330,7 +333,7 @@ void HandleDeath(Player &bot, BotState &state)
 	if (state.deathHandled)
 		return;
 	state.deathHandled = true;
-	const int bounty = ScaleByHeroStrength(30 + 10 * State.wave);
+	const int bounty = ScaleByHeroStrength(BotBountyBase + BotBountyPerWave * State.wave);
 	AddVaultGold(std::max(state.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(state.carried, 0));
 	if (state.carried > 0)

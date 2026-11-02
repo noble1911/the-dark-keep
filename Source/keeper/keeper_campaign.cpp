@@ -62,7 +62,7 @@ constexpr std::array<LevelRules, NumCampaignLevels> CampaignLevels { {
 } };
 
 /** Custom maps and the editor have no place in the curve: these are the keep's original rules. */
-constexpr LevelRules CustomRules { "Custom Map", 7, 1200, 100, 2, 80, KeepLevelSeed };
+constexpr LevelRules CustomRules { "Custom Map", 7, 1500, 100, 2, 80, KeepLevelSeed };
 // clang-format on
 
 /**

@@ -83,6 +83,16 @@ constexpr std::array<HeroStatLine, NumHeroClasses> HeroStats { {
 } };
 constexpr int HeroMinDamagePerTenRaids = 6;
 constexpr int HeroMaxDamagePerTenRaids = 12;
+/** Gold for killing a monster hero. Heroes who run and get away pay nothing, which is a good third of them. */
+constexpr int HeroBountyBase = 30;
+constexpr int HeroBountyPerWave = 8;
+/**
+ * The Keep Lord at 100% strength. Parties gain damage faster than strength, as they grow, so his life also
+ * grows per campaign level: a few heroes leaking past the army must not end the keep at once.
+ */
+constexpr int LordLifeBase = 600;
+constexpr int LordLifePerLevel = 75;
+constexpr int LordArmorBase = 40;
 
 std::array<_monster_id, NumHeroClasses> HeroMonsterIds {};
 bool heroDataRegistered = false;
@@ -780,11 +790,11 @@ void OnMonsterInit(Monster &monster)
 	}
 	if (IsBoss(monster)) {
 		Heroes[id] = {};
-		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : ScaleByHeroStrength(600)) << 6;
+		monster.maxHitPoints = (TestLordHitPoints > 0 ? TestLordHitPoints : ScaleByHeroStrength(LordLifeBase + LordLifePerLevel * (CurrentLevelNumber() - 1))) << 6;
 		monster.hitPoints = monster.maxHitPoints;
 		monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(12), 255));
 		monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(24), 255));
-		monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(40), 255));
+		monster.armorClass = static_cast<uint8_t>(std::min(ScaleByHeroStrength(LordArmorBase), 255));
 		OnKeepMonsterInit(monster);
 		return;
 	}
@@ -821,7 +831,7 @@ void OnMonsterDeath(Monster &monster)
 	if (id >= MaxMonsters || !Heroes[id].active)
 		return;
 	HeroState &hero = Heroes[id];
-	const int bounty = ScaleByHeroStrength(20 + 5 * State.wave);
+	const int bounty = ScaleByHeroStrength(HeroBountyBase + HeroBountyPerWave * State.wave);
 	AddVaultGold(std::max(hero.carried, 0) + bounty);
 	NoteHeroSlain(bounty, std::max(hero.carried, 0));
 	if (hero.carried > 0)

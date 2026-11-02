@@ -27,6 +27,9 @@ TRAP_GOLD_SHARE = 0.25  # share of the gold the typical player puts into traps
 SPELL_EFFICIENCY = 0.5  # a typical player lands this share of what mana and cooldowns allow
 TRAP_EFFICIENCY = 0.5   # share of traps a party actually walks past
 UPGRADE_GOLD_SHARE = 0.25  # share of a level's gold the typical player puts into upgrades
+FEAR_ALONE = 0.5        # share of badly hurt heroes with no healthy friend near: those always run
+FLEE_ESCAPES = 0.5      # share of runners who get away, paying no bounty or XP
+LEAK_SHARE = 0.25       # share of a party that gets past the army to the Lord, for his survival figure
 MAX_SUPPORT = 0.8       # however strong, spells and traps don't win a raid without an army
 ATTACK_PAUSE = 0.3      # seconds a unit spends between swings on top of the attack animation
 HERO_SWING = 16 / 20    # hero monsters: 16-frame attack at one frame per tick
@@ -68,8 +71,11 @@ class Game:
             if m[0] != "Custom Map"
         ]
         self.campaign = constants(camp)
+        m = re.search(r'\{ "Custom Map", (\d+), (\d+), (\d+), (\d+), (\d+), KeepLevelSeed \}', camp)
+        self.custom = dict(name="Custom Map", raids=int(m[1]), gold=int(m[2]), strength=int(m[3]), party=int(m[4]), growth=int(m[5]))
         game_text = read(root, keeper + "keeper_game.cpp")
         game_hpp = read(root, keeper + "keeper_game.hpp")
+        self.even_mana = "SpellManaCostScaledAt" in game_text
         self.g = constants(game_hpp, constants(game_text, {"ManaScale": 100, "TicksPerSecond": 20}))
         heroes_text = read(root, keeper + "keeper_heroes.cpp")
         self.heroes_c = constants(heroes_text)
@@ -184,7 +190,10 @@ class Game:
 
     def mana_cost(self, spell, raised):
         base = spell["mana"]
-        return max(base - (max(raised, 1) - 1) * max(base // self.g["MaxKeepLevel"], 1), base // 2)
+        top = self.g["MaxKeepLevel"]
+        if self.even_mana:
+            return base - base / 2 * (max(raised, 1) - 1) / (top - 1)
+        return max(base - (max(raised, 1) - 1) * max(base // top, 1), base // 2)
 
     # ---- heroes ---------------------------------------------------------------------------------
     def monster_hero(self, level, wave, cls, champion):
@@ -203,7 +212,7 @@ class Game:
             }[cls]
         if champion:
             hp = hp * 3 // 2
-        return dict(cls=cls, bot=False, hp=self.scale(level, hp), min=min(self.scale(level, lo), 255), max=min(self.scale(level, hi), 255),
+        return dict(cls=cls, bot=False, champion=champion, hp=self.scale(level, hp), min=min(self.scale(level, lo), 255), max=min(self.scale(level, hi), 255),
                     ac=min(self.scale_armor(level, ac), 255), ranged=cls != "W", to_hit=60, period=HERO_SWING + ATTACK_PAUSE)
 
     def bot_hero(self, level, wave, cls, champion):
@@ -228,8 +237,26 @@ class Game:
             dam, to_hit, period = (1 + 4) / 2 + (st + dex) * clvl // 200, clvl + dex + ranged_hit - RANGED_DIST * RANGED_DIST // 2, 16 / 20
         else:
             dam, to_hit, period = 4.5 + mag // 8 + min(1 + wave // 2, 15) + 1, mag + magic_hit - RANGED_DIST, 16 / 20
-        return dict(cls=cls, bot=True, hp=hp, potions=potions, damage=dam, to_hit=to_hit, period=period + BOT_THINK, clvl=clvl, dex=dex,
+        return dict(cls=cls, bot=True, champion=champion, hp=hp, potions=potions, damage=dam, to_hit=to_hit, period=period + BOT_THINK, clvl=clvl, dex=dex,
                     armor=dex // 5 + (3 if cls == "W" else 0), shield=cls == "W", block_base=dex + block_bonus, magic_vs_ac=cls == "S")
+
+    def flee_chance(self, hero):
+        """Chance a hero who gets badly hurt runs instead of fighting on (CheckFear, and its monster twin).
+        Bots roll once they are out of potions; a monster champion never runs."""
+        if not hero["bot"] and hero["champion"]:
+            return 0.0
+        chance = (self.bots_c if hero["bot"] else self.heroes_c)["FearChancePercent"] / 100
+        return FEAR_ALONE + (1 - FEAR_ALONE) * chance
+
+    def fighting_life(self, hero):
+        """Life it takes to get a hero out of the fight: potions add to it, running away cuts it short."""
+        potions = hero["potions"] if hero["bot"] else 0
+        divisor = (self.bots_c if hero["bot"] else self.heroes_c)["FearHealthDivisor"]
+        return hero["hp"] * (1 + 0.5 * potions - self.flee_chance(hero) / divisor)
+
+    def kill_share(self, hero):
+        """Expected share of a hero's bounty and XP actually earned: one who runs and gets away pays nothing."""
+        return 1 - self.flee_chance(hero) * FLEE_ESCAPES
 
     def party(self, level, wave):
         champion = wave >= self.levels[level - 1]["raids"]
@@ -271,34 +298,38 @@ class Game:
         return dam * hit / kind["period"]
 
     # ---- spells ---------------------------------------------------------------------------------
-    def spell_damage(self, spell, raised, clvl, guardian_table=True):
+    def spell_damage(self, spell, raised, clvl):
         """Damage to one victim of one cast, before the hit chance."""
         name, spl = spell["name"], self.spell_engine_level(spell, raised)
         scale = 1.125 ** spl
+        half_step = 1.0
+        per_raise = self.g.get("RaisesPerEngineSpellLevel", 1)
+        if "HalfEngineLevelDamagePercent" in self.g and (raised - 1) % per_raise != 0:
+            half_step = 1 + self.g["HalfEngineLevelDamagePercent"] / 100
         if name == "Nova":
-            return 2 * ((17.5 + clvl + 5) // 2) * scale  # two balls of the ring on a victim
+            return 2 * ((12.5 + clvl + 5) / 2) * scale * half_step  # AddNova; two balls of the ring on a victim
         if name == "Fireball":
-            return (2 * (clvl + 11) + 4) * scale
+            return (2 * (clvl + 9) + 4) * scale * half_step  # AddFireball
         if name == "Wall":
-            return (13 + clvl) / 8 * 20 * 2.0  # 2 seconds in the fire: heroes step out of it
+            return (11 + clvl) / 8 * 20 * 2.0  # AddFireWall; 2 seconds in the fire: heroes step out of it
         if name == "Ring":
-            return (13 + clvl) / 8 * 20 * 2.0
+            return (11 + clvl) / 8 * 20 * 2.0  # AddFireWall again: it overwrites what the ring passes
         if name == "Shock Wall":
-            return (13 + clvl) / 4 * 20 * 0.6 * 2  # heroes walk through it unwarned: two tiles' worth
+            return (11 + clvl) / 4 * 20 * 0.6 * 2  # ProcessWallControl; heroes walk through unwarned: two tiles' worth
         if name == "Inferno":
-            return (8 * (clvl / 2 + 0.5) + 16) * 1.5 / 64 * 20 * 2
+            return (8 * (clvl / 2) + 16) * 1.5 / 64 * 20 * 2  # AddInferno
         if name == "Chain":
-            return (clvl / 2 + 2.5) * (6 + spl / 2)
+            return (clvl / 2 + 2) * (6 + spl / 2)  # ProcessLightningControl, AddLightning
         if name == "Wave":
             return (5.5 + clvl) * 2
         if name == "Apocalypse":
             per = self.g["ApocalypseDamagePerLevel"]
-            return (3.5 * clvl + clvl) * (100 + per * (raised - 1)) / 100
+            return (2.5 * clvl + clvl) * (100 + per * (raised - 1)) / 100  # AddApocalypse
         if name == "Guard":
             shots = max(min(spl + clvl // 2, 30) * 16, 30) / 16
             g = self.g
             if "GuardianDamageBase" in g:
-                shot = (g["GuardianDamageBase"] + clvl * g["GuardianDamagePerMasterLevel"] // 10) * (100 + g["GuardianDamagePerRaise"] * (raised - 1)) // 100
+                shot = g["GuardianDamageBase"] * (100 + g["GuardianDamagePerRaise"] * (raised - 1)) // 100
             else:
                 shot = 4.5 + 10 // 8 + 0 + 1  # AddFirebolt's own damage: the master learned no Guardian spell
             return shots * shot
@@ -455,7 +486,10 @@ def lord_unit(game, level, tiers):
     """The Keep Lord, as a one-off kind: stats from OnMonsterInit, sprites and swing from the Black Knight."""
     life_up = 100 + tiers[4] * game.upgrades[4]["effect"]
     damage_up = 100 + tiers[5] * game.upgrades[5]["effect"]
-    return dict(name="Lord", life=game.scale(level, 600) * life_up / 100, ac=game.scale_armor(level, 40),
+    c = game.heroes_c
+    lord_life = c.get("LordLifeBase", 600) + c.get("LordLifePerLevel", 0) * (level - 1)
+    lord_armor = game.scale(level, c["LordArmorBase"]) if "LordArmorBase" in c else game.scale_armor(level, 40)
+    return dict(name="Lord", life=game.scale(level, lord_life) * life_up / 100, ac=lord_armor,
                 min=min(game.scale(level, 12), 255) * damage_up / 100, max=min(game.scale(level, 24), 255) * damage_up / 100,
                 to_hit=110, level=24, ranged=False, arrow=False, period=16 / 20 + ATTACK_PAUSE, pop=0, cost=0)
 
@@ -469,7 +503,7 @@ def lord_stand(game, lord, party):
     average_blow = sum(hero_hit_damage(hero) for hero in party) / len(party)
     rate = sum(game.hero_dps_against(hero, lord) / hero_hit_damage(hero) for hero in party)
     lasts = max(math.ceil(lord["life"] / average_blow), 1) / max(rate, 0.01)
-    kills = sum((h["hp"] * (1 + 0.5 * h["potions"]) if h["bot"] else h["hp"]) / max(game.kind_dps_against(lord, h), 0.01) for h in party)
+    kills = sum(game.fighting_life(h) / max(game.kind_dps_against(lord, h), 0.01) for h in party)
     return lasts, kills
 
 
@@ -482,8 +516,7 @@ def army_score(game, army, party, life_percent, damage_percent, armor_bonus):
     kill_time = 0.0
     for hero in party:
         dps = sum(game.kind_dps_against(k, hero, damage_percent) * n for k, n in units)
-        life = hero["hp"] * (1 + 0.5 * hero["potions"]) if hero["bot"] else hero["hp"]
-        kill_time += life / max(dps, 0.01)
+        kill_time += game.fighting_life(hero) / max(dps, 0.01)
     # Time for the party to kill the army, counted in blows.
     death_time = 0.0
     average_blow = sum(hero_hit_damage(hero) for hero in party) / len(party)
@@ -494,15 +527,20 @@ def army_score(game, army, party, life_percent, damage_percent, armor_bonus):
     return death_time / max(kill_time, 0.001), kill_time, death_time
 
 
+def trap_stats(game, trap, level, wave, raised):
+    """A trap's damage and rearm seconds at this raid and trap level (FireTrap)."""
+    damage = game.scale(level, trap["base"] + trap["per"] * wave) * (100 + game.g["TrapDamagePerLevel"] * (raised - 1)) // 100
+    rearm = trap["rearm"] * max(100 - game.g["TrapRearmPerLevel"] * (raised - 1), game.g["TrapRearmFloorPercent"]) // 100 / 20
+    return damage, rearm
+
+
 def trap_output(game, level, wave, gold, trap_levels, party):
     """Damage the trap slots can do in a raid, and the gold left."""
     best = None
     for trap in game.traps:
         if trap["name"] not in trap_levels or trap["base"] == 0:
             continue
-        raised = trap_levels[trap["name"]]
-        damage = game.scale(level, trap["base"] + trap["per"] * wave) * (100 + game.g["TrapDamagePerLevel"] * (raised - 1)) // 100
-        rearm = trap["rearm"] * max(100 - game.g["TrapRearmPerLevel"] * (raised - 1), game.g["TrapRearmFloorPercent"]) // 100 / 20
+        damage, rearm = trap_stats(game, trap, level, wave, trap_levels[trap["name"]])
         hits = []
         for hero in party:
             if hero["bot"]:
@@ -529,13 +567,14 @@ def best_army(game, level, gold, pop, owned, party, life_percent, damage_percent
         return game.kind_dps_against(k, hero, damage_percent) * game.kind_life(k, life_percent) / (k["pop"] ** 2)
     kinds = sorted(kinds, key=density, reverse=True)[:10] + sorted(kinds, key=lambda k: k["cost"] / max(game.kind_life(k), 1))[:2]
     best = (0.0, [], 0)
+    max_lairs = game.g["MaxLairs"]
     for a in kinds:
         for b in kinds:
-            max_a = min(gold // a["cost"], pop // a["pop"])
+            max_a = min(gold // a["cost"], pop // a["pop"], max_lairs)
             step = max(1, max_a // 12)
-            for count_a in range(0, max_a + 1, step):
+            for count_a in sorted({*range(0, max_a + 1, step), max_a}):
                 left_gold, left_pop = gold - count_a * a["cost"], pop - count_a * a["pop"]
-                count_b = min(left_gold // b["cost"], left_pop // b["pop"]) if b is not a else 0
+                count_b = min(left_gold // b["cost"], left_pop // b["pop"], max_lairs - count_a) if b is not a else 0
                 army = [(a, count_a)] + ([(b, count_b)] if count_b > 0 else [])
                 ratio, _, _ = army_score(game, army, party, life_percent, damage_percent, armor_bonus)
                 spent = count_a * a["cost"] + count_b * b["cost"]
@@ -555,7 +594,6 @@ def play_level(game, player, level, xp):
     for wave in range(1, rules["raids"] + 1):
         party = list(game.party(level, wave))
         cap = game.supply_cap(level, wave)
-        life, damage, armor = 100 + tiers[0] * game.upgrades[0]["effect"], 100 + tiers[1] * game.upgrades[1]["effect"], tiers[2] * game.upgrades[2]["effect"]
         while True:  # buy upgrades up to their share of everything earned so far
             options = [i for i in (1, 0, 3, 2, 5, 4) if tiers[i] < game.upgrades[i]["tiers"]]
             if not options:
@@ -571,9 +609,10 @@ def play_level(game, player, level, xp):
         lord = lord_unit(game, level, tiers)
         ratio, army, spent = best_army(game, level, after_traps, cap, player.kinds, party, life, damage, armor)
         lord_lasts, lord_kills = lord_stand(game, lord, party)
+        lord_leak, _ = lord_stand(game, lord, party[-max(math.ceil(len(party) * LEAK_SHARE), 1):])
         # The cheap swarm: as many as gold and Pop allow of the cheapest kind owned.
         cheapest = min((k for k in game.kinds if k["id"] in player.kinds), key=lambda k: k["cost"] / max(k["pop"], 1))
-        swarm_count = min(after_traps // cheapest["cost"], cap // cheapest["pop"])
+        swarm_count = min(after_traps // cheapest["cost"], cap // cheapest["pop"], game.g["MaxLairs"])
         swarm_ratio, _, _ = army_score(game, [(cheapest, swarm_count)], party, life, damage, armor)
         pop_used = sum(k["pop"] * n for k, n in army)
         left = after_traps - spent
@@ -581,17 +620,17 @@ def play_level(game, player, level, xp):
         binding = "Pop" if cap - pop_used < smallest and left >= min(game.upgrade_cost(level, u, 0) for u in game.upgrades) else "gold"
         mana_percent = 100 + tiers[3] * game.upgrades[3]["effect"]
         spell_damage = game.spell_output(level, player.spells, mana_percent, party)
-        party_life = sum(h["hp"] * (1 + 0.5 * h["potions"]) if h["bot"] else h["hp"] for h in party)
+        party_life = sum(game.fighting_life(h) for h in party)
         spell_damage *= SPELL_EFFICIENCY
         trap_damage *= TRAP_EFFICIENCY
         f = min((spell_damage + trap_damage) / party_life, MAX_SUPPORT)
         heroes = len(party)
-        bots = min(heroes, 4)
-        xp += heroes * (game.p["HeroSlainXpBase"] + game.p["HeroSlainXpPerWave"] * wave) + game.p["RaidXpBase"] + game.p["RaidXpPerWave"] * wave
-        bounty = bots * game.bot_bounty(level, wave) + (heroes - bots) * game.hero_bounty(level, wave)
+        kills = sum(game.kill_share(h) for h in party)
+        xp += int(kills * (game.p["HeroSlainXpBase"] + game.p["HeroSlainXpPerWave"] * wave)) + game.p["RaidXpBase"] + game.p["RaidXpPerWave"] * wave
+        bounty = int(sum(game.kill_share(h) * (game.bot_bounty(level, wave) if h["bot"] else game.hero_bounty(level, wave)) for h in party))
         tribute = game.tribute(level, wave) if wave < rules["raids"] else 0
         hero_dps = sum(hero_hit_damage(h) * (0.8 if h["bot"] else 0.6) / h["period"] for h in party)
-        wave_rows.append(dict(wave=wave, heroes=heroes, party_life=party_life, hero_dps=hero_dps, cap=cap, pop_used=pop_used, gold=gold, army_cost=spent, ratio=ratio, swarm=(swarm_count, cheapest["name"], swarm_ratio), ratio_spells=ratio / (1 - f), lord_lasts=lord_lasts, lord_kills=lord_kills, spell_frac=spell_damage / party_life, trap_frac=trap_damage / party_life, army=army, binding=binding, tiers=list(tiers), bounty=bounty, tribute=tribute))
+        wave_rows.append(dict(wave=wave, heroes=heroes, party_life=party_life, hero_dps=hero_dps, cap=cap, pop_used=pop_used, gold=gold, army_cost=spent, ratio=ratio, swarm=(swarm_count, cheapest["name"], swarm_ratio), ratio_spells=ratio / (1 - f), lord_lasts=lord_lasts, lord_kills=lord_kills, lord_leak=lord_leak, spell_frac=spell_damage / party_life, trap_frac=trap_damage / party_life, army=army, binding=binding, tiers=list(tiers), bounty=bounty, tribute=tribute))
         gold += bounty + tribute
     xp += game.p["ClearXpBase"] + game.p["ClearXpPerLevel"] * level
     return dict(level=level, name=rules["name"], keeper_start=keeper, keeper_end=game.keeper_level(xp), xp=xp, renown=game.p["RenownPerLevel"] * (game.keeper_level(xp) - 1), unspent=unspent, spells=dict(player.spells), traps=dict(player.traps), kinds=sorted(player.kinds), n_kinds=len(player.kinds), waves=wave_rows, gold_end=gold, master=game.master_level(level), spent=dict(player.spent))
@@ -669,9 +708,7 @@ def report_gold(game, rows):
     lines = []
     for row in rows:
         w = row["waves"]
-        income = sum(x["bounty"] + x["tribute"] for x in w)
         first, last = w[0], w[-1]
-        unit = last["army"][0][0] if last["army"] else None
         lines.append((row["level"], first["gold"], sum(x["tribute"] for x in w), sum(x["bounty"] for x in w), row["gold_end"], first["cap"], last["cap"], first["army_cost"], last["army_cost"], first["binding"], last["binding"], sum(last["tiers"])))
     table("Gold and Pop", ["Lvl", "Start gold", "Tribute", "Bounties", "Gold if none spent", "Pop W1", "Pop last", "Army gold W1", "Army gold last", "Binds W1", "Binds last", "Upgrade tiers bought"], lines)
 
@@ -684,8 +721,8 @@ def report_combat(game, rows):
     lines = []
     for row in rows:
         for x in (row["waves"][0], row["waves"][-1]):
-            lines.append((f"{row['level']}/{x['wave']}", x["heroes"], round(x["party_life"]), round(x["hero_dps"]), army_name(x["army"]), f"{x['ratio']:.2f}", f"{x['swarm'][0]} {x['swarm'][1]}: {x['swarm'][2]:.2f}", f"{x['spell_frac'] * 100:.0f}%", f"{x['trap_frac'] * 100:.0f}%", f"{x['ratio_spells']:.2f}", f"{x['lord_lasts']:.0f}s / {x['lord_kills']:.0f}s"))
-    table("Combat (R above 1 means the army should win; 'with both' first removes what a raid's mana and traps can kill)", ["Lvl/raid", "Heroes", "Party life", "Party DPS", "Best army", "R", "R of the cheap swarm", "Spells % of party life", "Traps %", "R with both", "Lord lasts / would kill party in"], lines)
+            lines.append((f"{row['level']}/{x['wave']}", x["heroes"], round(x["party_life"]), round(x["hero_dps"]), army_name(x["army"]), f"{x['ratio']:.2f}", f"{x['swarm'][0]} {x['swarm'][1]}: {x['swarm'][2]:.2f}", f"{x['spell_frac'] * 100:.0f}%", f"{x['trap_frac'] * 100:.0f}%", f"{x['ratio_spells']:.2f}", f"{x['lord_lasts']:.0f}s / {x['lord_leak']:.0f}s / {x['lord_kills']:.0f}s"))
+    table("Combat (R above 1 means the army should win; 'with both' first removes what a raid's mana and traps can kill)", ["Lvl/raid", "Heroes", "Party life", "Party DPS", "Best army", "R", "R of the cheap swarm", "Spells % of party life", "Traps %", "R with both", "Lord lasts against party / a quarter of it / would kill party in"], lines)
 
 
 def report_consistency(game):
@@ -735,7 +772,7 @@ def report_spells(game, rows):
                 dmg = game.spell_damage(spell, raised, clvl)
                 targets = min(SPELL_TARGETS[spell["name"]], party["heroes"])
                 mana = game.mana_cost(spell, raised)
-                lines.append((level, clvl, spell["name"], raised, game.spell_engine_level(spell, raised), mana, spell["cooldown"] / 20, round(dmg), round(dmg * hit * targets), f"{dmg * hit * targets / mana:.1f}", f"{dmg * hit * targets / party_life * 100:.0f}%"))
+                lines.append((level, clvl, spell["name"], raised, game.spell_engine_level(spell, raised), round(mana, 1), spell["cooldown"] / 20, round(dmg), round(dmg * hit * targets), f"{dmg * hit * targets / mana:.1f}", f"{dmg * hit * targets / party_life * 100:.0f}%"))
     table("Spells (per cast; last column is one cast against the level's last raid)", ["Lvl", "Master clvl", "Spell", "Raised to", "Engine lvl", "Mana", "Cooldown s", "Dmg/victim", "Expected total", "Per mana", "% of party life"], lines)
 
 
@@ -750,8 +787,7 @@ def report_traps(game, rows):
             if trap["base"] == 0:
                 continue
             for raised in (rows[level - 1]["traps"].get(trap["name"], 1),):
-                damage = game.scale(level, trap["base"] + trap["per"] * wave) * (100 + game.g["TrapDamagePerLevel"] * (raised - 1)) // 100
-                rearm = trap["rearm"] * max(100 - game.g["TrapRearmPerLevel"] * (raised - 1), game.g["TrapRearmFloorPercent"]) // 100 / 20
+                damage, rearm = trap_stats(game, trap, level, wave, raised)
                 hit_r = max(90 - ac_r - 1, 5)
                 lines.append((level, trap["name"], raised, trap["cost"], damage, rearm, f"{max(90 - ac - 1, 5)}% / {hit_r}%", f"{damage * hit_r / 100 / rearm:.0f}"))
     table("Traps at the level's last raid", ["Lvl", "Trap", "Level", "Gold", "Damage", "Rearm s", "Hit Warrior / Rogue", "DPS while a Rogue stands by it"], lines)
@@ -777,14 +813,29 @@ def report_upgrades(game, rows):
     table("Upgrades against gold", ["Lvl", "Gold before last raid", "All upgrades cost", "% of gold earned in the level", "Tiers bought by last raid", "Tiers on offer"], lines)
 
 
-REPORTS = dict(progress=report_progress, gold=report_gold, combat=report_combat, spells=report_spells, traps=report_traps, upgrades=report_upgrades)
+def report_custom(game, rows):
+    """Custom maps use CustomRules and count as level 1, whatever the player's profile holds."""
+    lines = []
+    campaign_first = game.levels[0]
+    game.levels[0] = game.custom
+    for label, cleared in (("New keeper", 0), ("After level 5", 5), ("After level 10", 10), ("After level 20", 20)):
+        player = Player(game)
+        xp = rows[cleared - 1]["xp"] if cleared else 0
+        row = play_level(game, player, 1, xp)
+        last = row["waves"][-1]
+        lines.append((label, row["keeper_start"], game.custom["gold"], last["heroes"], round(last["party_life"]), army_name(last["army"]), f"{last['ratio']:.2f}", f"{last['ratio_spells']:.2f}", f"{last['lord_lasts']:.0f}s"))
+    game.levels[0] = campaign_first
+    table("Custom maps: the last raid", ["Keeper", "Keeper level", "Start gold", "Heroes", "Party life", "Best army", "R", "R+", "Lord lasts"], lines)
+
+
+REPORTS = dict(custom=report_custom, progress=report_progress, gold=report_gold, combat=report_combat, spells=report_spells, traps=report_traps, upgrades=report_upgrades)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default=Path(__file__).resolve().parents[2], type=Path)
     parser.add_argument("--coop", action="store_true", help="monsters at full life, as in a multiplayer game")
-    parser.add_argument("--section", action="append", help="progress, gold, combat, consistency, spells, traps, upgrades, roster")
+    parser.add_argument("--section", action="append", help="progress, gold, combat, custom, consistency, spells, traps, upgrades, roster")
     parser.add_argument("--solve-strength", nargs=2, type=float, metavar=("FIRST", "LAST"), help="print the hero strength table that hits these R targets")
     args = parser.parse_args()
     game = Game(args.root, args.coop)
@@ -794,7 +845,7 @@ def main():
         solve_strength(game, *args.solve_strength)
         return
     rows = simulate(game)
-    sections = args.section or ["progress", "gold", "combat", "consistency", "spells", "traps", "upgrades", "roster"]
+    sections = args.section or ["progress", "gold", "combat", "custom", "consistency", "spells", "traps", "upgrades", "roster"]
     for section in sections:
         if section == "consistency":
             report_consistency(game)

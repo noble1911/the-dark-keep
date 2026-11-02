@@ -119,6 +119,8 @@ constexpr int MaxKeepLevel = 15;
 /** A spell's mana cost at its level: it falls as the spell levels up, as in the base game. */
 int SpellManaCost(size_t spell);
 int SpellManaCostAt(size_t spell, int level);
+/** What a cast really takes, in hundredths like State.mana. The two above round it up for display. */
+int SpellManaCostScaled(size_t spell);
 /** The engine's spell level a spell casts at, for its level in this game. */
 int SpellEngineLevel(size_t spell);
 
