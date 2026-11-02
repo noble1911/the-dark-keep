@@ -5,7 +5,9 @@
 #   - CMake + Ninja (e.g. `scoop install cmake ninja`)
 #   - vcpkg cloned & bootstrapped (default expected at C:\Users\<you>\vcpkg)
 #
-# Usage:  powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1
+# Usage:  powershell -ExecutionPolicy Bypass -File scripts\build-desktop.ps1 [-Dev]
+#   -Dev  also builds --keeper-devctl, which the test scripts in scripts\dev need
+param([switch]$Dev)
 $ErrorActionPreference = "Stop"
 
 $root   = (Resolve-Path "$PSScriptRoot\..").Path
@@ -29,7 +31,8 @@ Write-Host "==> Configuring desktop build..." -ForegroundColor Cyan
 cmake -S $root -B "$root\build" -G "Visual Studio 18 2026" -A x64 `
     "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
     -DCMAKE_BUILD_TYPE=Release `
-    -DBUILD_TESTING=OFF
+    -DBUILD_TESTING=OFF `
+    $(if ($Dev) { '-DKEEPER_DEVCTL=ON' })
 if ($LASTEXITCODE -ne 0) { throw "configure failed" }
 
 Write-Host "==> Building devilutionx (Release)..." -ForegroundColor Cyan

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -33,6 +34,7 @@
 #include "objects.h"
 #include "player.h"
 #include "utils/display.h"
+#include "utils/is_of.hpp"
 #include "utils/surface_to_png.hpp"
 
 namespace devilution::keeper {
@@ -97,17 +99,12 @@ void PushKey(SDL_Keycode key)
 
 void WriteState()
 {
-	int heroes = 0;
 	int keepers = 0;
 	const bool inKeep = IsActive();
 	if (inKeep) {
 		for (size_t i = 0; i < ActiveMonsterCount; i++) {
 			const Monster &monster = Monsters[ActiveMonsters[i]];
-			if (monster.hitPoints <= 0 || monster.mode == MonsterMode::Death)
-				continue;
-			if (IsHero(monster))
-				heroes++;
-			else
+			if (monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !IsHero(monster))
 				keepers++;
 		}
 	}
@@ -118,7 +115,7 @@ void WriteState()
 	for (const Trap &trap : State.traps)
 		traps += trap.active ? 1 : 0;
 	const Monster *boss = inKeep ? FindBoss() : nullptr;
-	heroes = inKeep ? LivingHeroCount() : 0;
+	const int heroes = inKeep ? LivingHeroCount() : 0;
 	std::string line = fmt::format("state t={} inKeep={} phase={} phaseTicks={} wave={}/{} gold={} lost={} mana={} cd={} lairs={} traps={} pop={}/{}",
 	    SDL_GetTicks(), inKeep, PhaseName(State.phase), State.phaseTicks, State.wave, NumWaves(), State.vaultGold, State.goldLost, State.mana[MyPlayerId] / ManaScale, State.spellCooldown[MyPlayerId], lairs, traps,
 	    inKeep ? SupplyUsed() : 0, inKeep ? SupplyCap() : 0);
@@ -407,6 +404,11 @@ void Execute(const std::string &line)
 	} else if (command == "autocast") {
 		autocast.clear();
 		in >> autocast;
+	} else if (command == "sellall") {
+		// The same request twice in one turn.
+		in >> a;
+		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
+		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
 	} else if (command == "bait") {
 		in >> a >> b;
 		RequestPlaceBait({ a, b });
@@ -439,6 +441,10 @@ void Execute(const std::string &line)
 
 void ReadNewCommands()
 {
+	std::error_code error;
+	const auto size = std::filesystem::file_size(commandPath, error);
+	if (error || static_cast<std::streamoff>(size) <= readOffset)
+		return;
 	std::ifstream in(commandPath, std::ios::binary);
 	if (!in)
 		return;
@@ -496,10 +502,10 @@ void DevctlFrame()
 		const std::string line = std::move(pending.front());
 		pending.pop_front();
 		Execute(line);
-		if (line.rfind("click", 0) == 0 || line.rfind("down", 0) == 0 || line.rfind("up", 0) == 0)
-			break;
-		const bool isInput = line.rfind("move", 0) == 0 || line.rfind("click", 0) == 0 || line.rfind("down", 0) == 0 || line.rfind("up", 0) == 0 || line.rfind("key", 0) == 0 || line.rfind("wheel", 0) == 0;
-		if (isInput)
+		std::istringstream first(line);
+		std::string command;
+		first >> command;
+		if (IsAnyOf(command, "move", "click", "down", "up", "press", "key", "wheel"))
 			break;
 	}
 }

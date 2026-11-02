@@ -20,7 +20,6 @@ void DevctlInit(std::string path);
 void DevctlFrame();
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
-inline void DevctlInit(std::string /*path*/) { }
 inline void DevctlFrame() { }
 #endif
 

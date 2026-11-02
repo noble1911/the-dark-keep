@@ -12,8 +12,8 @@ param(
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$GameArgs
 )
 . "$PSScriptRoot\common.ps1"
-foreach ($game in Get-ProfileGames "$script:Root\build\test-profiles\$Name") { Stop-Process -Id $game.ProcessId -Force }
-if (-not (Get-OwnGames)) { Sync-GameData } # the files are in use while another test runs
+Stop-ProfileGames $Name
+Sync-GameData
 $profileDir = New-TestProfile $Name $Width $Height
 $a = @(); if (-not $Menu) { $a += '--keeper-autostart' }
 if ($GameArgs) { $a += $GameArgs }
