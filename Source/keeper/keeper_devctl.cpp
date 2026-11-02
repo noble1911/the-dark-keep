@@ -607,24 +607,24 @@ void AutoProfile()
 int drawEvery = 1;
 uint32_t drawCounter = 0;
 
-struct Perf {
+struct FramePerf {
 	uint32_t frames = 0;
 	uint32_t start = 0;
 	uint32_t worst = 0;
 	uint32_t last = 0;
 	uint32_t startTick = 0;
 };
-Perf perf;
+FramePerf framePerf;
 
-void WritePerf()
+void WriteFramePerf()
 {
 	const uint32_t now = SDL_GetTicks();
-	const uint32_t elapsed = now - perf.start;
-	Output(fmt::format("perf t={} frames={} msPerFrame={:.2f} worstFrame={} keepTicks={} activeMonsters={} missiles={}", now, perf.frames, perf.frames > 0 ? static_cast<double>(elapsed) / perf.frames : 0.0, perf.worst, IsActive() ? DevKeeperTicks() : 0, IsActive() ? ActiveMonsterCount : 0, IsActive() ? Missiles.size() : 0));
-	const uint32_t last = perf.last;
-	perf = {};
-	perf.start = now;
-	perf.last = last;
+	const uint32_t elapsed = now - framePerf.start;
+	Output(fmt::format("frameperf t={} frames={} msPerFrame={:.2f} worstFrame={} keepTicks={} activeMonsters={} missiles={}", now, framePerf.frames, framePerf.frames > 0 ? static_cast<double>(elapsed) / framePerf.frames : 0.0, framePerf.worst, IsActive() ? DevKeeperTicks() : 0, IsActive() ? ActiveMonsterCount : 0, IsActive() ? Missiles.size() : 0));
+	const uint32_t last = framePerf.last;
+	framePerf = {};
+	framePerf.start = now;
+	framePerf.last = last;
 }
 
 void Execute(const std::string &line)
@@ -962,8 +962,8 @@ void Execute(const std::string &line)
 		AutoBuild();
 	} else if (command == "autoprofile") {
 		AutoProfile();
-	} else if (command == "perf") {
-		WritePerf();
+	} else if (command == "frameperf") {
+		WriteFramePerf();
 	} else if (command == "drawevery") {
 		in >> drawEvery;
 	} else if (command == "setphaseticks") {
@@ -1109,10 +1109,10 @@ void DevctlFrame()
 		return;
 	{
 		const uint32_t now = SDL_GetTicks();
-		if (perf.last != 0)
-			perf.worst = std::max(perf.worst, now - perf.last);
-		perf.last = now;
-		perf.frames++;
+		if (framePerf.last != 0)
+			framePerf.worst = std::max(framePerf.worst, now - framePerf.last);
+		framePerf.last = now;
+		framePerf.frames++;
 	}
 	if (logEvery != 0 && SDL_GetTicks() >= nextLog) {
 		nextLog = SDL_GetTicks() + logEvery;
