@@ -9,8 +9,8 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <optional>
-#include <queue>
 
 #include <fmt/format.h>
 
@@ -22,6 +22,7 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_heroes.hpp"
 #include "levels/drlg_l1.h"
 #include "levels/drlg_l2.h"
 #include "levels/drlg_l3.h"
@@ -285,6 +286,8 @@ constexpr uint16_t FlagPlayable = 1;
 constexpr size_t HeaderSize = 16;
 /** Well over any v1 file; stops a bogus size asking for gigabytes. */
 constexpr size_t MaxMapFileSize = 60 * 1024;
+/** What a tileset needs besides its .til, by the same stem. */
+constexpr std::string_view LevelDataExtensions[] = { ".til", ".cel", ".sol" };
 
 uint32_t Crc32(const std::byte *data, size_t size)
 {
@@ -408,6 +411,8 @@ bool IsSetupEditor()
 	return CurrentSetup().mode == GameMode::MapEditor && !gbIsMultiplayer;
 }
 
+constexpr std::string_view CampaignMapFolder = "keeper\\campaign\\";
+
 /** ReloadKeepLevel asked for the keep to be built anew. */
 bool wantFreshLevel = false;
 
@@ -415,6 +420,11 @@ void ForgetFileMap()
 {
 	fileMap.reset();
 	fileMapPath.clear();
+}
+
+bool IsCampaignMapAsset(std::string_view path)
+{
+	return path.rfind(CampaignMapFolder, 0) == 0;
 }
 
 tl::expected<void, std::string> LoadFileMap(const std::string &path)
@@ -432,6 +442,8 @@ tl::expected<void, std::string> LoadFileMap(const std::string &path)
 		return tl::make_unexpected("it is unfinished: fix it in the editor");
 	if (!HasPosition(map->entrance) || !HasPosition(map->vault))
 		return tl::make_unexpected("it has no entrance or no vault");
+	if (!IsMapTilesetInstalled(map->tileset))
+		return tl::make_unexpected(fmt::format("the game data here has no {} tiles", Info(map->tileset).name));
 	fileMap = std::move(*map);
 	fileMapPath = path;
 	return {};
@@ -469,34 +481,6 @@ bool TriggerCountIsSafe(const KeepMap &map)
 }
 
 // ---- reachability ------------------------------------------------------------------------------
-
-using Reach = std::array<std::array<bool, MAXDUNY>, MAXDUNX>;
-
-/** Flood from the vault, by the same rules BuildField gives the heroes. */
-void FloodReach(Reach &reach, Point start)
-{
-	for (auto &column : reach)
-		column.fill(false);
-	if (!InDungeonBounds(start))
-		return;
-	reach[start.x][start.y] = true;
-	std::queue<Point> open;
-	open.push(start);
-	while (!open.empty()) {
-		const Point tile = open.front();
-		open.pop();
-		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
-			const Displacement step(dir);
-			const Point next = tile + step;
-			if (!InDungeonBounds(next) || reach[next.x][next.y] || !IsTileWalkable(next, /*ignoreDoors=*/true))
-				continue;
-			if (step.deltaX != 0 && step.deltaY != 0 && (IsTileSolid(tile + Displacement { step.deltaX, 0 }) || IsTileSolid(tile + Displacement { 0, step.deltaY })))
-				continue;
-			reach[next.x][next.y] = true;
-			open.push(next);
-		}
-	}
-}
 
 /** The heroes' staircase tile: the trigger the game would read as the vault, via its dPiece value. */
 std::optional<Point> FindStairsTrigger(MapTileset tileset, Point stairs, const StairsShape &shape)
@@ -724,28 +708,31 @@ std::string MapFileName(std::string_view name)
 	return file + ".dkmap";
 }
 
+std::string CampaignMapAsset(int level)
+{
+	return fmt::format("{}level_{:02}.dkmap", CampaignMapFolder, level);
+}
+
 tl::expected<std::vector<std::byte>, std::string> ReadMapBytes(const std::string &path)
 {
+	if (IsCampaignMapAsset(path)) {
+		tl::expected<AssetData, std::string> asset = LoadAsset(path);
+		if (!asset.has_value())
+			return tl::make_unexpected(asset.error());
+		if (asset->size > MaxMapFileSize)
+			return tl::make_unexpected("the file is too big");
+		const auto *first = reinterpret_cast<const std::byte *>(asset->data.get());
+		return std::vector<std::byte>(first, first + asset->size);
+	}
 	std::string found;
-	for (const std::string &candidate : { path, MapsFolder() + path, paths::AssetsPath() + path }) {
+	for (const std::string &candidate : { path, MapsFolder() + path }) {
 		if (FileExists(candidate)) {
 			found = candidate;
 			break;
 		}
 	}
-	if (found.empty()) {
-		// Campaign maps ship inside devilutionx.mpq where the build makes one.
-		size_t assetSize = 0;
-		AssetHandle asset = OpenAsset(path, assetSize);
-		if (!asset.ok())
-			return tl::make_unexpected("the file wasn't found");
-		if (assetSize > MaxMapFileSize)
-			return tl::make_unexpected("the file is too big");
-		std::vector<std::byte> assetBytes(assetSize);
-		if (assetSize > 0 && !asset.read(assetBytes.data(), assetSize))
-			return tl::make_unexpected("the file couldn't be read");
-		return assetBytes;
-	}
+	if (found.empty())
+		return tl::make_unexpected("the file wasn't found");
 	std::uintmax_t size = 0;
 	if (!GetFileSize(found.c_str(), &size))
 		return tl::make_unexpected("the file couldn't be read");
@@ -833,6 +820,70 @@ bool IsMapTilesetLoaded(MapTileset tileset)
 	return leveltype == Info(tileset).levelType;
 }
 
+bool IsMapTilesetInstalled(MapTileset tileset)
+{
+	const std::string_view til = Info(tileset).tilFile;
+	const std::string_view stem = til.substr(0, til.size() - std::string_view(".til").size());
+	return std::all_of(std::begin(LevelDataExtensions), std::end(LevelDataExtensions), [&](std::string_view extension) {
+		return FindAsset(fmt::format("{}{}", stem, extension)).ok();
+	});
+}
+
+bool CanPlayMap(const std::string &path)
+{
+	const tl::expected<std::vector<std::byte>, std::string> bytes = ReadMapBytes(path);
+	if (!bytes.has_value())
+		return false;
+	const tl::expected<KeepMap, std::string> map = ParseMap(bytes->data(), bytes->size());
+	return map.has_value() && map->playable && IsMapTilesetInstalled(map->tileset);
+}
+
+tl::expected<void, std::string> LoadMapTilesetData(MapTileset tileset)
+{
+	// In headless mode the file loaders report a missing file as success.
+	if (!IsMapTilesetInstalled(tileset))
+		return tl::make_unexpected(fmt::format("the game data here has no {} tiles", Info(tileset).name));
+	leveltype = Info(tileset).levelType;
+	tl::expected<std::unique_ptr<MegaTile[]>, std::string> til = LoadFileInMemWithStatus<MegaTile>(Info(tileset).tilFile);
+	if (!til.has_value())
+		return tl::make_unexpected(til.error());
+	pMegaTiles = std::move(*til);
+	return LoadLevelSOLData();
+}
+
+void InitMapTriggers(MapTileset tileset)
+{
+	switch (tileset) {
+	case MapTileset::Cathedral:
+		InitL1Triggers();
+		break;
+	case MapTileset::Catacombs:
+		InitL2Triggers();
+		break;
+	case MapTileset::Caves:
+		InitL3Triggers();
+		break;
+	case MapTileset::Hell:
+		InitL4Triggers();
+		break;
+	case MapTileset::Nest:
+		InitHiveTriggers();
+		break;
+	case MapTileset::Crypt:
+		InitCryptTriggers();
+		break;
+	}
+}
+
+Point FindVault(Point fallback)
+{
+	for (int i = 0; i < numtrigs; i++) {
+		if (trigs[i]._tmsg == WM_DIABNEXTLVL)
+			return trigs[i].position;
+	}
+	return fallback;
+}
+
 Point MapSpawnTile(const KeepMap &map)
 {
 	if (!HasPosition(map.entrance))
@@ -881,13 +932,24 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 			if (!vaultTile) {
 				problems.push_back({ "The vault's stairs didn't form: give them room" });
 			} else {
-				static Reach reach;
-				FloodReach(reach, *vaultTile);
-				// Heroes appear on the nearest free tile, so that's the one that has to get there: any tile
-				// nearby would pass a sealed entrance room with the rest of the keep behind its wall.
-				const std::optional<Point> arrival = FindClosestValidPosition([](Point tile) { return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile); }, spawn, 0, 6);
-				if (!arrival || !reach[arrival->x][arrival->y])
-					problems.push_back({ "Heroes can't reach the vault from the entrance" });
+				static DistanceField field;
+				BuildField(field, *vaultTile);
+				// A party spreads out on any free floor around the stairs as they fill up, so all of it has
+				// to get there: one hero in a sealed pocket would hold up the raid for good. The search never
+				// succeeds: it only visits the same tiles in the same order as a real spawn.
+				int openTiles = 0;
+				bool allReach = true;
+				FindClosestValidPosition([&](Point tile) {
+					if (IsOpenFloor(tile)) {
+						openTiles++;
+						allReach = allReach && field[tile.x][tile.y] != Unreachable;
+					}
+					return false;
+				}, spawn, 0, HeroSpawnRadius);
+				if (openTiles == 0)
+					problems.push_back({ "Heroes have nowhere to appear at the entrance" });
+				else if (!allReach)
+					problems.push_back({ "Some floor around the entrance can't reach the vault: heroes could appear there" });
 			}
 		}
 	}

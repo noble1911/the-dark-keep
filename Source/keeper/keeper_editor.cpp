@@ -322,6 +322,10 @@ void ChangeTileset(MapTileset tileset)
 {
 	if (tileset == model.tileset)
 		return;
+	if (!IsMapTilesetInstalled(tileset)) {
+		SetFeedback(fmt::format("The game data here has no {} tiles", MapTilesetName(tileset)), true);
+		return;
+	}
 	PushUndo(TakeSnapshot());
 	model.tileset = tileset;
 	if (model.entrance.x >= 0 && !MapStairsFit(tileset, true, model.entrance))
@@ -343,6 +347,10 @@ void LoadMapNamed(const std::string &name)
 	tl::expected<KeepMap, std::string> loaded = ParseMap(bytes->data(), bytes->size());
 	if (!loaded.has_value()) {
 		SetFeedback(fmt::format("Could not load {}: {}", name, loaded.error()), true);
+		return;
+	}
+	if (!IsMapTilesetInstalled(loaded->tileset)) {
+		SetFeedback(fmt::format("Could not load {}: the game data here has no {} tiles", name, MapTilesetName(loaded->tileset)), true);
 		return;
 	}
 	Autosave();

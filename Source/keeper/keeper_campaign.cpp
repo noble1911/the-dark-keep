@@ -21,7 +21,6 @@
 #include <fmt/format.h>
 
 #include "appfat.h"
-#include "engine/assets.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -69,9 +68,6 @@ constexpr LevelRules CustomRules { "Custom Map", 7, 1200, 100, 2, 80, KeepLevelS
 
 /** However a level's numbers are tuned, a raid never brings more heroes than this. */
 constexpr int MaxPartySize = 14;
-
-/** The map travels in the join packet, whose frame limit is 64 KiB including its headers. */
-constexpr size_t MaxMapBytes = 60000;
 
 constexpr std::string_view ProgressFileName = "campaign_progress.txt";
 constexpr std::string_view ProgressHeader = "DARKKEEP-CAMPAIGN";
@@ -270,9 +266,10 @@ KeepSetup SetupForCampaignLevel(int level)
 	setup.mode = GameMode::Campaign;
 	setup.campaignLevel = std::clamp(level, 1, NumCampaignLevels);
 	setup.seed = CampaignLevelRules(setup.campaignLevel).seed;
-	// An asset name rather than a path: it's a loose file or inside devilutionx.mpq, depending on the build.
-	std::string map = fmt::format("keeper\\campaign\\level_{:02}.dkmap", setup.campaignLevel);
-	if (FindAsset(map).ok())
+	// An asset name rather than a path: it's a loose file or inside devilutionx.mpq, depending on the
+	// build. Without the map's tileset in the game data (shareware) the level stays a random Cathedral.
+	std::string map = CampaignMapAsset(setup.campaignLevel);
+	if (CanPlayMap(map))
 		setup.mapFile = std::move(map);
 	return setup;
 }

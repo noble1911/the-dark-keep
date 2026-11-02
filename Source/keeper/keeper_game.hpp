@@ -121,6 +121,9 @@ int SpellManaCost(size_t spell);
 int SpellManaCostAt(size_t spell, int level);
 
 constexpr int LockDoorCost = 50;
+/** Nothing can be placed this close to the entrance or the vault (tiles). */
+constexpr int EntranceKeepOut = 4;
+constexpr int VaultKeepOut = 3;
 constexpr int BaitCost = 60;
 
 constexpr size_t MaxLairs = 96;

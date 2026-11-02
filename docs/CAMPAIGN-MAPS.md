@@ -2,6 +2,7 @@
 
 Campaign level N plays `assets/keeper/campaign/level_NN.dkmap`. A missing file means a random layout
 for that level, and `CMake/Assets.cmake` lists the files, so a removed level has to come out of there too.
+So does game data without the map's tileset (the shareware data, say): that level stays random too.
 
 ## How they're made
 
@@ -12,8 +13,9 @@ the map, writes the file, then reads it back and loads it by the game's own road
 
 - `ParseMap` accepts it, it is flagged playable, and it is under the 60000 byte co-op limit;
 - `ValidateMap` finds nothing blocking on the loaded level;
-- the game's first down-stairs trigger is in the vault's footprint, and the route from where heroes
-  appear reaches it by `BuildField`'s rules (solids, diagonals; doors count as open);
+- the game's first down-stairs trigger is in the vault's footprint, and every tile a party can spawn on
+  (free floor up to 6 tiles from the entrance) reaches it by `BuildField`'s rules (solids, diagonals; doors
+  count as open);
 - every painted door formed a door object, and every arch can be walked through;
 - the name matches `CampaignLevels` in `keeper_campaign.cpp`.
 
