@@ -590,6 +590,11 @@ void ProfileNoteDefeat()
 	SaveProfile();
 }
 
+void ProfileSetMapXp(int xp)
+{
+	mapXp = xp;
+}
+
 int MapXpEarned()
 {
 	return mapXp;

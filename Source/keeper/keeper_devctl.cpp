@@ -31,6 +31,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "monster.h"
@@ -393,6 +394,8 @@ void Execute(const std::string &line)
 		in >> a;
 		logEvery = a;
 		nextLog = 0;
+	} else if (command == "resumefile") {
+		Output(fmt::format("resumefile exists={}", HasResumeFile()));
 	} else if (command == "ping") {
 		in >> a >> b;
 		Output(fmt::format("ping {},{} sent={}", a, b, RequestPing({ a, b })));

@@ -1724,6 +1724,8 @@ void OnGameEnded()
 {
 	EditorOnGameEnded();
 	ForgetMapCache();
+	if (active)
+		OnLeavingKeep();
 	SaveProfile();
 	LobbyOnGameEnded();
 	OnGameEndedSpeed();

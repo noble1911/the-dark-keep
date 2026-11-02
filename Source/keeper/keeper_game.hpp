@@ -220,6 +220,9 @@ struct KeepState {
 
 extern KeepState State;
 
+/** The game is ending with the keep still in State: saves it, or takes back the raid in play (see keeper_resume.hpp). */
+void OnLeavingKeep();
+
 /** Sets up a fresh keep (called when the keep level loads). */
 void ResetGame(Point entrance, Point vault);
 

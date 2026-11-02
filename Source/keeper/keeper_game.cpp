@@ -23,6 +23,7 @@
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -218,6 +219,8 @@ int retryGoldLost = 0;
 constexpr uint32_t SpeedSwitchLeadTurns = 2;
 /** How long the rest have once one master is ready. */
 constexpr int ReadyVoteTimeoutTicks = 30 * TicksPerSecond;
+/** A resumed keep gives the master at least this long to look around, even if the clock had run out. */
+constexpr int ResumeMinPrepTicks = 30 * TicksPerSecond;
 /** A speed change the host has announced, waiting for its turn. */
 struct PendingSpeed {
 	bool active = false;
@@ -388,6 +391,60 @@ void AnnouncePhase(Phase from, Phase to)
 	}
 }
 
+/** Only a single player's own campaign: progress is at stake nowhere else, and a test flag's game isn't a real one. */
+bool CanSaveKeep()
+{
+	return !gbIsMultiplayer && CurrentSetup().mode == GameMode::Campaign && !IsEditorTestRun() && OverrideRank() == 0 && TestStartWave == 0;
+}
+
+/** Writes the keep as it stands. Called when not raiding: nothing about a raid is in the file. */
+void SaveKeep()
+{
+	if (!CanSaveKeep())
+		return;
+	ResumeData data;
+	const KeepSetup &setup = CurrentSetup();
+	data.level = setup.campaignLevel;
+	data.seed = setup.seed;
+	data.mapFile = setup.mapFile;
+	data.entrance = State.entrance;
+	data.vault = State.vault;
+	data.wave = State.wave;
+	data.phase = static_cast<int>(State.phase);
+	data.phaseTicks = State.phaseTicks;
+	data.gold = State.vaultGold;
+	data.goldLost = State.goldLost;
+	data.mana = State.mana[MyPlayerId];
+	data.mapXp = MapXpEarned();
+	data.upgrades = UpgradeTiers();
+	for (const Lair &lair : State.lairs) {
+		if (!lair.active)
+			continue;
+		ResumeData::SavedLair saved;
+		saved.kind = lair.kind;
+		saved.monsterType = static_cast<int>(BuildKinds[lair.kind].type);
+		saved.cost = BuildKinds[lair.kind].cost;
+		saved.position = lair.position;
+		saved.hasRally = lair.hasRally;
+		saved.rally = lair.rally;
+		saved.route.assign(lair.route.begin(), lair.route.begin() + lair.routeCount);
+		data.lairs.push_back(std::move(saved));
+	}
+	for (const Trap &trap : State.traps) {
+		if (trap.active)
+			data.traps.push_back({ trap.kind, trap.position, 0, TrapKinds[trap.kind].cost });
+	}
+	for (const DoorLock &lock : State.locks) {
+		if (lock.active)
+			data.locks.push_back({ 0, lock.position, std::clamp(lock.strength, 0, 255), LockDoorCost * lock.strength / LockStrength });
+	}
+	for (const Bait &bait : State.baits) {
+		if (bait.active)
+			data.baits.push_back({ 0, bait.position, std::clamp(bait.uses, 0, 255), BaitCost * bait.uses / BaitUses });
+	}
+	WriteResumeFile(data);
+}
+
 void AnnounceReadyChanges(uint8_t before, uint8_t after)
 {
 	for (size_t id = 0; id < NetPlayerSlots; id++) {
@@ -419,6 +476,10 @@ void SetPhase(Phase phase)
 	}
 	if (IsHost())
 		BroadcastState();
+	if (phase == Phase::Breather)
+		SaveKeep();
+	else if ((phase == Phase::Defeat || phase == Phase::Victory) && CanSaveKeep())
+		DeleteResumeFile(); // what's decided stays decided; a retry writes it again from its respite
 }
 
 bool IsMemberAlive(int16_t monsterId, _monster_id type)
@@ -515,6 +576,8 @@ void RefillLairs()
 
 void StartRaid()
 {
+	// Leaving mid-raid comes back to this moment, with what the respite built.
+	SaveKeep();
 	State.retryGold = State.vaultGold;
 	retryGoldLost = State.goldLost;
 	SetPhase(Phase::Raid);
@@ -897,6 +960,86 @@ void ApplyLairMember(uint8_t slot, uint8_t index, int monsterId)
 	lair.patrolLeg[index] = 0;
 	if (lair.hasRally || lair.routeCount > 0)
 		ApplyMemberPost(lair, index);
+}
+
+// ---- resuming a saved keep -------------------------------------------------------
+
+bool IsFloorForResume(Point tile)
+{
+	return InDungeonBounds(tile) && IsTileWalkable(tile) && !IsObjectAtPosition(tile);
+}
+
+/**
+ * Puts the saved keep back. Single player, so the requests' host-side work is done directly. Anything that
+ * can't come back (a monster respecced away since, a floor that has moved) is paid back at its respite price.
+ */
+void ApplyResume(const ResumeData &data)
+{
+	if (data.level != CurrentSetup().campaignLevel || data.entrance != State.entrance || data.vault != State.vault) {
+		// The map isn't the one that was saved: this is a fresh start on it, and the file is no use.
+		DeleteResumeFile();
+		Announce("The saved keep no longer fits this map: starting the level afresh.", UiFlags::ColorRed);
+		return;
+	}
+	State.wave = static_cast<uint8_t>(data.wave);
+	State.phase = static_cast<Phase>(data.phase);
+	State.phaseTicks = std::max(data.phaseTicks, ResumeMinPrepTicks);
+	State.vaultGold = data.gold;
+	State.retryGold = data.gold;
+	State.goldLost = data.goldLost;
+	State.mana[MyPlayerId] = data.mana;
+	ProfileSetMapXp(data.mapXp);
+	for (size_t i = 0; i < NumUpgrades; i++)
+		SetUpgradeTierQuietly(static_cast<UpgradeId>(i), data.upgrades[i]);
+
+	int refund = 0;
+	uint8_t slot = 0;
+	for (const ResumeData::SavedLair &saved : data.lairs) {
+		const auto kind = static_cast<size_t>(saved.kind);
+		if (!IsLairKind(kind) || !IsKindMustered(kind) || static_cast<int>(BuildKinds[kind].type) != saved.monsterType || !IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBuilt(slot, static_cast<uint8_t>(kind), saved.position);
+		if (saved.hasRally)
+			ApplyRally(slot, true, saved.rally);
+		for (size_t i = 0; i < saved.route.size(); i++)
+			ApplyWaypoint(slot, static_cast<uint8_t>(i), saved.route[i]);
+		slot++;
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.traps) {
+		if (static_cast<size_t>(saved.kind) >= NumTrapKinds || !IsTrapAvailable(static_cast<size_t>(saved.kind)) || !IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBuilt(slot++, static_cast<uint8_t>(NumLairKinds + saved.kind), saved.position);
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.locks) {
+		ApplyDoorLocked(slot, saved.position);
+		if (State.locks[slot].active) {
+			State.locks[slot].strength = saved.amount;
+			slot++;
+		} else {
+			refund += saved.cost;
+		}
+	}
+	slot = 0;
+	for (const ResumeData::SavedPiece &saved : data.baits) {
+		if (!IsFloorForResume(saved.position)) {
+			refund += saved.cost;
+			continue;
+		}
+		ApplyBaitPlaced(slot, saved.position);
+		State.baits[slot++].uses = saved.amount;
+	}
+	State.vaultGold += refund;
+	State.retryGold += refund;
+	if (refund > 0)
+		Announce(fmt::format("Some of the saved keep couldn't come back: {} gold returned to the vault.", refund));
+	Announce(fmt::format("Welcome back, master. Raid {} is coming.", State.wave));
+	BroadcastState();
 }
 
 // ---- mid-game joiners ----------------------------------------------------------
@@ -1414,6 +1557,9 @@ void GameTick()
 	if (awaitingKeepSnapshot && --keepSnapshotTimeout <= 0)
 		awaitingKeepSnapshot = false;
 
+	if (std::optional<ResumeData> resume = TakePendingResume(); resume && CanSaveKeep())
+		ApplyResume(*resume);
+
 	UpdatePendingSpeed();
 	if (!IsHost() && State.readyTicks > 0)
 		State.readyTicks--;
@@ -1484,6 +1630,19 @@ void GameTick()
 
 	if (--ticksUntilBroadcast <= 0)
 		BroadcastState();
+}
+
+void OnLeavingKeep()
+{
+	if (!CanSaveKeep())
+		return;
+	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
+		// Includes whatever this respite has built so far.
+		SaveKeep();
+	} else if (State.phase == Phase::Raid && HasResumeFile()) {
+		// Continue brings the raid back: this attempt pays nothing, as for a retry.
+		ProfileTakeBackRaid();
+	}
 }
 
 void DevFireTrap(size_t slot, Point victim)
