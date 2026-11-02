@@ -1175,8 +1175,14 @@ void DiabloParseFlags(int argc, char **argv)
 			setup.mode = keeper::GameMode::MapEditor;
 			keeper::SetCurrentSetup(setup);
 		} else if (arg == "--keeper-devctl") { // [DARK KEEP] dev/test: drive the game from a command file
+#ifdef KEEPER_DEVCTL
 			if (i + 1 < argc)
 				keeper::DevctlInit(argv[++i]);
+#else
+			printInConsole("This build has no --keeper-devctl: build with -DKEEPER_DEVCTL=ON");
+			printNewlineInConsole();
+			diablo_quit(1);
+#endif
 		} else if (arg == "--keeper-start-wave") { // [DARK KEEP] dev/test: begin at a later raid
 			if (i + 1 < argc)
 				keeper::TestStartWave = std::atoi(argv[++i]);

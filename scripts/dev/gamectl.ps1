@@ -27,9 +27,9 @@ public class W {
 [void][W]::SetProcessDPIAware()
 $idx = 0; if ($env:GAMEIDX) { $idx = [int]$env:GAMEIDX }
 . "$PSScriptRoot\common.ps1"
-# Only games started from this checkout: never send input to anyone else's window.
-$own = Get-OwnGames
-if ($idx -ge $own.Count) { throw "No game $idx started from this checkout" }
+# Only test games: never send input to anyone else's window.
+$own = Get-TestGames
+if ($idx -ge $own.Count) { throw "No test game $idx from this checkout" }
 $p = Get-Process -Id $own[$idx].ProcessId
 $h = $p.MainWindowHandle
 $r = New-Object W+RECT; [void][W]::GetClientRect($h, [ref]$r)

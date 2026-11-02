@@ -228,7 +228,7 @@ def one_raid(plan, mode, profile, extra_label=""):
         game.stop()
 
 
-FIELDS = ["label", "level", "mode", "result", "ticks", "peakHeroes", "peakPartyLife", "partyLifeLeft", "heroesLeft", "keepStart", "keepEnd", "lordStart", "lordLow", "goldLost", "built", "traps", "reach", "casts"]
+FIELDS = ["label", "level", "mode", "result", "ticks", "peakHeroes", "peakPartyLife", "partyLifeLeft", "heroesLeft", "keepStart", "keepEnd", "lordStart", "lordLow", "goldLost", "built", "traps", "reach", "casts", "trapFires", "trapsLeft"]
 
 
 def main():

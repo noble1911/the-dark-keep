@@ -39,6 +39,8 @@ bool HoldsBotAlive(const Player &player);
 /** The host's word on a bot's life, for BroadcastState: its hit points, or a negative for no such bot or not yet known. */
 int32_t BotLifeForSync(size_t slot);
 void ApplyBotLifeSync(size_t slot, int32_t hitPoints);
+/** The host's copy got out: a joiner's does too, however far it had come, with the host's facts. */
+void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
 /** True if this client applies the player's damage/effects itself: the local master, or any bot. */
 bool SimulatesLocally(const Player &player);
 
