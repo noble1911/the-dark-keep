@@ -1251,8 +1251,52 @@ void SelectInBox(const Rectangle &box)
 	SetSelection(std::move(found));
 }
 
+/** A ping in view: rings closing in on the tile. Out of view: an arrow at the edge of the screen pointing to it. */
+void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
+{
+	const int screenMargin = 28 * UiScale();
+	const uint8_t color = PAL16_YELLOW + 2;
+	const uint32_t left = ping.until - now;
+	const int ring = static_cast<int>(left / 500 % 3);
+	DrawTileDiamond(out, ping.tile, color, ring);
+	if (ring != 0)
+		DrawTileDiamond(out, ping.tile, color);
+	if (overlayPass != OverlayPass::Text)
+		return;
+	const int maxY = ScreenHudTop();
+	const Point at = TileCenter(ping.tile);
+	const std::string_view name = Players[ping.player]._pName;
+	if (at.x >= 0 && at.x < out.w() && at.y >= 0 && at.y < maxY) {
+		DrawWorldLabel(out, ping.tile, name, UiFlags::ColorGold, 24);
+		return;
+	}
+	const Point middle { out.w() / 2, maxY / 2 };
+	const float dx = static_cast<float>(at.x - middle.x);
+	const float dy = static_cast<float>(at.y - middle.y);
+	const float length = std::max(std::sqrt(dx * dx + dy * dy), 1.F);
+	const float scale = std::min(std::abs(dx) > 0.F ? (middle.x - screenMargin) / std::abs(dx) : 1e6F, std::abs(dy) > 0.F ? (middle.y - screenMargin) / std::abs(dy) : 1e6F);
+	const Point tip { middle.x + static_cast<int>(dx * scale), middle.y + static_cast<int>(dy * scale) };
+	const float ux = dx / length;
+	const float uy = dy / length;
+	for (int back = 12 * UiScale(); back <= 20 * UiScale(); back += 4) {
+		const Point wingA { tip.x - static_cast<int>(ux * back - uy * back / 2), tip.y - static_cast<int>(uy * back + ux * back / 2) };
+		const Point wingB { tip.x - static_cast<int>(ux * back + uy * back / 2), tip.y - static_cast<int>(uy * back - ux * back / 2) };
+		DrawLine(out, tip, wingA, color, maxY);
+		DrawLine(out, tip, wingB, color, maxY);
+		DrawLine(out, wingA, wingB, color, maxY);
+	}
+	const Rectangle label { { std::clamp(tip.x - 60, 0, out.w() - 120), std::clamp(tip.y + (uy > 0 ? -38 : 22), 0, maxY - 14) }, { 120, 14 } };
+	DrawString(out, name, label, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold | UiFlags::Outlined });
+}
+
 void DrawOverlays(const Surface &out)
 {
+	const uint32_t pingNow = SDL_GetTicks();
+	for (const Ping &ping : Pings()) {
+		if (ping.until > pingNow)
+			DrawPing(out, ping, pingNow);
+	}
+
 	DrawTileDiamond(out, State.vault, PAL16_YELLOW + 2, 1);
 	DrawWorldLabel(out, State.vault, fmt::format("Vault: {} gold", State.vaultGold), UiFlags::ColorGold);
 	DrawTileDiamond(out, State.entrance, PAL16_BLUE + 2, 1);
@@ -1888,6 +1932,12 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::CycleSpeed:
 		CycleGameSpeed();
+		return;
+	case KeeperAction::Ping:
+		if (IsMouseOverUi())
+			SetFeedback("Point at the keep to mark a spot");
+		else if (!RequestPing(cursPosition))
+			SetFeedback("Wait a moment before marking again");
 		return;
 	case KeeperAction::HoldTimer:
 		ToggleHeldTimer();

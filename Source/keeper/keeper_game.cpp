@@ -152,6 +152,7 @@ enum class Action : uint8_t {
 	RequestRetryRaid,
 	RequestSpeed,
 	SetSpeed,
+	Ping,
 };
 
 #pragma pack(push, 1)
@@ -1390,6 +1391,7 @@ void ResetGame(Point entrance, Point vault)
 	joinerRestartWait = 0;
 	pendingSpeed = {};
 	speedMismatches = 0;
+	ClearPings();
 	OnKeepLoadedSpeed();
 	ResetHeroes();
 	ResetRaidStats();
@@ -1876,6 +1878,11 @@ bool IsMasterReady(size_t playerId)
 	return playerId < NetPlayerSlots && (State.readyMask & (1U << playerId)) != 0;
 }
 
+void SendPing(Point tile)
+{
+	Send(Action::Ping, 0, 0, tile);
+}
+
 void RequestGameSpeed(size_t level)
 {
 	Send(Action::RequestSpeed, static_cast<uint8_t>(level));
@@ -2006,6 +2013,9 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::RequestStartRaid:
 		if (IsHost())
 			HostVoteReady(player);
+		break;
+	case Action::Ping:
+		ApplyPing(player.getId(), tile);
 		break;
 	case Action::RequestSpeed:
 		if (IsHost())

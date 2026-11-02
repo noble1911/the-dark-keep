@@ -295,6 +295,8 @@ int MastersInKeepCount();
 bool IsMasterReady(size_t playerId);
 /** Everyone who is here counts, except those still on their way in. */
 bool IsMasterVoting(size_t playerId);
+/** Use keeper_flow's RequestPing, which is rate-limited. */
+void SendPing(Point tile);
 /** Index into GameSpeeds (keeper_flow.hpp). The host names a turn and every client switches on it. */
 void RequestGameSpeed(size_t level);
 /** After a defeat: the vault goes back to the raid's start and the raid comes again (see ClearLostRaid in keeper_game.cpp). */

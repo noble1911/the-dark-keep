@@ -393,6 +393,15 @@ void Execute(const std::string &line)
 		in >> a;
 		logEvery = a;
 		nextLog = 0;
+	} else if (command == "ping") {
+		in >> a >> b;
+		Output(fmt::format("ping {},{} sent={}", a, b, RequestPing({ a, b })));
+	} else if (command == "pings") {
+		const uint32_t now = SDL_GetTicks();
+		for (const Ping &ping : Pings()) {
+			if (ping.until > now)
+				Output(fmt::format("live ping {},{} from {} left={}", ping.tile.x, ping.tile.y, ping.player, ping.until - now));
+		}
 	} else if (command == "gamespeed") {
 		CycleGameSpeed();
 	} else if (command == "speed") {

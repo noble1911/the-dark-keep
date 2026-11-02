@@ -46,7 +46,7 @@ struct ActionInfo {
 };
 
 /** One-key actions. Card slots and spells are added in loops, as they have an index. */
-const std::array<ActionInfo, 16> SimpleActions { {
+const std::array<ActionInfo, 17> SimpleActions { {
 	{ KeeperAction::LockDoor, "KeeperLockDoor", N_("Keep: lock a door"), N_("Picks the door lock."), 'G' },
 	{ KeeperAction::Bait, "KeeperBait", N_("Keep: bait"), N_("Picks the pile of fool's gold."), 'T' },
 	{ KeeperAction::NextTab, "KeeperNextTab", N_("Keep: next tab"), N_("Switches between the tabs of the card bar."), static_cast<uint32_t>(SDLK_TAB) },
@@ -62,6 +62,7 @@ const std::array<ActionInfo, 16> SimpleActions { {
 	{ KeeperAction::CameraUp, "KeeperCameraUp", N_("Keep: camera up"), N_("Moves the view up."), 'W' },
 	{ KeeperAction::CameraDown, "KeeperCameraDown", N_("Keep: camera down"), N_("Moves the view down."), 'S' },
 	{ KeeperAction::CycleSpeed, "KeeperCycleSpeed", N_("Keep: game speed"), N_("Switches between normal, double and triple speed."), 'N' },
+	{ KeeperAction::Ping, "KeeperPing", N_("Keep: mark the map"), N_("Shows every master the spot under the cursor, with a sound."), 'M' },
 	{ KeeperAction::HoldTimer, "KeeperHoldTimer", N_("Keep: hold the timer"), N_("Single player: stops the clock on preparation, so the raid waits for you."), 'H' },
 } };
 
