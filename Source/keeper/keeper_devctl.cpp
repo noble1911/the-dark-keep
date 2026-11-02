@@ -588,8 +588,9 @@ void Execute(const std::string &line)
 		in >> a;
 		State.phaseTicks = a;
 	} else if (command == "fillmana") {
-		State.mana[MyPlayerId] = MaxMana * ManaScale;
-		State.spellCooldown[MyPlayerId] = 0;
+		// Every master's: the host's snapshots would put a joiner's straight back.
+		State.mana.fill(MaxMana * ManaScale);
+		State.spellCooldown.fill(0);
 	} else if (command == "echo") {
 		std::string rest;
 		std::getline(in, rest);

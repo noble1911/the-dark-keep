@@ -69,6 +69,8 @@ constexpr int StateBroadcastInterval = TicksPerSecond;
 /** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
 constexpr int PossessDrainPerTick = 10;
 constexpr int ManaCastTolerance = 5 * ManaScale;
+/** Levels fill tiles 16 to 95, so this rules out nothing a hero can reach. */
+constexpr int SpellEdgeMargin = 8;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
 constexpr int BaseSupply = 16;
 constexpr int SupplyPerRaid = 4;
@@ -1021,8 +1023,9 @@ void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
 
 void ApplyCast(Player &caster, size_t spell, Point tile)
 {
-	// Not the outermost ring either: a spell's own positions, a tile either side of this, travel as bytes and would wrap.
-	if (spell >= SpellKinds.size() || tile.x < 1 || tile.y < 1 || tile.x >= MAXDUNX - 1 || tile.y >= MAXDUNY - 1)
+	// The engine's spells only ever start where a player can stand: right by the map's edge, far outside any
+	// level, they read past its tables. A spell's own positions also travel as bytes, and would wrap there.
+	if (spell >= SpellKinds.size() || tile.x < SpellEdgeMargin || tile.y < SpellEdgeMargin || tile.x >= MAXDUNX - SpellEdgeMargin || tile.y >= MAXDUNY - SpellEdgeMargin)
 		return;
 	const size_t pid = caster.getId();
 	const SpellKind &kind = SpellKinds[spell];

@@ -578,7 +578,7 @@ void SpellsTick()
 				current = 0;
 				spellLevel = 1;
 				edgeIndex = 0;
-				edgeTargets = { { 0, 0 }, { MAXDUNX - 1, 0 }, { 0, MAXDUNY - 1 }, { MAXDUNX - 1, MAXDUNY - 1 }, { 1, 1 }, { MAXDUNX - 2, MAXDUNY - 2 }, { 56, 0 }, { 0, 56 }, { MAXDUNX - 1, 56 }, { 56, MAXDUNY - 1 }, State.entrance, State.vault };
+				edgeTargets = { { 0, 0 }, { MAXDUNX - 1, 0 }, { 0, MAXDUNY - 1 }, { MAXDUNX - 1, MAXDUNY - 1 }, { 1, 1 }, { MAXDUNX - 2, MAXDUNY - 2 }, { 56, 0 }, { 0, 56 }, { MAXDUNX - 1, 56 }, { 56, MAXDUNY - 1 }, { 8, 8 }, { MAXDUNX - 9, MAXDUNY - 9 }, { 8, MAXDUNY - 9 }, { MAXDUNX - 9, 8 }, { 16, 16 }, { 95, 95 }, State.entrance, State.vault };
 				for (int x = 20; x < MAXDUNX; x++) {
 					if (TileHasAny(Point { x, arena.y }, TileProperties::Solid)) {
 						edgeTargets.push_back({ x, arena.y });
