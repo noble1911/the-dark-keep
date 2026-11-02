@@ -25,8 +25,8 @@ namespace devilution::keeper {
 constexpr int CoopMinGraceTicks = 5 * 20;
 /** The most anyone in the Keeper can hold the next map up. */
 constexpr int CoopMaxGraceTicks = 30 * 20;
-/** How long the notice stays up when the host has gone, before going back to the menu. */
-constexpr int CoopHostLeftNoticeTicks = 8 * 20;
+/** How long the notice stays up when the host has gone, before going back to the menu. By the clock: game ticks stall while the others time out. */
+constexpr uint32_t CoopHostLeftNoticeMs = 8000;
 
 void CoopOnLevelLoaded();
 void CoopOnGameEnded();
@@ -50,8 +50,8 @@ void DrawCoopKeeperBanner(const Surface &out);
 /** The game's creator has gone (not for the next map): with TCP nobody can reach anybody any more, so the game ends. */
 void CoopNoteHostLeft();
 bool CoopHasHostLeft();
-/** @return true when the notice has been up for long enough. */
-bool CoopHostLeftTick();
+/** Every frame. @return true when the notice has been up for long enough. */
+bool CoopHostLeftNoticeOver();
 void DrawCoopHostLeft(const Surface &out, int hudTop);
 
 } // namespace devilution::keeper

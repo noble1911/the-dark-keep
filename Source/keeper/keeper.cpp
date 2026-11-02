@@ -1649,11 +1649,8 @@ void Tick()
 		ReturnToMainMenu = false;
 		return;
 	}
-	if (CoopHasHostLeft()) {
-		if (CoopHostLeftTick())
-			gamemenu_exit_game(false);
+	if (CoopHasHostLeft())
 		return;
-	}
 	// Remote masters arrive later than us; park every body on the keep level, every tick (cheap, idempotent).
 	const auto masterLevel = static_cast<uint8_t>(1 + MasterLevelsPerCampaignLevel * (CurrentLevelNumber() - 1));
 	for (Player &player : Players) {
@@ -1703,6 +1700,10 @@ void UpdateCamera()
 	if (!IsActive())
 		return;
 	EditorUpdateFrame();
+	if (CoopHostLeftNoticeOver()) {
+		gamemenu_exit_game(false);
+		return;
+	}
 
 	const uint32_t now = SDL_GetTicks();
 	const float dt = std::min<uint32_t>(now - lastCameraTicks, 50) / 1000.F;

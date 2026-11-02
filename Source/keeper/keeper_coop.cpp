@@ -9,6 +9,12 @@
 #include <array>
 #include <string_view>
 
+#ifdef USE_SDL3
+#include <SDL3/SDL_timer.h>
+#else
+#include <SDL.h>
+#endif
+
 #include <fmt/format.h>
 
 #include "engine/rectangle.hpp"
@@ -33,7 +39,7 @@ std::array<bool, MAX_PLRS> inKeeper {};
 bool statusSent = false;
 int statusResendTicks = 0;
 int startingTicks = 0;
-int hostLeftTicks = 0;
+uint32_t hostLeftUntil = 0;
 bool hostLeft = false;
 
 std::string FormatWait(int ticks)
@@ -50,7 +56,7 @@ void CoopOnLevelLoaded()
 	statusSent = false;
 	startingTicks = 0;
 	hostLeft = false;
-	hostLeftTicks = 0;
+	hostLeftUntil = 0;
 	CloseKeeperOverlay();
 }
 
@@ -134,7 +140,7 @@ void CoopNoteHostLeft()
 	if (hostLeft)
 		return;
 	hostLeft = true;
-	hostLeftTicks = CoopHostLeftNoticeTicks;
+	hostLeftUntil = SDL_GetTicks() + CoopHostLeftNoticeMs;
 	CloseKeeperOverlay();
 }
 
@@ -143,9 +149,9 @@ bool CoopHasHostLeft()
 	return hostLeft;
 }
 
-bool CoopHostLeftTick()
+bool CoopHostLeftNoticeOver()
 {
-	return --hostLeftTicks <= 0;
+	return hostLeft && static_cast<int32_t>(SDL_GetTicks() - hostLeftUntil) >= 0;
 }
 
 void DrawCoopHostLeft(const Surface &out, int hudTop)
@@ -157,7 +163,7 @@ void DrawCoopHostLeft(const Surface &out, int hudTop)
 	DrawPanel(out, banner);
 	DrawString(out, "The host has left, so this game is over.", { banner.position + Displacement { 0, 12 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
-	DrawString(out, fmt::format("Back to the menu in {}. (Esc: now)", FormatWait(hostLeftTicks)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
+	DrawString(out, fmt::format("Back to the menu in {}. (Esc: now)", FormatWait(static_cast<int>(hostLeftUntil - SDL_GetTicks()) / 50)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 }
 
