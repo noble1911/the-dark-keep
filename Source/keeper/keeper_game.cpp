@@ -48,6 +48,7 @@ const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Wave", MissileID::FlameWaveControl, 25, 3, 20 * 4, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
 	{ "Ring", MissileID::RingOfFire, 40, 3, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
 	{ "Apocalypse", MissileID::Apocalypse, 80, 1, 20 * 25, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
+	{ "Golem", MissileID::Golem, 35, 1, 20 * 20, 6, SpellID::Golem, "Raises a golem that hunts heroes near the target. Cast it again to mend your golem and send it there." },
 } };
 
 KeepState State;
@@ -316,6 +317,7 @@ void AnnouncePhase(Phase from, Phase to)
 	if (from == Phase::Raid) {
 		ClosePortal();
 		RemoveAllBots();
+		DismissGolems();
 	}
 	switch (to) {
 	case Phase::Raid:
@@ -791,7 +793,7 @@ void SendKeepSnapshot(size_t playerId)
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned id = ActiveMonsters[i];
 		const Monster &monster = Monsters[id];
-		if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell || monster.type().type == MT_GOLEM)
+		if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell)
 			continue;
 		const auto w = static_cast<uint16_t>(id + 1);
 		out.Add(Action::SyncMonsterPosition, 0, 0, monster.position.tile, w);
@@ -888,7 +890,8 @@ void ApplySyncEnd()
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned id = ActiveMonsters[i];
 		Monster &monster = Monsters[id];
-		if (snapshotMonsters.test(id) || monster.isInvalid || monster.type().type == MT_GOLEM)
+		// A golem that crumbled at the end of a raid is still in the delta too. An unused golem slot stays as it is.
+		if (snapshotMonsters.test(id) || monster.isInvalid || monster.position.tile == GolemHoldingCell)
 			continue;
 		M_ClearSquares(monster);
 		monster.hitPoints = 0;
@@ -1038,6 +1041,14 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		return;
 	State.mana[pid] = std::max(State.mana[pid] - SpellManaCostScaled(spell), 0);
 	State.spellCooldown[pid] = kind.cooldownTicks;
+
+	if (kind.missile == MissileID::Golem) {
+		// The engine's cast of a second golem kills the first. Here it is mended, on every client alike.
+		if (Monster *golem = FindGolemForPlayer(caster); golem != nullptr) {
+			MendGolem(*golem, tile);
+			return;
+		}
+	}
 
 	const int level = State.spellLevels[spell];
 	Direction dir = Direction::South;
@@ -1957,6 +1968,15 @@ bool IsBurning(Point tile)
 {
 	for (const Missile &missile : Missiles) {
 		if (missile._mitype == MissileID::FireWall && !missile._miDelFlag && missile.position.tile == tile)
+			return true;
+	}
+	return false;
+}
+
+bool IsHazardous(Point tile)
+{
+	for (const Missile &missile : Missiles) {
+		if (IsAnyOf(missile._mitype, MissileID::FireWall, MissileID::LightningWall, MissileID::Inferno, MissileID::FlameWave) && !missile._miDelFlag && missile.position.tile == tile)
 			return true;
 	}
 	return false;

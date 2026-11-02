@@ -21,6 +21,7 @@
 #include "engine/render/primitive_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "inv.h"
+#include "keeper/keeper_devctl.hpp" // [DARK KEEP]
 #include "qol/chatlog.h"
 #include "qol/stash.h"
 #include "utils/algorithm/container.hpp"
@@ -76,6 +77,9 @@ void EventPlrMsg(std::string_view text, UiFlags style)
 	message.prefixLength = 0;
 	message.lineHeight = GetLineHeight(message.text, GameFont12) + 3;
 	AddMessageToChatLog(text);
+#ifdef KEEPER_DEVCTL // [DARK KEEP] raid scripts read the event log
+	keeper::DevctlNoteMessage(text);
+#endif
 }
 
 void SendPlrMsg(Player &player, std::string_view text)

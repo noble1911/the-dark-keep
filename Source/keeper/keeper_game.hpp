@@ -109,7 +109,9 @@ struct SpellKind {
 	SpellID icon;
 	std::string_view flavor;
 };
-constexpr size_t NumSpellKinds = 11;
+constexpr size_t NumSpellKinds = 12;
+/** Golem is last in SpellKinds. */
+constexpr size_t GolemSpellKind = NumSpellKinds - 1;
 /** The spell bar: what a master has equipped from the Spellbook. */
 constexpr size_t NumSpellSlots = 6;
 extern const std::array<SpellKind, NumSpellKinds> SpellKinds;
@@ -317,6 +319,8 @@ bool IsHero(const Monster &monster);
 bool AreHostile(const Monster &a, const Monster &b);
 /** True if a wall of fire burns on `tile` (heroes step out of it and won't walk into it). */
 bool IsBurning(Point tile);
+/** Any damaging floor effect on this tile: fire, a lightning wall, an inferno jet, a flame wave. */
+bool IsHazardous(Point tile);
 /** A living hero (monster or bot) stands on `tile`. */
 bool IsHeroAt(Point tile);
 

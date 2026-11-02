@@ -472,7 +472,7 @@ int GameTrapLevel(size_t trap)
 void WriteHostUnlocks(GameData &gameData)
 {
 	static_assert(sizeof(gameData.keeperKinds) * 8 >= NumLairKinds);
-	static_assert(sizeof(gameData.keeperSpells) == NumSpellKinds);
+	static_assert(sizeof(gameData.keeperSpells) + 1 == NumSpellKinds);
 	static_assert(sizeof(gameData.keeperTraps) == NumTrapKinds);
 	gameData.keeperRank = static_cast<uint8_t>(std::min(KeeperLevel(), 255));
 	std::memset(gameData.keeperKinds, 0, sizeof(gameData.keeperKinds));
@@ -480,8 +480,9 @@ void WriteHostUnlocks(GameData &gameData)
 		if (IsKindAvailable(kind))
 			gameData.keeperKinds[kind / 8] |= static_cast<uint8_t>(1U << (kind % 8));
 	}
-	for (size_t spell = 0; spell < NumSpellKinds; spell++)
+	for (size_t spell = 0; spell < sizeof(gameData.keeperSpells); spell++)
 		gameData.keeperSpells[spell] = static_cast<uint8_t>(GameSpellLevel(spell));
+	gameData.keeperLastSpell = static_cast<uint8_t>(GameSpellLevel(GolemSpellKind));
 	for (size_t trap = 0; trap < NumTrapKinds; trap++)
 		gameData.keeperTraps[trap] = static_cast<uint8_t>(GameTrapLevel(trap));
 }
@@ -494,8 +495,9 @@ void ReadHostUnlocks(const GameData &gameData)
 		if ((gameData.keeperKinds[kind / 8] & (1U << (kind % 8))) != 0)
 			hostKinds.set(kind);
 	}
-	for (size_t spell = 0; spell < NumSpellKinds; spell++)
+	for (size_t spell = 0; spell < sizeof(gameData.keeperSpells); spell++)
 		hostSpells[spell] = std::min<uint8_t>(gameData.keeperSpells[spell], MaxKeepLevel);
+	hostSpells[GolemSpellKind] = std::min<uint8_t>(gameData.keeperLastSpell, MaxKeepLevel);
 	for (size_t trap = 0; trap < NumTrapKinds; trap++)
 		hostTraps[trap] = std::min<uint8_t>(gameData.keeperTraps[trap], MaxKeepLevel);
 }

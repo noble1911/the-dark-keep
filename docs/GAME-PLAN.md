@@ -29,7 +29,12 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] Heroes step out of fire walls and wait instead of walking into them
 - [x] Better hero AI reactions to traps, bait and locked doors
 - [x] Bots react to bait
-- [ ] Bot gear that scales with the raid
+- [x] Hero roles: Warrior holds the line and guards softer friends, Rogue steals and runs, Sorcerer keeps its distance and switches element, Monk heals
+- [x] Thieves really steal: a Rogue near the vault goes for the gold and runs with it
+- [x] Heroes meeting head on in a corridor change places (raids used to stall for good)
+- [x] Heroes step out of every floor hazard, and burns don't stagger them
+- [x] Hero speech in the event log
+- [x] Bot gear that scales with the raid (tiers from level and raid, no random rolls: keeper_botgear.cpp)
 - [ ] Co-op: host-authoritative bot combat (bots are simulated per client today)
 
 ## 4. New levels
@@ -42,9 +47,9 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 ## 5. Upgrade paths
 - [x] Temporary monster upgrades with gold; spells and trap types level up permanently with Renown (1-15)
 - [x] Keeper screen: XP, keeper level, Renown, stats, Bestiary, Spellbook, Traps, Spell Bar, free respec
-- [x] 11 spells unlocked with Renown, six equipped at a time
+- [x] 12 spells unlocked with Renown, six equipped at a time
 - [x] Trap types: Fire, Arrow, Shock, Snare
-- [ ] Summon Golem spell (its AI attacks keep monsters and ignores bot heroes)
+- [x] Summon Golem spell: fights for the keep and hunts heroes, bots included; casting again mends it
 - [x] Keep Lord upgrades
 - [x] Persistent progression: XP and Renown (gold upgrades last one map)
 - [ ] Co-op: joiners pick their spell bar in a lobby step (for now: their own choice, filtered by the host's unlocks)

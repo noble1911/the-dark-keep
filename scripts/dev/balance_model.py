@@ -42,7 +42,7 @@ HERO_MONSTER_LEVEL = 5  # RegisterHeroMonsterData
 
 # Spell hits and victims, from the engine's missile code (see BALANCE.md).
 SPELL_TARGETS = {"Nova": 2, "Wall": 2, "Guard": 1, "Stone": 1, "Inferno": 2, "Fireball": 2, "Chain": 4,
-                 "Shock Wall": 3, "Wave": 3, "Ring": 3, "Apocalypse": 8}
+                 "Shock Wall": 3, "Wave": 3, "Ring": 3, "Apocalypse": 8, "Golem": 0}
 
 
 def read(root, rel):
@@ -79,7 +79,8 @@ class Game:
         self.g = constants(game_hpp, constants(game_text, {"ManaScale": 100, "TicksPerSecond": 20}))
         heroes_text = read(root, keeper + "keeper_heroes.cpp")
         self.heroes_c = constants(heroes_text)
-        self.hero_stats = [[int(x) for x in m] for m in re.findall(r"\{ (\d+), (\d+), (\d+), (\d+), (\d+), (\d+) \},\s*// (?:Warrior|Rogue|Sorcerer)", heroes_text)]
+        self.hero_stats = [[int(x) for x in m] for m in re.findall(r"\{ (\d+), (\d+), (\d+), (\d+), (\d+), (\d+) \},\s*// (?:Warrior|Rogue|Sorcerer|Monk)", heroes_text)]
+        self.classes = "WRSM" if len(self.hero_stats) >= 4 else "WRS"  # older revisions had three
         self.heroes_c.update(constants(read(root, keeper + "keeper_campaign.hpp")))
         self.bots_c = constants(read(root, keeper + "keeper_bots.cpp"))
         self.p = constants(read(root, keeper + "keeper_profile.cpp"))
@@ -198,7 +199,7 @@ class Game:
     # ---- heroes ---------------------------------------------------------------------------------
     def monster_hero(self, level, wave, cls, champion):
         if self.hero_stats:
-            line = self.hero_stats["WRS".index(cls)]
+            line = self.hero_stats["WRSM".index(cls)]
             c = self.heroes_c
             hp = line[0] + line[1] * wave
             lo = line[2] + c["HeroMinDamagePerTenRaids"] * wave // 10
@@ -213,10 +214,10 @@ class Game:
         if champion:
             hp = hp * 3 // 2
         return dict(cls=cls, bot=False, champion=champion, hp=self.scale(level, hp), min=min(self.scale(level, lo), 255), max=min(self.scale(level, hi), 255),
-                    ac=min(self.scale_armor(level, ac), 255), ranged=cls != "W", to_hit=60, period=HERO_SWING + ATTACK_PAUSE)
+                    ac=min(self.scale_armor(level, ac), 255), ranged=cls in "RS", to_hit=60, period=HERO_SWING + ATTACK_PAUSE)
 
     def bot_hero(self, level, wave, cls, champion):
-        base = {"W": (30, 10, 20, 25, 18, 2, 2, 30, 70, 60, 50), "R": (20, 15, 30, 20, 23, 2, 1, 20, 50, 70, 50), "S": (15, 35, 15, 20, 9, 1, 1, 10, 50, 50, 70)}[cls]
+        base = {"W": (30, 10, 20, 25, 18, 2, 2, 30, 70, 60, 50), "R": (20, 15, 30, 20, 23, 2, 1, 20, 50, 70, 50), "S": (15, 35, 15, 20, 9, 1, 1, 10, 50, 50, 70), "M": (25, 15, 25, 20, 23, 2, 1, 25, 50, 50, 50)}[cls]
         st, mag, dex, vit, adj, lvl_life, chr_life, block_bonus, melee_hit, ranged_hit, magic_hit = base
         c = self.bots_c
         per_raid = c.get("BotStatsPerRaid", 3)
@@ -230,7 +231,9 @@ class Game:
         hp = self.scale(level, hp)
         clvl = min(clvl + c["LevelsPerCampaignLevel"] * (level - 1), c["MaxBotLevel"])
         potions = c.get("BotPotionsBase", 2) + wave // c.get("BotRaidsPerPotion", 2)
-        if cls == "W":
+        if cls == "M":  # a staff, and (strength + dexterity) * level / 150; its healing isn't modelled
+            dam, to_hit, period = (2 + 4) / 2 + (st + dex) * clvl // 150, clvl + dex // 2 + melee_hit, 13 / 20
+        elif cls == "W":
             dam, to_hit, period = (2 + 6) / 2 + st * clvl // 100, clvl + dex // 2 + melee_hit, 16 / 20
             dam *= 1 + min(clvl, 100) / 100  # critical strikes
         elif cls == "R":
@@ -262,7 +265,7 @@ class Game:
         champion = wave >= self.levels[level - 1]["raids"]
         out = []
         for i in range(self.party_size(level, wave)):
-            cls = "WRS"[i % 3]
+            cls = self.classes[i % len(self.classes)]
             out.append(self.bot_hero(level, wave, cls, champion) if i < 4 else self.monster_hero(level, wave, cls, champion))
         return out
 

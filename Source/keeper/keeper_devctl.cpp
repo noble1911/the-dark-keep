@@ -23,6 +23,7 @@
 #include "diablo.h"
 #include "engine/dx.h"
 #include "engine/surface.hpp"
+#include "items.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_campaign.hpp"
@@ -31,6 +32,7 @@
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
+#include "missiles.h"
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
@@ -144,10 +146,49 @@ struct RaidWatch {
 	int partyLife = 0;
 	int heroesNow = 0;
 	int keepNow = 0;
+	/** Times a trap has gone off, seen as its cooldown starting. */
+	int trapFires = 0;
+	std::array<int, MaxTraps> trapCooldown {};
 };
 RaidWatch watch;
 std::string autocast;
 size_t autocastNext = 0;
+/** Ticks between autocasts, so a test can spend mana as a person might. 0: whenever the spell is ready. */
+uint32_t autocastEvery = 0;
+uint32_t autocastLast = 0;
+/** Ticks between lines about every hero (`herolog`), for scripts/dev/hero_raids.py. 0: off. */
+uint32_t heroLogEvery = 0;
+uint32_t heroLogLast = 0;
+
+/** Every hero's place and state: enough to spot a stuck, circling or burning one from the log. */
+void WriteHeroLog()
+{
+	const uint32_t tick = DevKeeperTicks() - watch.startTick;
+	for (size_t i = 0; i < MaxBots; i++) {
+		const Player &bot = Players[FirstBotId + i];
+		const std::optional<BotSummary> summary = GetBotSummary(bot);
+		if (!summary)
+			continue;
+		Output(fmt::format("h t={} who=b{} cls={} at={},{} hp={}/{} mode={} carried={} fleeing={} hazard={} act={} ac={} block={} dmg={}-{} weapon={}", tick, i, HeroClassName(summary->cls), bot.position.tile.x, bot.position.tile.y,
+		    bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode), summary->carried, summary->fleeing, IsHazardous(bot.position.tile), static_cast<int>(bot.destAction), bot.GetArmor(), bot.GetBlockChance(), bot._pIMinDam, bot._pIMaxDam,
+		    bot.InvBody[INVLOC_HAND_LEFT].isEmpty() ? "" : bot.InvBody[INVLOC_HAND_LEFT]._iName));
+	}
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		const std::optional<HeroSummary> summary = GetHeroSummary(monster);
+		if (!summary || monster.isInvalid || monster.mode == MonsterMode::Death)
+			continue;
+		Output(fmt::format("h t={} who=m{} cls={} at={},{} hp={}/{} mode={} carried={} fleeing={} hazard={} act={}", tick, monster.getId(), HeroClassName(summary->cls), monster.position.tile.x, monster.position.tile.y,
+		    monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode), summary->carried, summary->fleeing, IsHazardous(monster.position.tile), (monster.flags & MFLAG_NO_ENEMY) == 0 ? 1 : 0));
+	}
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (monster.type().type == MT_GOLEM && monster.position.tile != GolemHoldingCell && !monster.isInvalid)
+			Output(fmt::format("h t={} who=golem{} cls=Golem at={},{} hp={}/{} mode={} dmg={}-{} tohit={} enemy={} targetsMonster={}", tick, monster.getId(), monster.position.tile.x, monster.position.tile.y, monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode), monster.minDamage, monster.maxDamage, monster.golemToHit, monster.enemy, (monster.flags & MFLAG_TARGETS_MONSTER) != 0));
+	}
+	if (const Monster *boss = FindBoss(); boss != nullptr)
+		Output(fmt::format("h t={} who=lord cls=Lord at={},{} hp={}/{} mode={}", tick, boss->position.tile.x, boss->position.tile.y, boss->hitPoints >> 6, boss->maxHitPoints >> 6, static_cast<int>(boss->mode)));
+}
 
 void WatchRaid()
 {
@@ -192,6 +233,15 @@ void WatchRaid()
 			watch.lordLow = lord;
 			watch.goldAtStart = State.vaultGold;
 		}
+		for (size_t i = 0; i < MaxTraps; i++) {
+			if (State.traps[i].active && State.traps[i].cooldown > watch.trapCooldown[i])
+				watch.trapFires++;
+			watch.trapCooldown[i] = State.traps[i].active ? State.traps[i].cooldown : 0;
+		}
+		if (heroLogEvery != 0 && DevKeeperTicks() - heroLogLast >= heroLogEvery) {
+			heroLogLast = DevKeeperTicks();
+			WriteHeroLog();
+		}
 		watch.peakHeroes = std::max(watch.peakHeroes, heroes);
 		watch.peakPartyLife = std::max(watch.peakPartyLife, party);
 		watch.lordLow = std::min(watch.lordLow, lord);
@@ -202,16 +252,17 @@ void WatchRaid()
 			watch.reached = true;
 			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
 		}
-		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
+		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0 && (autocastEvery == 0 || autocastLast == 0 || DevKeeperTicks() - autocastLast >= autocastEvery)) {
 			std::istringstream list(autocast);
 			std::vector<size_t> spells;
 			for (std::string item; std::getline(list, item, ',');)
 				spells.push_back(static_cast<size_t>(std::atoi(item.c_str())));
 			for (size_t tried = 0; tried < spells.size(); tried++) {
 				const size_t spell = spells[(autocastNext + tried) % spells.size()];
-				if (State.mana[MyPlayerId] < SpellManaCost(spell) * ManaScale)
+				if (State.mana[MyPlayerId] < SpellManaCostScaled(spell))
 					continue;
 				autocastNext += tried + 1;
+				autocastLast = DevKeeperTicks();
 				for (size_t i = 0; i < MaxBots; i++) {
 					if (IsLivingBot(Players[FirstBotId + i])) {
 						RequestCastSpell(spell, Players[FirstBotId + i].position.tile);
@@ -233,8 +284,8 @@ void WatchRaid()
 		return;
 	}
 	watch.inRaid = false;
-	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
-	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
+	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={} trapFires={} trapsLeft={}",
+	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost, watch.trapFires, std::count_if(State.traps.begin(), State.traps.end(), [](const Trap &trap) { return trap.active; })));
 }
 
 struct DriftStats {
@@ -463,7 +514,15 @@ void Execute(const std::string &line)
 		ResetDrift();
 	} else if (command == "autocast") {
 		autocast.clear();
-		in >> autocast;
+		autocastEvery = 0;
+		autocastLast = 0;
+		in >> autocast >> autocastEvery;
+	} else if (command == "herolog") {
+		in >> a;
+		heroLogEvery = static_cast<uint32_t>(a);
+	} else if (command == "upgrade") {
+		in >> a;
+		RequestBuyUpgrade(static_cast<UpgradeId>(a));
 	} else if (command == "sellall") {
 		// The same request twice in one turn.
 		in >> a;
@@ -577,6 +636,12 @@ void DevctlInit(std::string path)
 	enabled = true;
 	commandPath = std::move(path);
 	outputPath = commandPath + ".out";
+}
+
+void DevctlNoteMessage(std::string_view text)
+{
+	if (enabled)
+		Output(fmt::format("msg t={} {}", IsActive() ? DevKeeperTicks() - watch.startTick : 0, text));
 }
 
 void DevctlFrame()

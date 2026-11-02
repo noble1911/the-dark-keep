@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace devilution::keeper {
 
@@ -27,6 +28,8 @@ void DevctlNoteBotLifeDrift(int hitPoints);
 void DevctlNoteBotFix(bool snap);
 void DevctlNoteMonsterDrift(int tiles, int hitPoints);
 void DevctlNoteSent(size_t bytes);
+/** The event log, for raid scripts: EventPlrMsg copies each line here. */
+void DevctlNoteMessage(std::string_view text);
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }
