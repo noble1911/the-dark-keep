@@ -11,6 +11,6 @@ $h = Start-TestGame $hostProfile (@('--keeper-host') + $HostArgs) -Windowed:$Win
 "host pid $($h.Id)"
 if (-not $HostOnly) {
     Start-Sleep $JoinDelay
-    $c = Start-TestGame $clientProfile (@('--keeper-join', "127.0.0.1:$script:TestPort") + $ClientArgs) -Windowed:$Windowed
+    $c = Start-TestGame $clientProfile (@('--keeper-join', '127.0.0.1') + $ClientArgs) -Windowed:$Windowed
     "client pid $($c.Id)"
 }

@@ -4,8 +4,6 @@
 $script:Root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $script:ExeDir = "$script:Root\build\Release"
 $script:Exe = "$script:ExeDir\devilutionx.exe"
-# Co-op games from other worktrees are on this PC too, on 127.0.0.1. This checkout's stay on their own port.
-$script:TestPort = 6125
 
 function Get-ExeInstances {
     # Everything running from this checkout's exe, test or not.
@@ -69,7 +67,6 @@ Hellfire Intro=0
 Splash=0
 [Network]
 Bind Address=127.0.0.1
-Port=$script:TestPort
 "@
     $profileDir
 }
