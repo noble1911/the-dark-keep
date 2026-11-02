@@ -7,9 +7,7 @@ param([string]$Name = 'solo', [string]$File, [int]$Timeout = 60, [switch]$Stop, 
 . "$PSScriptRoot\common.ps1"
 $profileDir = "$script:Root\build\test-profiles\$Name"
 if ($Stop) {
-    foreach ($game in Get-OwnGames) {
-        if ($game.CommandLine -like "*$profileDir*") { Stop-Process -Id $game.ProcessId -Force; "stopped $($game.ProcessId)" }
-    }
+    foreach ($game in Get-ProfileGames $profileDir) { Stop-Process -Id $game.ProcessId -Force; "stopped $($game.ProcessId)" }
     return
 }
 $lines = @(); if ($File) { $lines += Get-Content $File }; if ($Commands) { $lines += $Commands }
@@ -21,8 +19,7 @@ $deadline = (Get-Date).AddSeconds($Timeout)
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200
     if ((Test-Path $out) -and (Select-String -Path $out -SimpleMatch $mark -Quiet)) { break }
-    $alive = Get-OwnGames | Where-Object { $_.CommandLine -like "*$profileDir*" }
-    if (-not $alive) { "GAME NOT RUNNING"; break }
+    if (-not (Get-ProfileGames $profileDir)) { "GAME NOT RUNNING"; break }
 }
 if ((Get-Date) -ge $deadline) { "TIMED OUT" }
 if (Test-Path $out) { Get-Content $out | Select-Object -Skip $before | Where-Object { $_ -notlike "*$mark*" } }

@@ -11,6 +11,12 @@ function Get-OwnGames {
         Sort-Object CreationDate)
 }
 
+function Get-ProfileGames([string]$ProfileDir) {
+    # The whole folder name: a profile "solo" must not match "solo2".
+    $pattern = [regex]::Escape($ProfileDir) + '([\\"\s]|$)'
+    @(Get-OwnGames | Where-Object { $_.CommandLine -match $pattern })
+}
+
 function Stop-OwnGames {
     foreach ($game in Get-OwnGames) { Stop-Process -Id $game.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 300
@@ -21,10 +27,12 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo") {
     Copy-Item -Recurse -Force "$script:Root\build\assets\*" (New-Item -ItemType Directory -Force "$script:ExeDir\assets")
     if (Test-Path "$script:ExeDir\mods") { Remove-Item -Recurse -Force "$script:ExeDir\mods" }
     Copy-Item -Recurse -Force "$script:Root\build\mods" "$script:ExeDir\mods"
-    Get-ChildItem -Path $DataDir -Filter *.mpq | ForEach-Object {
-        $dst = Join-Path $script:ExeDir $_.Name
+    foreach ($file in Get-ChildItem -Path $DataDir -Filter *.mpq) {
+        $dst = Join-Path $script:ExeDir $file.Name
         if (-not (Test-Path $dst)) {
-            try { New-Item -ItemType HardLink -Path $dst -Target $_.FullName | Out-Null } catch { Copy-Item $_.FullName $dst }
+            # A hard link needs the same drive.
+            try { New-Item -ItemType HardLink -Path $dst -Target $file.FullName -ErrorAction Stop | Out-Null } catch { Copy-Item $file.FullName $dst }
+            Write-Host "    linked $($file.Name)"
         }
     }
 }
@@ -67,7 +75,9 @@ function Start-TestGame([string]$ProfileDir, [string[]]$GameArgs, [switch]$Windo
         $debugArgs = @('-G', '-hd', '-lines', '-logo', "`"$ProfileDir\cdb.log`"", '-c', '"sxe -c \"kn 40; q\" av; sxd eh; g"', "`"$script:Exe`"") + ($a | ForEach-Object { "`"$_`"" })
         $process = Start-Process -FilePath $cdb -WorkingDirectory $script:ExeDir -ArgumentList $debugArgs -WindowStyle Hidden -PassThru
     } else {
-        $process = Start-Process -FilePath $script:Exe -WorkingDirectory $script:ExeDir -ArgumentList $a -WindowStyle Minimized -PassThru
+        # Without a window the console that would flash up stays minimised.
+    $style = if ($Windowed) { 'Normal' } else { 'Minimized' }
+    $process = Start-Process -FilePath $script:Exe -WorkingDirectory $script:ExeDir -ArgumentList $a -WindowStyle $style -PassThru
     }
     $env:SDL_VIDEODRIVER = $savedVideo; $env:SDL_AUDIODRIVER = $savedAudio
     $process
