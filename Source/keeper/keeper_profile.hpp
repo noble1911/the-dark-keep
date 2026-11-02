@@ -96,6 +96,10 @@ void ProfileNoteRaidSurvived(int wave);
 /** Call before the level counts as cleared: the first clear pays best. */
 void ProfileNoteVictory(int campaignLevel, bool firstClear);
 void ProfileNoteDefeat();
+/** Medals won on a campaign level are bits of LevelGoal. Each pays its XP the first time only, then saves. */
+void ProfileAwardMedals(int campaignLevel, uint8_t medals);
+uint8_t ProfileMedals(int campaignLevel);
+int ProfileMedalCount();
 /** XP earned on the current map. */
 int MapXpEarned();
 /** Writes the file, unless a test flag or an editor test run is in play. */

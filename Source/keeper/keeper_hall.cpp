@@ -418,12 +418,13 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	y += 24;
 
 	const ProfileStats &stats = GetProfileStats();
-	const std::array<std::pair<std::string_view, int>, 5> lines { {
+	const std::array<std::pair<std::string_view, int>, 6> lines { {
 	    { "Maps cleared", stats.mapsCleared },
 	    { "Maps lost", stats.mapsLost },
 	    { "Raids survived", stats.raidsSurvived },
 	    { "Heroes slain", stats.heroesSlain },
 	    { "Monsters lost", stats.monstersLost },
+	    { "Medals won", ProfileMedalCount() },
 	} };
 	for (const auto &[label, value] : lines) {
 		DrawString(out, label, { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });

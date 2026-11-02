@@ -16,6 +16,7 @@
 #include "gamemenu.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -182,6 +183,8 @@ struct TCmdKeeperState {
 	std::array<int32_t, MaxBots> botHitPoints;
 	int32_t lastTribute;
 	int32_t lastInterest;
+	/** Goals lost so far: only the host's view of a raid decides them. */
+	uint8_t failedGoals;
 };
 #pragma pack(pop)
 
@@ -238,6 +241,7 @@ void BroadcastState()
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
 	cmd.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastTribute)));
 	cmd.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastInterest)));
+	cmd.failedGoals = FailedGoals();
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -333,6 +337,7 @@ void AnnouncePhase(Phase from, Phase to)
 		break;
 	case Phase::Victory:
 		NoteVictory();
+		AwardLevelGoals();
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
@@ -1229,6 +1234,7 @@ void ResetGame(Point entrance, Point vault)
 	State.phaseTicks = SetupTicks;
 	LatchGameDifficulty();
 	SetRaidMasters(CountMasters());
+	SetFailedGoals(0);
 	for (size_t i = 0; i < NumSpellKinds; i++)
 		State.spellLevels[i] = static_cast<uint8_t>(GameSpellLevel(i));
 	for (size_t i = 0; i < NumTrapKinds; i++)
@@ -1320,6 +1326,7 @@ void GameTick()
 			StartRaid();
 		break;
 	case Phase::Raid:
+		WatchLordForGoal();
 		if (State.bossDown && State.portalEscape) {
 			SetPhase(Phase::Defeat);
 			break;
@@ -1770,6 +1777,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			// Before the phase: the end of a raid announces these.
 			State.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastTribute)));
 			State.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastInterest)));
+			SetFailedGoals(message.failedGoals);
 			SetRaidMasters((message.reserved >> 2) & 7);
 			SetGameDifficulty(static_cast<Difficulty>((message.reserved >> 5) & 3));
 			const bool wasBossDown = State.bossDown;

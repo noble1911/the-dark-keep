@@ -26,6 +26,7 @@
 #include "engine/render/primitive_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
@@ -187,11 +188,17 @@ std::vector<SummaryLine> SummaryLines()
 	if (s.outcome == Phase::Breather)
 		lines.push_back({ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold });
 	if (s.interest > 0)
-		lines.push_back({ "  ...of it interest on your vault", std::to_string(s.interest), UiFlags::ColorGold });
+		lines.push_back({ "  ...of it vault interest", std::to_string(s.interest), UiFlags::ColorGold });
 	if (s.earlyCall > 0)
 		lines.push_back({ "Early call bonus", std::to_string(s.earlyCall), UiFlags::ColorGold });
 	lines.push_back({ "Keep monsters lost", std::to_string(s.monstersLost), s.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite });
 	lines.push_back({ "Net gold this raid", fmt::format("{:+}", net), net >= 0 ? UiFlags::ColorGold : UiFlags::ColorRed });
+	if (s.outcome == Phase::Victory && GoalsApply()) {
+		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+			const bool earned = (FailedGoals() & (1U << goal)) == 0;
+			lines.push_back({ fmt::format("Goal: {}", GoalInfo(goal).name), earned ? "Medal!" : "Missed", earned ? UiFlags::ColorGold : UiFlags::ColorRed });
+		}
+	}
 	return lines;
 }
 
@@ -374,15 +381,19 @@ void NoteHeroLeft(bool fled, int gold)
 {
 	if (!raidActive)
 		return;
-	if (fled)
+	if (fled) {
 		current.fled++;
-	else
+	} else {
 		current.escaped++;
+		FailGoal(LevelGoal::NoEscapes);
+	}
 	current.goldCarriedOff += gold;
 }
 
 void NoteGoldLooted(int amount)
 {
+	if (amount > 0)
+		FailGoal(LevelGoal::VaultUntouched);
 	if (raidActive)
 		current.goldLooted += amount;
 }

@@ -16,8 +16,10 @@
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -233,7 +235,7 @@ std::string ResistWords()
 /** The card's height for what it holds: the heroes are the only part that varies. */
 int CardHeight(const CardLayout &layout, const ScoutInfo &info)
 {
-	return layout.margin * 2 + layout.titleHeight + 5 * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
+	return layout.margin * 2 + layout.titleHeight + (GoalsApply() ? 6 : 5) * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
 	    + layout.textHeight + 2 * layout.textHeight + 8 + 6 + layout.textHeight;
 }
 
@@ -406,6 +408,19 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	// Spend it or guard it.
 	DrawString(out, fmt::format("Call now: +{} gold.  Vault interest: +{} gold.", EarlyCallBonusNow(), VaultInterestOn(State.vaultGold)), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	y += layout.textHeight;
+
+	if (GoalsApply()) {
+		// Lost goals in red, medals already won on this level in gold.
+		int goalX = x;
+		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+			const std::string_view name = GoalInfo(goal).name;
+			const bool lost = (FailedGoals() & (1U << goal)) != 0;
+			const bool held = (ProfileMedals(CurrentSetup().campaignLevel) & (1U << goal)) != 0;
+			DrawString(out, name, { { goalX, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | (lost ? UiFlags::ColorRed : (held ? UiFlags::ColorGold : UiFlags::ColorWhite)) });
+			goalX += GetLineWidth(name) + 10;
+		}
+		y += layout.textHeight;
+	}
 
 	const Rectangle close = CloseButton(*rect, layout);
 	const Rectangle route = RouteButton(*rect, layout);
