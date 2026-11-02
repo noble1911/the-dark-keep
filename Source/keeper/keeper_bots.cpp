@@ -16,6 +16,7 @@
 #include "engine/random.hpp"
 #include "items.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_botgear.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
@@ -44,6 +45,14 @@ constexpr int FearChancePercent = 50;
 constexpr int FallBackMaxThinks = 12;
 /** Near a known trap, walk the route tile by tile: the engine's path to a far waypoint would cut through it. */
 constexpr int CarefulTrapRange = 9;
+/** Ticks between a shooter's steps back from a monster at its elbow, so it shoots more than it walks. */
+constexpr int KiteCooldownTicks = 40;
+/** Ticks between a Monk's prayers. */
+constexpr int MonkHealCooldownTicks = 100;
+/** The most of a blow a bot's shield can ever turn: dexterity and level took a Warrior to 100%, immune to melee. */
+constexpr int MaxBotBlockPercent = 75;
+/** A Warrior prefers a monster on a softer friend over a nearer one on itself, by this many tiles. */
+constexpr int WarriorProtectBonus = 3;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -67,7 +76,26 @@ struct BotState {
 	int regroupBudget = RegroupBudgetTicks;
 	/** Game ticks left turned to stone (the masters' Stone Curse). */
 	int petrifiedTicks = 0;
+	int kiteCooldown = 0;
+	int healCooldown = 0;
+	/** Lines this hero has already said, a bit each: nobody repeats itself. */
+	uint8_t said = 0;
 };
+
+constexpr uint8_t SaidDash = 1;
+constexpr uint8_t SaidKite = 2;
+constexpr uint8_t SaidHazard = 4;
+constexpr uint8_t SaidElement = 8;
+constexpr uint8_t SaidLord = 16;
+constexpr uint8_t SaidProtect = 32;
+constexpr uint8_t SaidFallBack = 64;
+constexpr uint8_t SaidTrap = 128;
+
+void SayOnce(const Player &bot, BotState &state, uint8_t bit, std::string_view line)
+{
+	if ((state.said & bit) == 0 && HeroSay(bot._pName, line))
+		state.said |= bit;
+}
 
 std::array<BotState, MaxBots> Bots;
 /** Host side: slots requested but not spawned yet (the command is still in flight). */
@@ -77,6 +105,7 @@ constexpr std::array<std::array<std::string_view, 4>, NumHeroClasses> BotNames {
 	{ "Sir Aldric", "Brannoc", "Garrick", "Thorne" },
 	{ "Lyra", "Vessa", "Kestrel", "Wren" },
 	{ "Malachar", "Ysolde", "Corvin", "Isembard" },
+	{ "Brother Cade", "Sister Ilse", "Osric", "Talia" },
 } };
 
 HeroClass ToHeroClass(HeroClassKind cls)
@@ -86,6 +115,8 @@ HeroClass ToHeroClass(HeroClassKind cls)
 		return HeroClass::Rogue;
 	case HeroClassKind::Sorcerer:
 		return HeroClass::Sorcerer;
+	case HeroClassKind::Monk:
+		return HeroClass::Monk;
 	case HeroClassKind::Warrior:
 	default:
 		return HeroClass::Warrior;
@@ -99,6 +130,8 @@ std::string_view ClassTitle(HeroClassKind cls)
 		return "Rogue";
 	case HeroClassKind::Sorcerer:
 		return "Sorcerer";
+	case HeroClassKind::Monk:
+		return "Monk";
 	case HeroClassKind::Warrior:
 	default:
 		return "Warrior";
@@ -236,16 +269,18 @@ void AvoidFire(Player &bot)
 	}
 }
 
-/** Standing in fire: walk to the nearest tile that isn't burning. */
-bool StepOutOfFire(Player &bot)
+/** Standing in fire, lightning or any other floor hazard: walk to the nearest tile that is clear. */
+bool StepOutOfHazard(Player &bot, BotState &state)
 {
-	if (!IsBurning(bot.position.tile))
+	if (!IsHazardous(bot.position.tile))
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const Point tile = bot.position.tile + dir;
-		if (!IsBurning(tile) && PosOkPlayer(bot, tile)) {
+		if (!IsHazardous(tile) && PosOkPlayer(bot, tile)) {
+			ClrPlrPath(bot);
 			MakePlrPath(bot, tile, true); // true: all the way onto it, and without it a next-door tile is no steps at all
 			bot.destAction = ACTION_NONE;
+			SayOnce(bot, state, SaidHazard, "It burns! Get clear!");
 			return true;
 		}
 	}
@@ -257,8 +292,21 @@ bool HasLineOfSight(Point from, Point to)
 	return LineClearMissile(from, to);
 }
 
-/** Nearest keep monster the bot can see. */
-Monster *FindTarget(const Player &bot, int range)
+/** The monster is fighting a hero who isn't a Warrior. */
+bool IsOnSofterFriend(const Monster &monster)
+{
+	if ((monster.flags & MFLAG_NO_ENEMY) != 0)
+		return false;
+	if ((monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
+		const std::optional<HeroSummary> hero = GetHeroSummary(Monsters[monster.enemy]);
+		return hero && hero->cls != HeroClassKind::Warrior;
+	}
+	const std::optional<BotSummary> bot = monster.enemy < Players.size() ? GetBotSummary(Players[monster.enemy]) : std::nullopt;
+	return bot && bot->cls != HeroClassKind::Warrior;
+}
+
+/** Nearest keep monster the bot can see. A Warrior goes first for those on a softer friend. */
+Monster *FindTarget(const Player &bot, const BotState &state, int range)
 {
 	Monster *best = nullptr;
 	int bestDistance = 0;
@@ -270,12 +318,47 @@ Monster *FindTarget(const Player &bot, int range)
 		const int distance = position.WalkingDistance(monster.position.tile);
 		if (distance > range || (distance > 1 && !HasLineOfSight(position, monster.position.tile)))
 			continue;
-		if (best == nullptr || distance < bestDistance) {
+		const int score = state.cls == HeroClassKind::Warrior && IsOnSofterFriend(monster) ? distance - WarriorProtectBonus : distance;
+		if (best == nullptr || score < bestDistance) {
 			best = &monster;
-			bestDistance = distance;
+			bestDistance = score;
 		}
 	}
 	return best;
+}
+
+/** A shooter with a monster at its elbow steps away. @return true if it did. */
+bool StepBack(Player &bot, BotState &state, const Monster &threat)
+{
+	if (state.kiteCooldown > 0)
+		return false;
+	const Point position = bot.position.tile;
+	const Direction away = GetDirection(threat.position.tile, position);
+	for (const Direction dir : { away, Left(away), Right(away) }) {
+		const Point tile = position + dir;
+		if (tile.WalkingDistance(threat.position.tile) < 2 || IsBurning(tile) || !CanStepDiagonal(position, Displacement(dir)) || !PosOkPlayer(bot, tile))
+			continue;
+		ClrPlrPath(bot);
+		MakePlrPath(bot, tile, true);
+		if (bot.walkpath[0] == WALK_NONE)
+			continue;
+		bot.destAction = ACTION_NONE;
+		state.kiteCooldown = KiteCooldownTicks;
+		if (state.cls == HeroClassKind::Sorcerer)
+			SayOnce(bot, state, SaidKite, "Keep them off me!");
+		return true;
+	}
+	return false;
+}
+
+/** What a Sorcerer casts at this monster, if anything: nobody keeps throwing fire at what fire can't hurt. */
+std::optional<SpellID> SpellAgainst(const Monster &target)
+{
+	if ((target.resistance & IMMUNE_FIRE) == 0)
+		return SpellID::Firebolt;
+	if ((target.resistance & IMMUNE_LIGHTNING) == 0)
+		return SpellID::Lightning;
+	return std::nullopt;
 }
 
 void Attack(Player &bot, BotState &state, Monster &target)
@@ -285,9 +368,13 @@ void Attack(Player &bot, BotState &state, Monster &target)
 	const bool clearShot = HasLineOfSight(bot.position.tile, target.position.tile);
 	switch (state.cls) {
 	case HeroClassKind::Sorcerer:
-		if (distance <= SorcererRange && clearShot) {
+		if (distance <= 1 && StepBack(bot, state, target))
+			return;
+		if (const std::optional<SpellID> spell = SpellAgainst(target); spell && distance <= SorcererRange && clearShot) {
+			if (*spell != SpellID::Firebolt)
+				SayOnce(bot, state, SaidElement, "Fire won't touch it. Lightning, then!");
 			ClrPlrPath(bot);
-			QueueSpell(bot, SpellID::Firebolt);
+			QueueSpell(bot, *spell);
 			bot.destAction = ACTION_SPELLMON;
 			bot.destParam1 = static_cast<int>(monsterId);
 			bot.destParam2 = bot.queuedSpell.spellLevel;
@@ -295,6 +382,8 @@ void Attack(Player &bot, BotState &state, Monster &target)
 		}
 		break;
 	case HeroClassKind::Rogue:
+		if (distance <= 1 && StepBack(bot, state, target))
+			return;
 		if (distance <= RogueRange && clearShot && bot.UsesRangedWeapon()) {
 			ClrPlrPath(bot);
 			bot.destAction = ACTION_RATTACKMON;
@@ -303,6 +392,12 @@ void Attack(Player &bot, BotState &state, Monster &target)
 		}
 		break;
 	case HeroClassKind::Warrior:
+		if (IsBoss(target))
+			SayOnce(bot, state, SaidLord, "Face me, Lord of this keep!");
+		else if (IsOnSofterFriend(target))
+			SayOnce(bot, state, SaidProtect, "To me! Stand behind me!");
+		break;
+	case HeroClassKind::Monk:
 		break;
 	}
 	// Melee (and casters without a clear shot close in).
@@ -398,6 +493,8 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 		if (SyncedRoll(bot, static_cast<uint32_t>(i) + static_cast<uint32_t>(trap.position.x * 256 + trap.position.y) * 16) < RogueDisarmPercent) {
 			trap.active = false;
 			Announce(fmt::format("{} disarmed one of your {}s!", bot._pName, TrapKinds[trap.kind].name));
+		} else {
+			SayOnce(bot, state, SaidTrap, "A trap! Mind your step.");
 		}
 	}
 }
@@ -463,13 +560,15 @@ bool TryGoForBait(Player &bot, BotState &state)
 /** Out of potions and wounded in a fight: break off, once, and run to a healthy friend. @return true if it moved. */
 bool TryFallBack(Player &bot, BotState &state)
 {
-	if (state.fleeing || state.carried != 0 || state.potions > 0 || State.wave >= NumWaves())
+	// Warriors hold the line.
+	if (state.cls == HeroClassKind::Warrior || state.fleeing || state.carried != 0 || state.potions > 0 || State.wave >= NumWaves())
 		return false;
 	if (state.fallBackThinks == 0) {
-		if (state.fellBack || bot._pHitPoints * 100 >= bot._pMaxHP * FallBackHealthPercent || FindTarget(bot, BotSight) == nullptr)
+		if (state.fellBack || bot._pHitPoints * 100 >= bot._pMaxHP * FallBackHealthPercent || FindTarget(bot, state, BotSight) == nullptr)
 			return false;
 		state.fellBack = true;
 		state.fallBackThinks = FallBackMaxThinks;
+		SayOnce(bot, state, SaidFallBack, "I'm hurt! Falling back!");
 	}
 	const std::optional<Point> ally = NearestHealthyHero(bot.position.tile, FallBackAllyRange);
 	if (!ally || bot.position.tile.WalkingDistance(*ally) <= FallBackArriveDistance) {
@@ -480,6 +579,16 @@ bool TryFallBack(Player &bot, BotState &state)
 	ClrPlrPath(bot);
 	bot.destAction = ACTION_NONE;
 	MakePlrPath(bot, *ally, false);
+	return true;
+}
+
+/** On the run with the way shut by a monster: fight it rather than stand there. */
+bool FightIfBlocked(Player &bot, BotState &state)
+{
+	Monster *target = FindTarget(bot, state, 1);
+	if (target == nullptr)
+		return false;
+	Attack(bot, state, *target);
 	return true;
 }
 
@@ -504,11 +613,20 @@ void Think(Player &bot, BotState &state)
 		return;
 	}
 
-	const bool running = state.fleeing || (State.bossDown && PortalPosition());
+	if (state.cls == HeroClassKind::Monk && state.healCooldown == 0 && HealWoundedAlly(position)) {
+		state.healCooldown = MonkHealCooldownTicks;
+		SayOnce(bot, state, SaidProtect, "Hold fast! I have you.");
+	}
+
+	// Thieves don't stop to fight: loot in hand, or the vault in reach.
+	const bool thieving = !State.bossDown && (state.carried != 0 || IsThiefDashing(state.cls, state.carried, state.fleeing, position));
+	if (thieving && state.carried == 0)
+		SayOnce(bot, state, SaidDash, "The vault! That gold is mine!");
+	const bool running = state.fleeing || thieving || (State.bossDown && PortalPosition());
 	if (!State.bossDown && TryFallBack(bot, state))
 		return;
 	if (!running) {
-		if (Monster *target = FindTarget(bot, BotSight); target != nullptr) {
+		if (Monster *target = FindTarget(bot, state, BotSight); target != nullptr) {
 			Attack(bot, state, *target);
 			return;
 		}
@@ -526,7 +644,8 @@ void Think(Player &bot, BotState &state)
 	}
 
 	if (state.carried != 0 || state.fleeing) {
-		Travel(bot, state, HeroGoal::Entrance);
+		if (!Travel(bot, state, HeroGoal::Entrance) && !FightIfBlocked(bot, state))
+			BotSqueezePast(bot, HeroGoal::Entrance, state.trapsKnown, true);
 		return;
 	}
 
@@ -534,25 +653,48 @@ void Think(Player &bot, BotState &state)
 		return;
 
 	if (GoalDistance(HeroGoal::Vault, position) <= 1) {
-		// Rogues are here for the gold; the others came for the Lord and wait for him at the vault.
-		if (state.cls == HeroClassKind::Rogue && State.vaultGold > 0) {
-			state.carried = TakeFromVault(CarryCapacity(state.cls));
-			NoteGoldLooted(state.carried);
-			Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, state.carried));
+		// Rogues are here for the gold, and go home when it's gone. The others came for the Lord, wherever he is.
+		if (state.cls == HeroClassKind::Rogue) {
+			if (State.vaultGold > 0) {
+				state.carried = TakeFromVault(CarryCapacity(state.cls));
+				NoteGoldLooted(state.carried);
+				Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, state.carried));
+			} else {
+				state.carried = -1;
+			}
+		} else if (const Monster *lord = FindBoss(); lord != nullptr) {
+			Attack(bot, state, *const_cast<Monster *>(lord));
 		}
 		return;
 	}
-	if (state.regroupBudget > 0 && IsAheadOfParty(position)) {
+	if (!thieving && state.regroupBudget > 0 && IsAheadOfParty(position)) {
 		// Called every tick while the bot stands idle.
 		state.regroupBudget--;
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_NONE;
 		return;
 	}
-	Travel(bot, state, HeroGoal::Vault);
+	if (!Travel(bot, state, HeroGoal::Vault) && !FightIfBlocked(bot, state))
+		BotSqueezePast(bot, HeroGoal::Vault, state.trapsKnown, false);
 }
 
 } // namespace
+
+void PlaceBot(Player &bot, Point tile)
+{
+	ClearBotFromMap(bot);
+	ClrPlrPath(bot);
+	bot.destAction = ACTION_NONE;
+	bot.position.tile = tile;
+	bot.position.future = tile;
+	bot.position.old = tile;
+	bot.occupyTile(tile, false);
+}
+
+int CapBotBlock(const Player &player, int chance)
+{
+	return IsBot(player) ? std::min(chance, MaxBotBlockPercent) : chance;
+}
 
 bool IsBot(const Player &player)
 {
@@ -652,9 +794,13 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	bot.position.old = tile;
 
 	const bool champion = State.wave >= NumWaves();
+	EquipBotGear(bot, cls);
 	ScaleBot(bot, champion);
-	if (cls == HeroClassKind::Sorcerer)
-		LearnSpell(bot, SpellID::Firebolt, static_cast<uint8_t>(std::min(1 + State.wave / 2, 15)));
+	if (cls == HeroClassKind::Sorcerer) {
+		const auto spellLevel = static_cast<uint8_t>(std::min(1 + State.wave / 2 + BotGearSpellLevels(), 15));
+		LearnSpell(bot, SpellID::Firebolt, spellLevel);
+		LearnSpell(bot, SpellID::Lightning, spellLevel);
+	}
 	LearnSpell(bot, SpellID::TownPortal, 1);
 
 	InitPlayerGFX(bot);
@@ -666,7 +812,10 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	state.cls = cls;
 	state.potions = BotPotionsBase + State.wave / BotRaidsPerPotion;
 
-	Announce(fmt::format("{} the {} storms the keep!", bot._pName, ClassTitle(cls)));
+	if (const std::string_view armor = BotGearArmorName(cls); armor.empty())
+		Announce(fmt::format("{} the {} storms the keep!", bot._pName, ClassTitle(cls)));
+	else
+		Announce(fmt::format("{} the {} storms the keep in {}!", bot._pName, ClassTitle(cls), armor));
 }
 
 void RemoveAllBots()
@@ -683,6 +832,7 @@ void UpdateBots()
 {
 	if (Players.size() < FirstBotId + MaxBots)
 		return;
+	TickHeroSpeech();
 	for (size_t i = 0; i < MaxBots; i++) {
 		Player &bot = Players[FirstBotId + i];
 		if (!bot.plractive || !bot.isOnActiveLevel())
@@ -705,14 +855,20 @@ void UpdateBots()
 		DrinkIfHurt(bot, state);
 		CheckFear(bot, state);
 
+		if (state.kiteCooldown > 0)
+			state.kiteCooldown--;
+		if (state.healCooldown > 0)
+			state.healCooldown--;
+
 		if (bot._pmode != PM_STAND)
 			continue; // mid-swing, mid-step, mid-cast or reeling
-		if (state.thinkCooldown > 0 && (bot.walkpath[0] != WALK_NONE || bot.destAction != ACTION_NONE)) {
-			state.thinkCooldown--;
+		// First of all: an order given a moment ago is no reason to stand in a fire.
+		if (StepOutOfHazard(bot, state)) {
+			state.thinkCooldown = 0;
 			continue;
 		}
-		if (StepOutOfFire(bot)) {
-			state.thinkCooldown = 0;
+		if (state.thinkCooldown > 0 && (bot.walkpath[0] != WALK_NONE || bot.destAction != ACTION_NONE)) {
+			state.thinkCooldown--;
 			continue;
 		}
 		if (state.baitLingerTicks > 0) {

@@ -54,8 +54,9 @@ enum class HeroClassKind : uint8_t {
 	Warrior,
 	Rogue,
 	Sorcerer,
+	Monk,
 };
-constexpr size_t NumHeroClasses = 3;
+constexpr size_t NumHeroClasses = 4;
 
 /** What the HUD shows about a monster hero (see GetHeroSummary). */
 struct HeroSummary {
@@ -108,6 +109,24 @@ bool HuntsEnemy(const Monster &monster);
 /** True while a monster's own path planning must stay out of the way: it guards its post, or a master drives it. */
 bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);
+
+/** A master's golem: stats for its spell level, set on every client from the host's spawn message. */
+void OnGolemInit(Monster &golem, int spellLevel);
+/** MonsterAIID::Golem in the keep. */
+void GolemAi(Monster &golem);
+/** Casting Golem again: back to full life, with a new post at `tile`. */
+void MendGolem(Monster &golem, Point tile);
+/** Every client, at the end of a raid: the golems crumble. */
+void DismissGolems();
+
+/** A Monk's prayer: mends the most hurt hero within reach. @return false if nobody needs it. */
+bool HealWoundedAlly(Point from);
+/** Called every tick of a raid: heroes speak in turn, not all at once. */
+void TickHeroSpeech();
+/** One short line in the event log, if nobody spoke a moment ago. @return true if it was said. */
+bool HeroSay(std::string_view who, std::string_view line);
+/** A Rogue close to the vault stops fighting and goes for the gold. */
+bool IsThiefDashing(HeroClassKind cls, int carried, bool fleeing, Point tile);
 
 void ResetHeroes();
 /** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
@@ -181,6 +200,8 @@ std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t
 void OpenDoorsAround(Point tile);
 /** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */
 std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps);
+/** A bot whose way is shut by a hero going the other way changes places with it. @return true if it did. */
+bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut);
 void StrikeLockedDoor(Point doorTile, int blows, std::string_view who);
 /** Damage one swing does to a locked door. */
 int BashBlows(HeroClassKind cls);

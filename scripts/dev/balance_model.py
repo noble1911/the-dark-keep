@@ -42,7 +42,7 @@ HERO_MONSTER_LEVEL = 5  # RegisterHeroMonsterData
 
 # Spell hits and victims, from the engine's missile code (see BALANCE.md).
 SPELL_TARGETS = {"Nova": 2, "Wall": 2, "Guard": 1, "Stone": 1, "Inferno": 2, "Fireball": 2, "Chain": 4,
-                 "Shock Wall": 3, "Wave": 3, "Ring": 3, "Apocalypse": 8}
+                 "Shock Wall": 3, "Wave": 3, "Ring": 3, "Apocalypse": 8, "Golem": 0}
 
 
 def read(root, rel):

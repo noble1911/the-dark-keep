@@ -109,7 +109,7 @@ struct SpellKind {
 	SpellID icon;
 	std::string_view flavor;
 };
-constexpr size_t NumSpellKinds = 11;
+constexpr size_t NumSpellKinds = 12;
 /** The spell bar: what a master has equipped from the Spellbook. */
 constexpr size_t NumSpellSlots = 6;
 extern const std::array<SpellKind, NumSpellKinds> SpellKinds;

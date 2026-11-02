@@ -47,6 +47,7 @@ const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Wave", MissileID::FlameWaveControl, 25, 3, 20 * 4, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
 	{ "Ring", MissileID::RingOfFire, 40, 3, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
 	{ "Apocalypse", MissileID::Apocalypse, 80, 1, 20 * 25, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
+	{ "Golem", MissileID::Golem, 35, 1, 20 * 20, 6, SpellID::Golem, "Raises a golem that hunts heroes near the target. Cast it again to mend your golem and send it there." },
 } };
 
 KeepState State;
@@ -300,6 +301,7 @@ void AnnouncePhase(Phase from, Phase to)
 	if (from == Phase::Raid) {
 		ClosePortal();
 		RemoveAllBots();
+		DismissGolems();
 	}
 	switch (to) {
 	case Phase::Raid:
@@ -1030,6 +1032,14 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		return;
 	State.mana[pid] = std::max(State.mana[pid] - SpellManaCostScaled(spell), 0);
 	State.spellCooldown[pid] = kind.cooldownTicks;
+
+	if (kind.missile == MissileID::Golem) {
+		// The engine's cast of a second golem kills the first. Here it is mended, on every client alike.
+		if (Monster *golem = FindGolemForPlayer(caster); golem != nullptr) {
+			MendGolem(*golem, tile);
+			return;
+		}
+	}
 
 	const int level = State.spellLevels[spell];
 	Direction dir = Direction::South;

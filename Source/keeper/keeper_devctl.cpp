@@ -32,6 +32,7 @@
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
+#include "missiles.h"
 #include "monster.h"
 #include "objects.h"
 #include "player.h"
@@ -179,6 +180,11 @@ void WriteHeroLog()
 			continue;
 		Output(fmt::format("h t={} who=m{} cls={} at={},{} hp={}/{} mode={} carried={} fleeing={} hazard={} act={}", tick, monster.getId(), HeroClassName(summary->cls), monster.position.tile.x, monster.position.tile.y,
 		    monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode), summary->carried, summary->fleeing, IsHazardous(monster.position.tile), (monster.flags & MFLAG_NO_ENEMY) == 0 ? 1 : 0));
+	}
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const Monster &monster = Monsters[ActiveMonsters[i]];
+		if (monster.type().type == MT_GOLEM && monster.position.tile != GolemHoldingCell && !monster.isInvalid)
+			Output(fmt::format("h t={} who=golem{} cls=Golem at={},{} hp={}/{} mode={} dmg={}-{} tohit={} enemy={} targetsMonster={}", tick, monster.getId(), monster.position.tile.x, monster.position.tile.y, monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode), monster.minDamage, monster.maxDamage, monster.golemToHit, monster.enemy, (monster.flags & MFLAG_TARGETS_MONSTER) != 0));
 	}
 	if (const Monster *boss = FindBoss(); boss != nullptr)
 		Output(fmt::format("h t={} who=lord cls=Lord at={},{} hp={}/{} mode={}", tick, boss->position.tile.x, boss->position.tile.y, boss->hitPoints >> 6, boss->maxHitPoints >> 6, static_cast<int>(boss->mode)));

@@ -17,6 +17,7 @@
 #include "engine/direction.hpp"
 #include "engine/load_cl2.hpp"
 #include "engine/path.h"
+#include "effects.h"
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
@@ -52,16 +53,20 @@ struct HeroClassInfo {
 	std::string_view prefix;
 	std::string_view deathPrefix;
 	std::string_view attackAnim;
+	uint16_t standWidth;
 	uint16_t attackWidth;
+	uint16_t hitWidth;
+	uint16_t deathWidth;
 	int8_t attackActionFrame;
 	std::string_view soundSuffix;
 	int carryCap;
 };
 
 constexpr std::array<HeroClassInfo, NumHeroClasses> HeroClasses { {
-	{ "Warrior", "warrior", "wmd", "wmn", "at", 128, 9, "fallen\\fallen", 120 },
-	{ "Rogue", "rogue", "rlb", "rln", "at", 128, 11, "fallen\\fallen", 200 },
-	{ "Sorcerer", "sorceror", "slt", "sln", "fm", 128, 14, "fallen\\fallen", 100 },
+	{ "Warrior", "warrior", "wmd", "wmn", "at", 96, 128, 96, 128, 9, "fallen\\fallen", 120 },
+	{ "Rogue", "rogue", "rlb", "rln", "at", 96, 128, 96, 128, 11, "fallen\\fallen", 200 },
+	{ "Sorcerer", "sorceror", "slt", "sln", "fm", 96, 128, 96, 128, 14, "fallen\\fallen", 100 },
+	{ "Monk", "monk", "mlt", "mln", "at", 112, 130, 98, 160, 8, "fallen\\fallen", 100 },
 } };
 
 /**
@@ -80,6 +85,7 @@ constexpr std::array<HeroStatLine, NumHeroClasses> HeroStats { {
 	{ 33, 7, 3, 7, 11, 2 }, // Warrior
 	{ 22, 5, 2, 5, 5, 2 },  // Rogue
 	{ 17, 4, 3, 6, 3, 1 },  // Sorcerer
+	{ 26, 6, 3, 6, 7, 2 },  // Monk
 } };
 constexpr int HeroMinDamagePerTenRaids = 6;
 constexpr int HeroMaxDamagePerTenRaids = 12;
@@ -144,6 +150,7 @@ constexpr int OtherBashBlows = 1;
 constexpr int WarriorBaitSight = 8;
 constexpr int RogueBaitSight = 10;
 constexpr int SorcererBaitSight = 0;
+constexpr int MonkBaitSight = 0;
 constexpr int FearHealthDivisor = 4;
 constexpr int FearChancePercent = 60;
 /** Most steps a hero spends falling back, so it can't run from a fight for good. */
@@ -151,6 +158,30 @@ constexpr int FallBackMaxSteps = 12;
 /** Waiting for the party: a hero this many tiles ahead of the rearguard holds, in pauses of this length. */
 constexpr int RegroupLeadTiles = 10;
 constexpr int RegroupWaitTicks = 10;
+/** A Rogue this many steps from the vault stops fighting and goes for the gold. */
+constexpr int ThiefDashRange = 10;
+/** AI turns between a shooter's steps back from a monster at its elbow, so it shoots more than it walks. */
+constexpr int KiteCooldownTurns = 40;
+/** A Monk's prayer: this often, this far, on a hero below this share of its life, for this share of it. */
+constexpr int MonkHealCooldownTurns = 100;
+constexpr int MonkHealRange = 6;
+constexpr int MonkHealBelowPercent = 70;
+constexpr int MonkHealPercent = 15;
+/** Ticks of quiet between heroes' lines in the event log. */
+constexpr int HeroSpeechQuietTicks = 5 * 20;
+/**
+ * A master's golem at 100% strength, by engine spell level (SpellEngineLevel). The engine's own numbers
+ * come from the caster's mana and level, and a master has neither to speak of.
+ */
+constexpr int GolemLifeBase = 200;
+constexpr int GolemLifePerSpellLevel = 30;
+constexpr int GolemMinDamageBase = 8;
+constexpr int GolemMinDamagePerSpellLevel = 2;
+constexpr int GolemMaxDamageBase = 16;
+constexpr int GolemMaxDamagePerSpellLevel = 3;
+constexpr int GolemToHit = 80;
+constexpr int GolemToHitPerSpellLevel = 3;
+constexpr int GolemArmor = 25;
 
 struct HeroState {
 	bool active = false;
@@ -167,9 +198,14 @@ struct HeroState {
 	bool fellBack = false;
 	int fallBackSteps = 0;
 	int regroupBudget = RegroupBudgetTicks;
+	int kiteCooldown = 0;
+	int healCooldown = 0;
+	/** Lines this hero has already said, a bit each: nobody repeats itself. */
+	uint8_t said = 0;
 };
 
 std::array<HeroState, MaxMonsters> Heroes;
+int heroSpeechQuiet = 0;
 std::array<Point, MaxMonsters> Homes;
 std::array<bool, MaxMonsters> Roaming {};
 
@@ -425,13 +461,13 @@ bool StepTowards(Monster &monster, Direction dir)
 	return false;
 }
 
-/** Standing in fire: step out to the nearest tile that isn't burning. */
-bool StepOutOfFire(Monster &monster)
+/** Standing in fire, lightning or any other floor hazard: step out to the nearest tile that is clear. */
+bool StepOutOfHazard(Monster &monster)
 {
-	if (!IsBurning(monster.position.tile))
+	if (!IsHazardous(monster.position.tile))
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
-		if (!IsBurning(monster.position.tile + dir) && DirOK(monster, dir)) {
+		if (!IsHazardous(monster.position.tile + dir) && DirOK(monster, dir)) {
 			Walk(monster, dir);
 			return true;
 		}
@@ -655,10 +691,79 @@ void StepHome(Monster &monster, Point home);
 
 namespace {
 
+/** What a shooter fires at this enemy. Nobody keeps throwing fire at what fire can't hurt. */
+MissileID ShotAgainst(HeroClassKind cls, const Monster &enemy)
+{
+	if (cls == HeroClassKind::Rogue)
+		return MissileID::Arrow;
+	return (enemy.resistance & IMMUNE_FIRE) != 0 && (enemy.resistance & IMMUNE_LIGHTNING) == 0 ? MissileID::ThinLightningControl : MissileID::Firebolt;
+}
+
+/** On the run with the way shut by a monster: hit it rather than stand there. @return true if it swung. */
+bool FightIfBlocked(Monster &monster)
+{
+	if ((monster.flags & MFLAG_NO_ENEMY) != 0 || (monster.flags & MFLAG_TARGETS_MONSTER) == 0)
+		return false;
+	const Monster &enemy = Monsters[monster.enemy];
+	if (!IsAliveMonster(enemy) || monster.position.tile.WalkingDistance(enemy.position.tile) >= 2)
+		return false;
+	monster.enemyPosition = enemy.position.tile;
+	KeeperStartMeleeAttack(monster);
+	return true;
+}
+
+/** Moves a standing monster hero to `tile` at once. */
+void PlaceMonsterHero(Monster &monster, Point tile)
+{
+	M_ClearSquares(monster);
+	monster.position.tile = tile;
+	monster.position.old = tile;
+	monster.position.future = tile;
+	monster.occupyTile(tile, false);
+	M_StartStand(monster, monster.direction);
+}
+
+/**
+ * Two heroes meeting head on in a corridor, one on the way in and one on the way out, would stand there
+ * for good and the raid would never end. The one who wants the other's tile changes places with it.
+ * @param place moves the hero asking
+ */
+template <typename Place>
+bool SqueezePast(Point from, const DistanceField &route, bool headsOut, Place place)
+{
+	const uint16_t here = FieldAt(route, from);
+	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+		const Point tile = from + dir;
+		if (FieldAt(route, tile) >= here || !CanStepDiagonal(from, Displacement(dir)))
+			continue;
+		const int pid = dPlayer[tile.x][tile.y] - 1;
+		if (pid >= 0 && IsLivingBot(Players[pid])) {
+			Player &other = Players[pid];
+			const std::optional<BotSummary> summary = GetBotSummary(other);
+			if (other._pmode != PM_STAND || IsPetrifiedBot(other) || (summary->fleeing || summary->carried != 0) == headsOut)
+				continue;
+			PlaceBot(other, from);
+			place(tile);
+			return true;
+		}
+		const int mid = dMonster[tile.x][tile.y] - 1;
+		if (mid >= 0 && Heroes[mid].active && IsAliveMonster(Monsters[mid])) {
+			Monster &other = Monsters[mid];
+			if (IsNoneOf(other.mode, MonsterMode::Stand, MonsterMode::Delay) || (Heroes[mid].fleeing || Heroes[mid].carried != 0) == headsOut)
+				continue;
+			PlaceMonsterHero(other, from);
+			place(tile);
+			return true;
+		}
+	}
+	return false;
+}
+
 /** A wounded hero in a fight breaks off, once, and runs to a healthy friend. @return true if it moved. */
 bool TryFallBack(Monster &monster, HeroState &hero)
 {
-	if (hero.champion || hero.fleeing || hero.carried != 0)
+	// Warriors hold the line.
+	if (hero.champion || hero.fleeing || hero.carried != 0 || hero.cls == HeroClassKind::Warrior)
 		return false;
 	if (hero.fallBackSteps == 0) {
 		if (hero.fellBack || (monster.flags & MFLAG_NO_ENEMY) != 0 || monster.hitPoints * 100 >= monster.maxHitPoints * FallBackHealthPercent)
@@ -746,11 +851,11 @@ bool InitHeroGFX(CMonster &monsterType)
 		uint16_t width;
 	};
 	const std::array<AnimSource, 5> sources { {
-	    { info.prefix, "as", 96 },
-	    { info.prefix, "aw", 96 },
+	    { info.prefix, "as", info.standWidth },
+	    { info.prefix, "aw", info.standWidth },
 	    { info.prefix, info.attackAnim, info.attackWidth },
-	    { info.prefix, "ht", 96 },
-	    { info.deathPrefix, "dt", 128 },
+	    { info.prefix, "ht", info.hitWidth },
+	    { info.deathPrefix, "dt", info.deathWidth },
 	} };
 
 	for (size_t i = 0; i < sources.size(); i++) {
@@ -967,8 +1072,17 @@ void HeroAi(Monster &monster)
 	HeroOpenDoors(monster);
 	CheckFear(monster, hero);
 	RogueCheckTraps(monster, hero);
-	if (StepOutOfFire(monster))
+	if (StepOutOfHazard(monster))
 		return;
+	if (hero.kiteCooldown > 0)
+		hero.kiteCooldown--;
+	if (hero.healCooldown > 0)
+		hero.healCooldown--;
+	if (hero.cls == HeroClassKind::Monk && hero.healCooldown == 0 && HealWoundedAlly(monster.position.tile)) {
+		hero.healCooldown = MonkHealCooldownTurns;
+		if ((hero.said & 2) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "Hold fast! I have you."))
+			hero.said |= 2;
+	}
 
 	// The Lord is dead: the party's only goal is to get out through the portal.
 	if (State.bossDown) {
@@ -995,13 +1109,19 @@ void HeroAi(Monster &monster)
 	if (!State.bossDown && TryFallBack(monster, hero))
 		return;
 
-	if (!hero.fleeing && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
+	// Thieves don't stop to fight: loot in hand, or the vault in reach. FightIfBlocked is for when they must.
+	const bool thieving = !State.bossDown && (hero.carried != 0 || IsThiefDashing(hero.cls, hero.carried, hero.fleeing, monster.position.tile));
+	if (thieving && hero.carried == 0 && (hero.said & 1) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "The vault! That gold is mine!"))
+		hero.said |= 1;
+
+	if (!hero.fleeing && !thieving && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
 		const Monster &enemy = Monsters[monster.enemy];
 		if (IsAliveMonster(enemy)) {
 			monster.enemyPosition = enemy.position.tile;
 			const int distance = monster.position.tile.WalkingDistance(enemy.position.tile);
 			switch (hero.cls) {
 			case HeroClassKind::Warrior:
+			case HeroClassKind::Monk:
 				if (distance < 2) {
 					KeeperStartMeleeAttack(monster);
 					return;
@@ -1011,8 +1131,13 @@ void HeroAi(Monster &monster)
 				break;
 			case HeroClassKind::Rogue:
 			case HeroClassKind::Sorcerer:
+				// Shooters keep their distance: one step back from a monster at their elbow, then fire again.
+				if (distance < 2 && hero.kiteCooldown == 0 && StepTowards(monster, GetDirection(enemy.position.tile, monster.position.tile))) {
+					hero.kiteCooldown = KiteCooldownTurns;
+					return;
+				}
 				if (distance <= HeroSight && LineClearMissile(monster.position.tile, enemy.position.tile)) {
-					KeeperStartRangedAttack(monster, hero.cls == HeroClassKind::Rogue ? MissileID::Arrow : MissileID::Firebolt, 4);
+					KeeperStartRangedAttack(monster, ShotAgainst(hero.cls, enemy), 4);
 					return;
 				}
 				if (StepTowards(monster, GetDirection(monster.position.tile, enemy.position.tile)))
@@ -1045,7 +1170,7 @@ void HeroAi(Monster &monster)
 			}
 			return;
 		}
-		if (hero.regroupBudget > 0 && IsAheadOfParty(monster.position.tile)) {
+		if (!thieving && hero.regroupBudget > 0 && IsAheadOfParty(monster.position.tile)) {
 			hero.regroupBudget -= RegroupWaitTicks;
 			KeeperAiDelay(monster, RegroupWaitTicks);
 			return;
@@ -1053,7 +1178,9 @@ void HeroAi(Monster &monster)
 		const DistanceField &route = RouteField(HeroGoal::Vault, hero.trapsKnown);
 		if (TryBashLockedDoor(monster, hero, route))
 			return;
-		if (!FollowField(monster, route))
+		if (FollowField(monster, route) || FightIfBlocked(monster))
+			return;
+		if (!SqueezePast(monster.position.tile, route, false, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
 			KeeperAiDelay(monster, 5);
 		return;
 	}
@@ -1065,7 +1192,9 @@ void HeroAi(Monster &monster)
 	const DistanceField &route = RouteField(HeroGoal::Entrance, hero.trapsKnown);
 	if (TryBashLockedDoor(monster, hero, route))
 		return;
-	if (!FollowField(monster, route))
+	if (FollowField(monster, route) || FightIfBlocked(monster))
+		return;
+	if (!SqueezePast(monster.position.tile, route, true, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
 		KeeperAiDelay(monster, 5);
 }
 
@@ -1273,9 +1402,125 @@ void GuardAi(Monster &monster)
 		StepHome(monster, home);
 }
 
+void OnGolemInit(Monster &golem, int spellLevel)
+{
+	if (!IsActive())
+		return;
+	const int raises = std::max(spellLevel - 1, 0);
+	golem.maxHitPoints = ScaleByHeroStrength(GolemLifeBase + GolemLifePerSpellLevel * raises) << 6;
+	golem.hitPoints = golem.maxHitPoints;
+	golem.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(GolemMinDamageBase + GolemMinDamagePerSpellLevel * raises), 255));
+	golem.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(GolemMaxDamageBase + GolemMaxDamagePerSpellLevel * raises), 255));
+	golem.golemToHit = static_cast<decltype(golem.golemToHit)>(std::min(GolemToHit + GolemToHitPerSpellLevel * raises, 120));
+	golem.armorClass = static_cast<uint8_t>(GolemArmor);
+	Roaming[golem.getId()] = true; // it looks for heroes around itself, not around the tile it was raised on
+}
+
+void GolemAi(Monster &golem)
+{
+	if (golem.position.tile == GolemHoldingCell || golem.mode != MonsterMode::Stand)
+		return;
+	UpdateEnemy(golem);
+	if ((golem.flags & MFLAG_NO_ENEMY) != 0) {
+		const Point home = Homes[golem.getId()];
+		if (golem.position.tile.WalkingDistance(home) > 1)
+			StepHome(golem, home);
+		else
+			KeeperAiDelay(golem, 5);
+		return;
+	}
+	const bool isMonster = (golem.flags & MFLAG_TARGETS_MONSTER) != 0;
+	const Point enemy = isMonster ? Point(Monsters[golem.enemy].position.tile) : Point(Players[golem.enemy].position.tile);
+	golem.enemyPosition = enemy;
+	golem.direction = GetDirection(golem.position.tile, enemy);
+	if (golem.position.tile.WalkingDistance(enemy) < 2)
+		KeeperStartMeleeAttack(golem);
+	else
+		StepHome(golem, enemy);
+}
+
+void MendGolem(Monster &golem, Point tile)
+{
+	golem.hitPoints = golem.maxHitPoints;
+	SetMonsterHome(golem.getId(), tile);
+}
+
+void DismissGolems()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		Monster &monster = Monsters[ActiveMonsters[i]];
+		if (monster.type().type != MT_GOLEM || monster.position.tile == GolemHoldingCell || monster.isInvalid || monster.hitPoints <= 0)
+			continue;
+		M_ClearSquares(monster);
+		monster.hitPoints = 0;
+		monster.isInvalid = true;
+	}
+}
+
+bool IsThiefDashing(HeroClassKind cls, int carried, bool fleeing, Point tile)
+{
+	return cls == HeroClassKind::Rogue && carried == 0 && !fleeing && !State.bossDown && State.vaultGold > 0 && GoalDistance(HeroGoal::Vault, tile) <= ThiefDashRange;
+}
+
+void TickHeroSpeech()
+{
+	if (heroSpeechQuiet > 0)
+		heroSpeechQuiet--;
+}
+
+bool HeroSay(std::string_view who, std::string_view line)
+{
+	if (heroSpeechQuiet > 0)
+		return false;
+	heroSpeechQuiet = HeroSpeechQuietTicks;
+	Announce(fmt::format("{}: \"{}\"", who, line), UiFlags::ColorWhite);
+	return true;
+}
+
+bool HealWoundedAlly(Point from)
+{
+	Player *worstBot = nullptr;
+	Monster *worstMonster = nullptr;
+	int worstPercent = MonkHealBelowPercent;
+	for (size_t i = 0; i < MaxBots; i++) {
+		Player &bot = Players[FirstBotId + i];
+		if (!IsLivingBot(bot) || from.WalkingDistance(bot.position.tile) > MonkHealRange || !LineClearMissile(from, bot.position.tile))
+			continue;
+		const int percent = bot._pHitPoints * 100 / std::max(bot._pMaxHP, 1);
+		if (percent < worstPercent) {
+			worstPercent = percent;
+			worstBot = &bot;
+		}
+	}
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		Monster &monster = Monsters[ActiveMonsters[i]];
+		if (!IsHero(monster) || !IsAliveMonster(monster) || from.WalkingDistance(monster.position.tile) > MonkHealRange || !LineClearMissile(from, monster.position.tile))
+			continue;
+		const int percent = monster.hitPoints * 100 / std::max(monster.maxHitPoints, 1);
+		if (percent < worstPercent) {
+			worstPercent = percent;
+			worstBot = nullptr;
+			worstMonster = &monster;
+		}
+	}
+	if (worstMonster != nullptr) {
+		worstMonster->hitPoints = std::min(worstMonster->hitPoints + worstMonster->maxHitPoints * MonkHealPercent / 100, worstMonster->maxHitPoints);
+		PlaySfxLoc(SfxID::CastHealing, worstMonster->position.tile);
+	} else if (worstBot != nullptr) {
+		const int heal = worstBot->_pMaxHP * MonkHealPercent / 100;
+		worstBot->_pHitPoints = std::min(worstBot->_pHitPoints + heal, worstBot->_pMaxHP);
+		worstBot->_pHPBase = std::min(worstBot->_pHPBase + heal, worstBot->_pMaxHPBase);
+		PlaySfxLoc(SfxID::CastHealing, worstBot->position.tile);
+	} else {
+		return false;
+	}
+	return true;
+}
+
 void ResetHeroes()
 {
 	Heroes.fill({});
+	heroSpeechQuiet = 0;
 	Portal = {};
 	RemoveAllBots();
 	pendingParty.clear();
@@ -1564,6 +1809,11 @@ void OpenDoorsAround(Point tile)
 	}
 }
 
+bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut)
+{
+	return SqueezePast(bot.position.tile, RouteField(goal, knownTraps), headsOut, [&bot](Point tile) { PlaceBot(bot, tile); });
+}
+
 std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps)
 {
 	return LockedDoorOnRoute(RouteField(goal, knownTraps), from);
@@ -1603,6 +1853,9 @@ std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t bai
 		break;
 	case HeroClassKind::Sorcerer:
 		sight = SorcererBaitSight;
+		break;
+	case HeroClassKind::Monk:
+		sight = MonkBaitSight;
 		break;
 	}
 	if (sight <= 0)
@@ -1703,7 +1956,7 @@ int CarryCapacity(HeroClassKind cls)
 
 bool IsKeepTarget(const Monster &monster)
 {
-	return IsAliveMonster(monster) && !IsHero(monster) && monster.type().type != MT_GOLEM && (monster.flags & MFLAG_HIDDEN) == 0;
+	return IsAliveMonster(monster) && !IsHero(monster) && (monster.flags & MFLAG_HIDDEN) == 0;
 }
 
 std::optional<Point> PortalPosition()

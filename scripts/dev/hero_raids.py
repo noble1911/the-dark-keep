@@ -102,7 +102,7 @@ def run_jobs(args):
     out.close()
 
 
-HERO_LINE = re.compile(r"^h t=(\d+) who=(\S+) cls=(\S+) at=(\d+),(\d+) hp=(-?\d+)/(\d+) mode=(\d+) carried=(-?\d+) fleeing=(\S+) hazard=(\S+) act=(\d+)")
+HERO_LINE = re.compile(r"^h t=(\d+) who=(\S+) cls=(\S+) at=(\d+),(\d+) hp=(-?\d+)/(\d+) mode=(\d+) carried=(-?\d+) fleeing=(\S+) hazard=(\S+) act=(-?\d+)")
 EVENTS = (("looted", "looted"), ("escaped_gold", "escaped with"), ("portal", "through the portal"), ("fled", "fled|flees"), ("slain", "been slain|Recovered"), ("drops", "drops"))
 
 
@@ -128,8 +128,8 @@ def analyse(path):
         worst = 0
         while i < len(samples):
             j = i
-            # Same tile, standing, not told to fight: a bot's action is 0, a monster hero has no enemy.
-            while j + 1 < len(samples) and samples[j + 1][1] == samples[i][1] and samples[j + 1][7] == 0 and samples[j + 1][3] == 0:
+            # Same tile, standing, not told to fight: a bot's action is ACTION_NONE (-1), a monster hero has no enemy (0).
+            while j + 1 < len(samples) and samples[j + 1][1] == samples[i][1] and samples[j + 1][7] <= 0 and samples[j + 1][3] == 0:
                 j += 1
             idle = (j - i) * SECONDS_PER_SAMPLE
             if idle >= IDLE_SECONDS:
@@ -145,7 +145,7 @@ def analyse(path):
             xs = [s[1][0] for s in box]
             ys = [s[1][1] for s in box]
             moved = sum(a[1] != b[1] for a, b in zip(box, box[1:]))
-            if max(xs) - min(xs) <= PACING_BOX and max(ys) - min(ys) <= PACING_BOX and moved >= window // 3 and all(s[7] == 0 for s in box):
+            if max(xs) - min(xs) <= PACING_BOX and max(ys) - min(ys) <= PACING_BOX and moved >= window // 3 and all(s[7] <= 0 for s in box):
                 stat["pacing"] += 1
                 k += window
             else:

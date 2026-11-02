@@ -1147,7 +1147,7 @@ bool PlayerMHit(Player &player, Monster *monster, int dist, int mind, int maxd, 
 	int blkper = player.GetBlockChance(false);
 	if (monster != nullptr)
 		blkper -= (monster->level(sgGameInitInfo.nDifficulty) - player.getCharacterLevel()) * 2;
-	blkper = std::clamp(blkper, 0, 100);
+	blkper = keeper::CapBotBlock(player, std::clamp(blkper, 0, 100)); // [DARK KEEP]
 
 	int8_t resper;
 	switch (damageType) {

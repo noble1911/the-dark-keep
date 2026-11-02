@@ -1215,7 +1215,7 @@ void MonsterAttackPlayer(Monster &monster, Player &player, int hit, int minDam, 
 		blkper = GenerateRnd(100);
 	}
 	int blk = player.GetBlockChance() - (monster.level(sgGameInitInfo.nDifficulty) * 2);
-	blk = std::clamp(blk, 0, 100);
+	blk = keeper::CapBotBlock(player, std::clamp(blk, 0, 100)); // [DARK KEEP]
 	if (hper >= hit)
 		return;
 	if (blkper < blk) {
@@ -3291,6 +3291,7 @@ void InitGolem(devilution::Monster &monster, uint8_t golemOwnerPlayerId, int16_t
 	monster.golemToHit = 5 * (golemSpellLevel + 8) + 2 * player.getCharacterLevel();
 	monster.minDamage = 2 * (golemSpellLevel + 4);
 	monster.maxDamage = 2 * (golemSpellLevel + 8);
+	keeper::OnGolemInit(monster, golemSpellLevel); // [DARK KEEP] a defender of the keep, not a player's minion
 	UpdateEnemy(monster);
 }
 
@@ -4232,6 +4233,10 @@ bool Walk(Monster &monster, Direction md)
 
 void GolumAi(Monster &golem)
 {
+	if (keeper::IsActive()) { // [DARK KEEP] it fights heroes, bots included
+		keeper::GolemAi(golem);
+		return;
+	}
 	if (golem.position.tile.x == 1 && golem.position.tile.y == 0) {
 		return;
 	}

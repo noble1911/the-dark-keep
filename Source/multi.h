@@ -43,7 +43,8 @@ struct GameData {
 	uint8_t keeperMode;
 	uint8_t keeperLevel;
 	uint8_t keeperRank;
-	uint8_t keeperReserved;
+	/** The level of the spell past the end of keeperSpells: this byte was spare, so GameData kept its size and mixed builds don't abort on it. */
+	uint8_t keeperLastSpell;
 	uint32_t keeperSeed;
 	// [DARK KEEP] The host's unlocks: a bit per lair kind, and a level per spell and trap type (0 = not owned).
 	uint8_t keeperKinds[14];
