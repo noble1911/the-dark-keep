@@ -239,7 +239,7 @@ void LobbyTick()
 			hostSeenActive = true;
 		else if (hostSeenActive) {
 			hostSlot = NoHostSlot;
-			// Leaving for the next map is the host's way of starting it.
+			// Leaving for the next map is the host's way of starting it. See CoopNoteHostLeft.
 			if (IsJoinedGame() && !IsRestartComing())
 				CoopNoteHostLeft();
 		}

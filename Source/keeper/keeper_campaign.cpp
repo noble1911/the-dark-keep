@@ -22,6 +22,7 @@
 
 #include "appfat.h"
 #include "config.h"
+#include "keeper_build_id.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -400,16 +401,19 @@ bool IsJoinedGame()
 
 uint32_t BuildStamp()
 {
-	// The AI is simulated on every client, so anything less than the same build drifts apart.
+	// The AI is simulated on every client, so different code drifts apart. The commit says so, and the same
+	// commit is the same code on any platform or build type: Windows and Switch builds play together.
 	uint32_t hash = 2166136261U;
 	const auto add = [&](uint32_t value) {
 		for (int shift = 0; shift < 32; shift += 8)
 			hash = (hash ^ ((value >> shift) & 0xFF)) * 16777619U;
 	};
-	for (const char c : std::string_view(PROJECT_VERSION))
+	for (const char c : std::string_view(KEEPER_BUILD_ID))
 		add(static_cast<unsigned char>(c));
+	add(PROJECT_VERSION_MAJOR);
+	add(PROJECT_VERSION_MINOR);
+	add(PROJECT_VERSION_PATCH);
 	add(KeeperProtocolVersion);
-	add(sizeof(GameData));
 	add(NumLairKinds);
 	add(NumSpellKinds);
 	add(NumTrapKinds);

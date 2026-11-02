@@ -245,14 +245,14 @@ void WriteMonsters()
 		const Monster &monster = Monsters[id];
 		const std::optional<size_t> lair = LairOfMonster(id);
 		const std::optional<HeroSyncState> mind = GetHeroSyncState(id);
-		Output(fmt::format("mon {} {} hero={} lair={} at={},{} hp={}/{} mode={} home={},{} carried={} fleeing={} traps={} baits={}", id, monster.name(), IsHero(monster), lair ? static_cast<int>(*lair) : -1,
+		Output(fmt::format("mon {} {} hero={} lair={} at={},{} hp={}/{} mode={} home={},{} carried={} fleeing={} traps={} baits={} regroup={} fallback={}", id, monster.name(), IsHero(monster), lair ? static_cast<int>(*lair) : -1,
 		    monster.position.tile.x, monster.position.tile.y, monster.hitPoints >> 6, monster.maxHitPoints >> 6, static_cast<int>(monster.mode),
-		    lair ? State.lairs[*lair].position.x : -1, lair ? State.lairs[*lair].position.y : -1, mind ? mind->carried : 0, mind ? mind->fleeing : false, mind ? mind->trapsKnown : 0, mind ? mind->baitsVisited : 0));
+		    lair ? State.lairs[*lair].position.x : -1, lair ? State.lairs[*lair].position.y : -1, mind ? mind->carried : 0, mind ? mind->fleeing : false, mind ? mind->trapsKnown : 0, mind ? mind->baitsVisited : 0, mind ? mind->regroupBudget : 0, mind ? mind->fallBackSteps : 0));
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const Player &bot = Players[FirstBotId + i];
 		if (const std::optional<BotSyncState> mind = GetBotSyncState(i); mind)
-			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={} carried={} fleeing={} potions={} traps={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode), mind->carried, mind->fleeing, mind->potions, mind->trapsKnown));
+			Output(fmt::format("bot {} {} at={},{} hp={}/{} mode={} carried={} fleeing={} potions={} traps={} regroup={} fallback={}", i, bot._pName, bot.position.tile.x, bot.position.tile.y, bot._pHitPoints >> 6, bot._pMaxHP >> 6, static_cast<int>(bot._pmode), mind->carried, mind->fleeing, mind->potions, mind->trapsKnown, mind->regroupBudget, mind->fallBackThinks));
 	}
 	for (const DoorLock &lock : State.locks) {
 		if (lock.active)
@@ -438,6 +438,20 @@ void Execute(const std::string &line)
 			bot->carried = b;
 			bot->fleeing = fleeing != 0;
 			bot->potions = c;
+			ApplyBotSyncState(static_cast<size_t>(a), *bot);
+		}
+	} else if (command == "pace") {
+		// hero|bot id regroup fallback: for testing what a late joiner hears.
+		in >> word >> a >> b >> c;
+		if (word == "hero") {
+			if (std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(a)); hero) {
+				hero->regroupBudget = b;
+				hero->fallBackSteps = c;
+				ApplyHeroSyncState(static_cast<size_t>(a), *hero);
+			}
+		} else if (std::optional<BotSyncState> bot = GetBotSyncState(static_cast<size_t>(a)); bot) {
+			bot->regroupBudget = b;
+			bot->fallBackThinks = c;
 			ApplyBotSyncState(static_cast<size_t>(a), *bot);
 		}
 	} else if (command == "win") {

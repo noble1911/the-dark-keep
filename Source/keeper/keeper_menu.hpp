@@ -19,6 +19,8 @@ void UiKeeperScreen();
  */
 void OpenKeeperOverlay();
 void CloseKeeperOverlay();
+/** The game is over: its images use its palette. They stay between openings otherwise, as decoding them is slow. */
+void FreeKeeperOverlayImages();
 bool IsKeeperOverlayOpen();
 void DrawKeeperOverlay(const Surface &out, Point mouse);
 void KeeperOverlayClick();

@@ -1063,6 +1063,13 @@ file(GENERATE OUTPUT ${CONFIG_PATH} CONTENT
 #define PROJECT_VERSION_PATCH ${PROJECT_VERSION_PATCH}
 ")
 
+# [DARK KEEP] The commit, looked up on every build: PROJECT_VERSION's is only as new as the last configure.
+add_custom_target(keeper_build_id
+  COMMAND ${CMAKE_COMMAND} -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/keeper_build_id.h -DSOURCE_DIR=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/CMake/keeper_build_id.cmake
+  BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/keeper_build_id.h
+  VERBATIM)
+add_dependencies(libdevilutionx keeper_build_id)
+
 if(DISCORD_INTEGRATION)
   target_compile_definitions(libdevilutionx PRIVATE DISCORD)
   target_link_libraries(libdevilutionx PRIVATE discord discord_game_sdk)

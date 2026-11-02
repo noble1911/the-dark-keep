@@ -1492,7 +1492,7 @@ std::optional<HeroSyncState> GetHeroSyncState(size_t monsterId)
 	if (monsterId >= MaxMonsters || !Heroes[monsterId].active || !IsAliveMonster(Monsters[monsterId]))
 		return std::nullopt;
 	const HeroState &hero = Heroes[monsterId];
-	return HeroSyncState { hero.fleeing, hero.fearRolled, hero.fellBack, hero.carried, hero.baitsVisited, hero.trapsKnown, hero.trapsSeen };
+	return HeroSyncState { hero.fleeing, hero.fearRolled, hero.fellBack, hero.carried, hero.baitsVisited, hero.trapsKnown, hero.trapsSeen, hero.fallBackSteps, hero.regroupBudget };
 }
 
 void ApplyHeroSyncState(size_t monsterId, const HeroSyncState &state)
@@ -1507,6 +1507,8 @@ void ApplyHeroSyncState(size_t monsterId, const HeroSyncState &state)
 	hero.baitsVisited = state.baitsVisited;
 	hero.trapsKnown = state.trapsKnown;
 	hero.trapsSeen = state.trapsSeen;
+	hero.fallBackSteps = state.fallBackSteps;
+	hero.regroupBudget = state.regroupBudget;
 }
 
 PortalSyncState GetPortalSyncState()
@@ -1519,8 +1521,8 @@ void ApplyPortalSyncState(const PortalSyncState &state)
 	if (state.open) {
 		if (!Portal.open && InDungeonBounds(state.position)) {
 			// A new arrival never saw it open.
-			AddMissile(state.position, state.position, Direction::South, MissileID::TownPortal, TARGET_MONSTERS, -1, 0, 0);
-			OpenPortalAt(state.position);
+			Missile *missile = AddMissile(state.position, state.position, Direction::South, MissileID::TownPortal, TARGET_MONSTERS, -1, 0, 0);
+			OpenPortalAt((missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : state.position);
 		}
 		return;
 	}

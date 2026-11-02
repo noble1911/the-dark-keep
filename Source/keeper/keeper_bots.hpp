@@ -52,6 +52,10 @@ struct BotSyncState {
 	uint8_t baitsVisited = 0;
 	uint16_t trapsKnown = 0;
 	uint16_t trapsSeen = 0;
+	int baitLingerTicks = 0;
+	int fallBackThinks = 0;
+	int regroupBudget = 0;
+	int thinkCooldown = 0;
 };
 /** Nullopt if there is no living bot in that slot. */
 std::optional<BotSyncState> GetBotSyncState(size_t slot);

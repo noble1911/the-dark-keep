@@ -198,7 +198,7 @@ void CenterCameraOn(Point tile)
 
 bool CanUseKeyboardCamera()
 {
-	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys();
+	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsKeeperOverlayOpen();
 }
 
 /** The engine's zoom renders a half-size view and doubles it. */
@@ -496,12 +496,6 @@ void RevealCard(const Tool &tool)
 		scroll = index;
 	else if (index >= scroll + VisibleCardCount())
 		scroll = index - VisibleCardCount() + 1;
-}
-
-std::string FormatTicks(int ticks)
-{
-	const int seconds = (ticks + 19) / 20;
-	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
 }
 
 // ---- cards -------------------------------------------------------------------
@@ -1864,8 +1858,9 @@ bool OnKeyDown(SDL_Keycode key)
 			CloseKeeperOverlay();
 		return true;
 	}
-	if (CoopHasHostLeft() && key == SDLK_ESCAPE) {
-		gamemenu_exit_game(false);
+	if (CoopHasHostLeft()) {
+		if (key == SDLK_ESCAPE)
+			gamemenu_exit_game(false);
 		return true;
 	}
 	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
@@ -1949,6 +1944,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
+	if (CoopHasHostLeft())
+		return true; // nothing left to order about
 	if (IsKeeperOverlayOpen()) {
 		KeeperOverlayClick();
 		return true;
@@ -2053,7 +2050,7 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
-	if (IsKeeperOverlayOpen())
+	if (CoopHasHostLeft() || IsKeeperOverlayOpen())
 		return true;
 	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
@@ -2131,15 +2128,17 @@ void DrawScaledUi(const Surface &out, void (*drawUi)(const Surface &) = DrawUi)
 		std::memcpy(&uiBackground[static_cast<size_t>(y) * width], dst, width);
 	}
 
+	// The Keeper screen is opaque: a pixel it draws the same as the view's sample still has to cover the view.
+	const bool opaque = IsKeeperOverlayOpen();
 	drawUi(ui);
 
 	for (int y = 0; y < height; y++) {
 		const uint8_t *row = ui.at(0, y);
 		const uint8_t *before = &uiBackground[static_cast<size_t>(y) * width];
-		if (std::memcmp(row, before, width) == 0)
+		if (!opaque && std::memcmp(row, before, width) == 0)
 			continue;
 		for (int x = 0; x < width; x++) {
-			if (row[x] == before[x])
+			if (!opaque && row[x] == before[x])
 				continue;
 			for (int dy = 0; dy < scale; dy++)
 				std::memset(out.at(x * scale, y * scale + dy), row[x], scale);

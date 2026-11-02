@@ -120,6 +120,8 @@ struct HeroSyncState {
 	uint8_t baitsVisited = 0;
 	uint16_t trapsKnown = 0;
 	uint16_t trapsSeen = 0;
+	int fallBackSteps = 0;
+	int regroupBudget = 0;
 };
 /** Nullopt if the monster isn't an active, living hero. */
 std::optional<HeroSyncState> GetHeroSyncState(size_t monsterId);

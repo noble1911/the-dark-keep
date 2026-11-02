@@ -95,8 +95,10 @@ tl::expected<void, PacketError> base::HandleAccept(packet &pkt)
 	const buffer_t &info = **infoPkt;
 	if (game_init_info != info) {
 		// we joined and did not create
-		// [DARK KEEP] A map may follow the GameData, and a host on another build may send a smaller one: multi.cpp refuses it.
-		game_init_info = info;
+		// [DARK KEEP] A map may follow the GameData, and a host on another build may send a smaller one: multi.cpp
+		// refuses it, and it isn't kept, as this client could end up answering with game_init_info.
+		if (info.size() >= sizeof(GameData))
+			game_init_info = info;
 		_SNETEVENT ev;
 		ev.eventid = EVENT_TYPE_PLAYER_CREATE_GAME;
 		ev.playerid = plr_self;

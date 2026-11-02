@@ -159,6 +159,8 @@ enum class Action : uint8_t {
 	SyncBotPetrified,
 	SyncPortal,
 	SyncPortalCaster,
+	SyncHeroPace,
+	SyncBotPace,
 };
 
 #pragma pack(push, 1)
@@ -329,7 +331,9 @@ void AnnouncePhase(Phase from, Phase to)
 			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
 		break;
 	case Phase::Victory:
-		NoteVictory();
+		// Not for a master who connects after the win: seeing the keep stand isn't defending it.
+		if (from == Phase::Raid)
+			NoteVictory();
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
@@ -806,6 +810,8 @@ void AddRaidJoinState(DirectCommands &out)
 		const auto w = static_cast<uint16_t>(id + 1);
 		out.Add(Action::SyncHero, PackHeroFlags(hero->fleeing, hero->fearRolled, hero->fellBack), hero->baitsVisited, PackCarried(hero->carried), w);
 		out.Add(Action::SyncHeroMind, static_cast<uint8_t>(hero->trapsKnown), static_cast<uint8_t>(hero->trapsKnown >> 8), static_cast<uint8_t>(hero->trapsSeen), static_cast<uint8_t>(hero->trapsSeen >> 8), w);
+		const int regroup = std::clamp(hero->regroupBudget, 0, 0xFFFF);
+		out.Add(Action::SyncHeroPace, static_cast<uint8_t>(std::clamp(hero->fallBackSteps, 0, 0xFF)), 0, static_cast<uint8_t>(regroup), static_cast<uint8_t>(regroup >> 8), w);
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const std::optional<BotSyncState> bot = GetBotSyncState(i);
@@ -814,6 +820,7 @@ void AddRaidJoinState(DirectCommands &out)
 		const auto a = static_cast<uint8_t>(i);
 		out.Add(Action::SyncBotState, a, PackHeroFlags(bot->fleeing, bot->fearRolled, bot->fellBack), PackCarried(bot->carried), static_cast<uint16_t>(std::clamp(bot->potions, 0, 0xFFFF)));
 		out.Add(Action::SyncBotMind, a, bot->baitsVisited, static_cast<uint8_t>(bot->trapsKnown), static_cast<uint8_t>(bot->trapsKnown >> 8), bot->trapsSeen);
+		out.Add(Action::SyncBotPace, a, static_cast<uint8_t>(std::clamp(bot->fallBackThinks, 0, 0xFF)), static_cast<uint8_t>(std::clamp(bot->thinkCooldown, 0, 0xFF)), static_cast<uint8_t>(std::clamp(bot->baitLingerTicks, 0, 0xFF)), static_cast<uint16_t>(std::clamp(bot->regroupBudget, 0, 0xFFFF)));
 		if (bot->petrifiedTicks > 0)
 			out.Add(Action::SyncBotPetrified, a, 0, 0, 0, static_cast<uint16_t>(std::clamp(bot->petrifiedTicks, 0, 0xFFFF)));
 	}
@@ -1035,6 +1042,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 		break;
 	case Action::SyncHero:
 	case Action::SyncHeroMind:
+	case Action::SyncHeroPace:
 		if (IsMonsterInPlay(monsterId)) {
 			std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(monsterId));
 			if (!hero)
@@ -1045,15 +1053,19 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 				hero->fellBack = (message.a & 4) != 0;
 				hero->baitsVisited = message.b;
 				hero->carried = UnpackCarried(message.x, message.y);
-			} else {
+			} else if (message.action == Action::SyncHeroMind) {
 				hero->trapsKnown = static_cast<uint16_t>(message.a | (message.b << 8));
 				hero->trapsSeen = static_cast<uint16_t>(message.x | (message.y << 8));
+			} else {
+				hero->fallBackSteps = message.a;
+				hero->regroupBudget = message.x | (message.y << 8);
 			}
 			ApplyHeroSyncState(static_cast<size_t>(monsterId), *hero);
 		}
 		break;
 	case Action::SyncBotState:
 	case Action::SyncBotMind:
+	case Action::SyncBotPace:
 	case Action::SyncBotPetrified:
 		if (message.a < MaxBots) {
 			std::optional<BotSyncState> bot = GetBotSyncState(message.a);
@@ -1069,6 +1081,11 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 				bot->baitsVisited = message.b;
 				bot->trapsKnown = static_cast<uint16_t>(message.x | (message.y << 8));
 				bot->trapsSeen = Swap16LE(message.w);
+			} else if (message.action == Action::SyncBotPace) {
+				bot->fallBackThinks = message.b;
+				bot->thinkCooldown = message.x;
+				bot->baitLingerTicks = message.y;
+				bot->regroupBudget = Swap16LE(message.w);
 			} else {
 				bot->petrifiedTicks = Swap16LE(message.w);
 			}
@@ -2013,6 +2030,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncBotPetrified:
 	case Action::SyncPortal:
 	case Action::SyncPortalCaster:
+	case Action::SyncHeroPace:
+	case Action::SyncBotPace:
 	case Action::SyncBegin:
 	case Action::SyncHostSlot:
 	case Action::SyncUpgrade:

@@ -645,9 +645,12 @@ void OpenKeeperOverlay()
 
 void CloseKeeperOverlay()
 {
-	if (!overlayOpen)
-		return;
 	overlayOpen = false;
+}
+
+void FreeKeeperOverlayImages()
+{
+	CloseKeeperOverlay();
 	cardImages = {};
 	keeperImage = {};
 }

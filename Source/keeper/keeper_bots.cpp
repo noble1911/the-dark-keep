@@ -617,7 +617,7 @@ std::optional<BotSyncState> GetBotSyncState(size_t slot)
 	if (slot >= MaxBots || !IsLivingBot(Players[FirstBotId + slot]))
 		return std::nullopt;
 	const BotState &state = Bots[slot];
-	return BotSyncState { state.fleeing, state.fearRolled, state.fellBack, state.carried, state.potions, state.petrifiedTicks, state.baitsVisited, state.trapsKnown, state.trapsSeen };
+	return BotSyncState { state.fleeing, state.fearRolled, state.fellBack, state.carried, state.potions, state.petrifiedTicks, state.baitsVisited, state.trapsKnown, state.trapsSeen, state.baitLingerTicks, state.fallBackThinks, state.regroupBudget, state.thinkCooldown };
 }
 
 void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
@@ -634,6 +634,10 @@ void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
 	state.baitsVisited = synced.baitsVisited;
 	state.trapsKnown = synced.trapsKnown;
 	state.trapsSeen = synced.trapsSeen;
+	state.baitLingerTicks = synced.baitLingerTicks;
+	state.fallBackThinks = synced.fallBackThinks;
+	state.regroupBudget = synced.regroupBudget;
+	state.thinkCooldown = synced.thinkCooldown;
 }
 
 bool SimulatesLocally(const Player &player)

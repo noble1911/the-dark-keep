@@ -42,12 +42,6 @@ int startingTicks = 0;
 uint32_t hostLeftUntil = 0;
 bool hostLeft = false;
 
-std::string FormatWait(int ticks)
-{
-	const int seconds = (ticks + 19) / 20;
-	return fmt::format("{}:{:02}", seconds / 60, seconds % 60);
-}
-
 } // namespace
 
 void CoopOnLevelLoaded()
@@ -62,11 +56,16 @@ void CoopOnLevelLoaded()
 
 void CoopOnGameEnded()
 {
-	CloseKeeperOverlay();
+	FreeKeeperOverlayImages();
 }
 
 void CoopTick()
 {
+	// A new master in a slot someone left doesn't inherit their status.
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (!Players[id].plractive)
+			inKeeper[id] = false;
+	}
 	if (startingTicks > 0)
 		startingTicks--;
 	const bool open = IsKeeperOverlayOpen();
@@ -116,7 +115,7 @@ int CoopStartingTicks()
 std::string CoopGameOverLine()
 {
 	if (startingTicks > 0)
-		return fmt::format(" Next map in {}.", FormatWait(startingTicks));
+		return fmt::format(" Next map in {}.", FormatTicks(startingTicks));
 	for (size_t id = 0; id < NetPlayerSlots; id++) {
 		if (id != MyPlayerId && inKeeper[id] && Players[id].plractive)
 			return fmt::format(" {} is in the Keeper.", Players[id]._pName);
@@ -131,7 +130,7 @@ void DrawCoopKeeperBanner(const Surface &out)
 	const int width = std::min(BannerWidth, out.w());
 	const Rectangle banner { { (out.w() - width) / 2, out.h() - BannerHeight - 4 }, { width, BannerHeight } };
 	DrawPanel(out, banner);
-	DrawString(out, fmt::format("Next map in {}. Anything you buy is already saved.", FormatWait(startingTicks)), { banner.position + Displacement { 0, 4 }, { width, 14 } },
+	DrawString(out, fmt::format("Next map in {}. Anything you buy is already saved.", FormatTicks(startingTicks)), { banner.position + Displacement { 0, 4 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 }
 
@@ -163,7 +162,7 @@ void DrawCoopHostLeft(const Surface &out, int hudTop)
 	DrawPanel(out, banner);
 	DrawString(out, "The host has left, so this game is over.", { banner.position + Displacement { 0, 12 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
-	DrawString(out, fmt::format("Back to the menu in {}. (Esc: now)", FormatWait(static_cast<int>(hostLeftUntil - SDL_GetTicks()) / 50)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
+	DrawString(out, fmt::format("Back to the menu in {}. (Esc: now)", FormatTicks(static_cast<int>(hostLeftUntil - SDL_GetTicks()) / 50)), { banner.position + Displacement { 0, 32 }, { width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 }
 

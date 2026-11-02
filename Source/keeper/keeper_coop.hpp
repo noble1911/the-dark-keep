@@ -47,7 +47,12 @@ std::string CoopGameOverLine();
 /** Over the Keeper screen: the next map is coming. */
 void DrawCoopKeeperBanner(const Surface &out);
 
-/** The game's creator has gone (not for the next map): with TCP nobody can reach anybody any more, so the game ends. */
+/**
+ * The game's creator has gone (not for the next map). The game ends on every provider, on purpose. On TCP
+ * nobody can reach anybody any more. On ZeroTier the others could reach each other, and IsHost() would pass
+ * to the next of them, but the raid's unspawned party is only known to the host (StartWave runs there), so
+ * the raid would end early; and nobody else can choose the next map, and the unlocks in play are the host's.
+ */
 void CoopNoteHostLeft();
 bool CoopHasHostLeft();
 /** Every frame. @return true when the notice has been up for long enough. */
