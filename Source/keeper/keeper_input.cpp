@@ -147,7 +147,7 @@ bool IsSettingShown(const OptionCategoryBase &category, const OptionEntryBase &e
 	// All that is left of Gameplay once the hero's pickups, quests, belts and equipment are gone.
 	if (&category == &options.Gameplay)
 		return &entry == &options.Gameplay.grabInput || &entry == &options.Gameplay.pauseOnFocusLoss;
-	if (&category == &options.Keymapper) {
+	if (&category == &options.Keymapper || &category == &options.Padmapper) {
 		const std::string_view name = entry.GetName();
 		if (name.substr(0, KeepActionPrefix.size()) == KeepActionPrefix)
 			return true;

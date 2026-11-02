@@ -61,12 +61,7 @@ void MainmenuLoad(const char *name)
 	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Exit"), MAINMENU_EXIT_DIABLO));
 #endif
 
-	if (!gbIsSpawn || gbIsHellfire) {
-		ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\mainmenuw.clx");
-		LoadBackgroundArt("ui_art\\mainmenu");
-	} else {
-		LoadBackgroundArt("ui_art\\swmmenu");
-	}
+	UiLoadMainMenuBackground();
 
 	UiAddBackground(&vecMainMenuDialog);
 	UiAddLogo(&vecMainMenuDialog);
@@ -120,9 +115,6 @@ bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, int att
 			UiClearScreen();
 			UiPollAndRender();
 			// [DARK KEEP] No attract mode: another game's intro has no business playing over an idle menu.
-			if (false && SDL_GetTicks() >= dwAttractTicks && (HaveIntro() || gbIsHellfire)) {
-				MainMenuResult = MAINMENU_ATTRACT_MODE;
-			}
 		}
 
 		MainmenuFree();

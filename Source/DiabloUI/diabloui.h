@@ -74,7 +74,6 @@ struct _uiheroinfo {
 	bool spawned;
 };
 
-extern OptionalOwnedClxSpriteList ArtLogo;
 extern OptionalOwnedClxSpriteList DifficultyIndicator;
 extern std::array<OptionalOwnedClxSpriteList, 3> ArtFocus;
 extern OptionalOwnedClxSpriteList ArtBackgroundWidescreen;
@@ -111,6 +110,8 @@ void UiLoadDefaultPalette();
 bool UiLoadBlackBackground();
 void LoadBackgroundArt(const char *pszFile, int frames = 1);
 void UiAddBackground(std::vector<std::unique_ptr<UiItemBase>> *vecDialog);
+/** [DARK KEEP] The main menu's background, for the data this game has. */
+void UiLoadMainMenuBackground();
 void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int y = GetUIRectangle().position.y);
 void UiFocusNavigationSelect();
 void UiFocusNavigationEsc();

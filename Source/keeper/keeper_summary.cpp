@@ -18,6 +18,7 @@
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_alerts.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
@@ -260,7 +261,7 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::string &continue
 	std::string next;
 	if (IsJoinedGame())
 		next = renown > 0 ? "The host chooses what is next. Spend Renown from the main menu's Keeper screen." : "The host chooses what is next.";
-	else if (!continueLabel.empty() && renown > 0)
+	else if (!continueLabel.empty() && renown > 0 && !IsEditorTestRun())
 		next = gbIsMultiplayer ? "Spend Renown from the main menu's Keeper screen." : "The Keeper screen comes next: spend your Renown there.";
 	if (!next.empty())
 		DrawString(out, FitText(next, inner), { { panel.position.x, bottom }, { panel.size.width, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });

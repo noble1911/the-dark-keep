@@ -1586,7 +1586,6 @@ bool TryCastSpell(size_t index, Point tile)
 	}
 	RequestCastSpell(index, tile);
 	AlertsNoteSpellCast();
-	TutorialNoteSpellCast();
 	return true;
 }
 
@@ -1657,6 +1656,8 @@ bool IsActive()
 
 void OnLevelLoaded()
 {
+	// Leaving an editor test run comes through here without ending the game: the help mustn't stay open, or paused.
+	CloseHelp();
 	active = currlevel == KeepLevel && !setlevel;
 	if (!active)
 		return;
@@ -2135,6 +2136,8 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
+	if (IsHelpOpen())
+		return true; // nothing happens behind the help
 	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {

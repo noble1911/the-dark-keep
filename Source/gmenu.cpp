@@ -63,11 +63,8 @@ constexpr int GMenuItemHeight = 45;
 OptionalOwnedClxSpriteList optbar_cel;
 OptionalOwnedClxSpriteList PentSpin_cel;
 OptionalOwnedClxSpriteList option_cel;
-OptionalOwnedClxSpriteList sgpLogo;
 bool isDraggingSlider;
 TMenuItem *sgpCurrItem;
-int LogoAnim_tick;
-uint8_t LogoAnim_frame;
 void (*gmenu_current_option)();
 int sgCurrentMenuIdx;
 
@@ -194,7 +191,6 @@ void gmenu_draw_pause(const Surface &out)
 
 void FreeGMenu()
 {
-	sgpLogo = std::nullopt;
 	PentSpin_cel = std::nullopt;
 	option_cel = std::nullopt;
 	optbar_cel = std::nullopt;
@@ -202,7 +198,6 @@ void FreeGMenu()
 
 void gmenu_init_menu()
 {
-	LogoAnim_frame = 0;
 	sgpCurrentMenu = nullptr;
 	sgpCurrItem = nullptr;
 	gmenu_current_option = nullptr;
@@ -212,9 +207,6 @@ void gmenu_init_menu()
 	if (HeadlessMode)
 		return;
 
-	sgpLogo = LoadOptionalCel("data\\hf_logo3", 430);
-	if (!sgpLogo.has_value())
-		sgpLogo = LoadCel("data\\diabsmal", 296);
 	PentSpin_cel = LoadCel("data\\pentspin", 48);
 	option_cel = LoadCel("data\\option", SliderMarkerWidth);
 	optbar_cel = LoadCel("data\\optbar", SliderValueBoxWidth);

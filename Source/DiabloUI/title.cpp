@@ -34,8 +34,7 @@ std::vector<std::unique_ptr<UiItemBase>> vecTitleScreen;
 void TitleLoad()
 {
 	// [DARK KEEP] Our own title over the menu's background, where Hellfire's title art and logo were.
-	ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\mainmenuw.clx");
-	LoadBackgroundArt("ui_art\\mainmenu");
+	UiLoadMainMenuBackground();
 }
 
 void TitleFree()

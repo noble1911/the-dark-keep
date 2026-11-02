@@ -164,8 +164,12 @@ void OnPhaseChanged(Phase from, Phase to)
 void UpdateAlerts(const std::vector<HeroMark> &heroes)
 {
 	alerts.clear();
-	if (State.phase != Phase::Raid)
+	if (State.phase != Phase::Raid) {
+		// Not drawn from now on, so their last rectangles mustn't go on taking clicks.
+		alertRects.clear();
+		alertTiles.clear();
 		return;
+	}
 
 	const Monster *boss = FindBoss();
 	if (State.bossDown) {

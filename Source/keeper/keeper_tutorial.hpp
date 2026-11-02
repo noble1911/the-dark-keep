@@ -83,8 +83,6 @@ struct TipTargets {
 /** The keep loaded: back to the first tip that is due. */
 void TutorialOnLevelLoaded();
 void TutorialTick();
-/** This master cast a spell. */
-void TutorialNoteSpellCast();
 /** Draws the tip due now (if any) with its top at `y`, inside `left`..`left + width`. */
 void DrawTutorialTip(const Surface &out, int left, int width, int y, Point mouse, const TipTargets &targets);
 /** @return true if the click was the tip's. */

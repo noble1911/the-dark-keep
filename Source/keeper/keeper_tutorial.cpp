@@ -10,6 +10,7 @@
 #include <cstring>
 #include <map>
 #include <span>
+#include <tuple>
 #include <utility>
 
 #ifdef USE_SDL3
@@ -238,6 +239,35 @@ void DrawKindIcon(const Surface &area, size_t kind)
 	DrawKindImage(area, it->second);
 }
 
+/** Long weapons don't fit a small box: a copy shrunk to fit, keeping their shape, made once per size. */
+struct ShrunkItem {
+	int width = 0;
+	int height = 0;
+	std::vector<uint8_t> pixels;
+};
+std::map<std::tuple<int, int, int>, ShrunkItem> shrunkItems;
+
+const ShrunkItem &ShrunkItemImage(ClxSprite sprite, int cursor, int maxWidth, int maxHeight)
+{
+	const auto [it, isNew] = shrunkItems.try_emplace({ cursor, maxWidth, maxHeight });
+	ShrunkItem &shrunk = it->second;
+	if (!isNew)
+		return shrunk;
+	OwnedSurface canvas(sprite.width(), sprite.height());
+	for (int y = 0; y < canvas.h(); y++)
+		std::memset(canvas.at(0, y), 0, canvas.w());
+	ClxDraw(canvas, { 0, canvas.h() }, sprite);
+	shrunk.height = std::min(maxHeight, sprite.height() * maxWidth / sprite.width());
+	shrunk.width = std::min(maxWidth, sprite.width() * maxHeight / sprite.height());
+	shrunk.pixels.resize(static_cast<size_t>(shrunk.width) * shrunk.height);
+	for (int y = 0; y < shrunk.height; y++) {
+		const uint8_t *row = canvas.at(0, y * canvas.h() / shrunk.height);
+		for (int x = 0; x < shrunk.width; x++)
+			shrunk.pixels[static_cast<size_t>(y) * shrunk.width + x] = row[x * canvas.w() / shrunk.width];
+	}
+	return shrunk;
+}
+
 // ---- tips ------------------------------------------------------------------------------------------
 
 constexpr int TipIconSize = 48;
@@ -263,7 +293,6 @@ void HideAllTips()
 
 const TipInfo *shownTip = nullptr;
 int shownTicks = 0;
-bool spellCastThisGame = false;
 std::optional<Rectangle> tipRect;
 std::optional<Rectangle> tipClose;
 std::optional<Rectangle> tipHide;
@@ -291,7 +320,7 @@ bool IsTipDone(const TipInfo &info)
 	case Tip::OpenGates:
 		return State.phase == Phase::Raid || State.wave > 1;
 	case Tip::CastSpell:
-		return spellCastThisGame;
+		return SpellsCastThisMap() > 0;
 	case Tip::Traps:
 		return std::any_of(State.traps.begin(), State.traps.end(), [](const Trap &trap) { return trap.active; });
 	case Tip::Rally:
@@ -576,22 +605,15 @@ void DrawUiIcon(const Surface &area, const UiIcon &icon)
 			ClxDraw(area, { (area.w() - sprite.width()) / 2, (area.h() + sprite.height()) / 2 }, sprite);
 			return;
 		}
-		// Long weapons don't fit a small box: shrink them, keeping their shape.
-		OwnedSurface canvas(sprite.width(), sprite.height());
-		for (int y = 0; y < canvas.h(); y++)
-			std::memset(canvas.at(0, y), 0, canvas.w());
-		ClxDraw(canvas, { 0, canvas.h() }, sprite);
-		const int outHeight = std::min(area.h(), sprite.height() * area.w() / sprite.width());
-		const int outWidth = std::min(area.w(), sprite.width() * area.h() / sprite.height());
-		const int left = (area.w() - outWidth) / 2;
-		const int top = (area.h() - outHeight) / 2;
-		for (int y = 0; y < outHeight; y++) {
-			const uint8_t *row = canvas.at(0, y * canvas.h() / outHeight);
+		const ShrunkItem &shrunk = ShrunkItemImage(sprite, icon.id, area.w(), area.h());
+		const int left = (area.w() - shrunk.width) / 2;
+		const int top = (area.h() - shrunk.height) / 2;
+		for (int y = 0; y < shrunk.height; y++) {
+			const uint8_t *row = &shrunk.pixels[static_cast<size_t>(y) * shrunk.width];
 			uint8_t *dst = area.at(left, top + y);
-			for (int x = 0; x < outWidth; x++) {
-				const uint8_t pixel = row[x * canvas.w() / outWidth];
-				if (pixel != 0)
-					dst[x] = pixel;
+			for (int x = 0; x < shrunk.width; x++) {
+				if (row[x] != 0)
+					dst[x] = row[x];
 			}
 		}
 		return;
@@ -612,13 +634,7 @@ void TutorialOnLevelLoaded()
 {
 	shownTip = nullptr;
 	shownTicks = 0;
-	spellCastThisGame = false;
 	tipRect = std::nullopt;
-}
-
-void TutorialNoteSpellCast()
-{
-	spellCastThisGame = true;
 }
 
 void TutorialTick()
