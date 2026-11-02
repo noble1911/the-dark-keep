@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -64,6 +65,8 @@ struct BuildInfo {
 	/** Lairs only: the monster type and how many the lair keeps alive. */
 	_monster_id type;
 	uint8_t count;
+	/** Lairs only: room the monster takes up in the keep (see SupplyCap). */
+	uint8_t supply;
 };
 extern const std::array<BuildInfo, NumBuildKinds> BuildKinds;
 
@@ -98,8 +101,11 @@ struct Lair {
 	Point position;
 	/** Ticks until a lair placed mid-raid finishes summoning. */
 	int summonTicks = 0;
-	/** Monster ids of the lair's members (host-side bookkeeping only; -1 = empty slot). */
+	/** Monster ids of the lair's members (the host announces them to everyone; -1 = empty slot). */
 	std::array<int16_t, MaxLairMembers> members {};
+	/** Where the lair's monsters stand guard, if the master set a rally point. */
+	bool hasRally = false;
+	Point rally;
 };
 
 struct Trap {
@@ -173,7 +179,38 @@ bool CanPlaceBaitAt(Point tile, std::string_view *reason = nullptr);
 Object *FindDoorAt(Point tile);
 DoorLock *FindLock(Point doorPosition);
 
+/** Population: room the keep's lairs take up, and how much the keep holds (grows every raid). */
+int SupplyUsed();
+int SupplyCap();
+
+/** Something a master placed, for selling and rally points. */
+enum class StructureType : uint8_t {
+	Lair,
+	Trap,
+	Bait,
+	Lock,
+};
+struct StructureRef {
+	StructureType type;
+	size_t slot;
+	bool operator==(const StructureRef &other) const = default;
+};
+bool IsStructureActive(StructureRef ref);
+Point StructurePosition(StructureRef ref);
+std::string_view StructureName(StructureRef ref);
+/** Gold back for selling: the full price outside a raid, half during one (bait and locks pro rata). */
+int RefundFor(StructureRef ref);
+/** The structure on (or, for locks, the door at) `tile`. */
+std::optional<StructureRef> FindStructureAt(Point tile);
+/** The lair a keep monster belongs to. */
+std::optional<size_t> LairOfMonster(size_t monsterId);
+bool CanSell(StructureRef ref, std::string_view *reason = nullptr);
+bool CanRallyTo(size_t lair, Point tile, std::string_view *reason = nullptr);
+
 /** Requests (all are network commands, also in single player). */
+void RequestSell(StructureRef ref);
+/** Sends lair `lair`'s monsters to guard `tile` (nullopt: back to the lair). */
+void RequestRally(size_t lair, std::optional<Point> tile);
 void RequestBuild(size_t kind, Point tile);
 void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);

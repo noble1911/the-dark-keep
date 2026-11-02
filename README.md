@@ -48,6 +48,9 @@ of your monsters and fight them yourself — before they get away with your gold
 | Z X C F | Spells, cast instantly at the cursor: Lightning Nova, Fire Wall, Guardian, Stone Curse (or click the spell bar, then the keep) |
 | Left click a hero | Inspect its stats and gear (Esc / right click to close); the raid roster (top right) does the same and jumps the camera to the hero |
 | Esc / click | Dismiss the end-of-raid summary |
+| Left click your monster / trap / bait / lock | Select it (shown in the info panel) |
+| Del / Backspace | Sell the selection: full refund outside a raid, half during one |
+| Right click (monster selected) | Set its rally point: it walks there and guards that spot. Right click its lair to clear |
 | G / T | Lock a door / place fool's-gold bait |
 | Left click | Place / cast the selected tool (or order a possessed monster) |
 | Right click / Esc | Cancel the tool (Esc also releases a possessed monster) |
@@ -55,7 +58,9 @@ of your monsters and fight them yourself — before they get away with your gold
 | R | Open the gates early (start the next raid) |
 
 Building during a raid is allowed, but not within sight of a hero, and new lairs take a few
-seconds to summon.
+seconds to summon. Each monster takes up room in the keep (Pop: Zombie and Fallen 1, Bones and
+Archer 2, Brute 4); the keep holds 16 in raid 1 and 4 more after every raid. Sell monsters to
+make room.
 
 ## Building and running (Windows)
 

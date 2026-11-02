@@ -18,9 +18,11 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 
 ## 2. Unit placement
 - [x] Single monsters instead of groups, priced per monster; up to 96, can stand side by side
-- [ ] Limits per monster type / population cap (unlimited singles may be too strong)
-- [ ] Moving / selling / removing structures
-- [ ] Rally points or patrol routes for keep monsters
+- [x] Population cap (Pop): monsters take 1-4 room, the keep holds 16 + 4 per raid
+- [x] Selling: click your monster / trap / bait / lock, Del to sell (full refund outside raids, half in one)
+- [x] Rally points: right-click with a monster selected; it paths there and guards it
+- [ ] Patrol routes for keep monsters
+- [ ] Drag-select several monsters / rally a group at once
 
 ## 3. Interaction with the players (heroes)
 - [x] Masters' spells hit bot heroes too (Guardian shoots them, Stone Curse petrifies them and spares your monsters)

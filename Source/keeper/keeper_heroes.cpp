@@ -898,6 +898,23 @@ std::string DescribeWave(uint8_t wave)
 	return text;
 }
 
+/** One step back towards the monster's post: a real path when it is far (rally points can be across the keep). */
+void StepHome(Monster &monster, Point home)
+{
+	const Point position = monster.position.tile;
+	if (position.WalkingDistance(home) > 2) {
+		int8_t path[MaxPathLengthPlayer];
+		/** Maps a path step to the direction to walk. */
+		constexpr Direction StepDirections[9] = { Direction::South, Direction::NorthEast, Direction::NorthWest, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West };
+		const int steps = FindPath(CanStep, [](Point tile) { return IsPassable(tile); }, position, home, path, MaxPathLengthPlayer);
+		if (steps > 0 && path[0] > 0 && path[0] < 9) {
+			StepTowards(monster, StepDirections[path[0]]);
+			return;
+		}
+	}
+	StepTowards(monster, GetDirection(position, home));
+}
+
 void LeashMonsters()
 {
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
@@ -909,8 +926,14 @@ void LeashMonsters()
 		const Point home = Homes[monster.getId()];
 		if (monster.position.tile.WalkingDistance(home) <= 3)
 			continue;
-		StepTowards(monster, GetDirection(monster.position.tile, home));
+		StepHome(monster, home);
 	}
+}
+
+void SetMonsterHome(size_t monsterId, Point tile)
+{
+	if (monsterId < MaxMonsters)
+		Homes[monsterId] = tile;
 }
 
 bool ShouldGuard(const Monster &monster)
@@ -924,7 +947,7 @@ void GuardAi(Monster &monster)
 		return;
 	const Point home = Homes[monster.getId()];
 	if (monster.position.tile.WalkingDistance(home) > 1)
-		StepTowards(monster, GetDirection(monster.position.tile, home));
+		StepHome(monster, home);
 }
 
 void ResetHeroes()

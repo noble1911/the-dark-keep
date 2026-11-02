@@ -68,6 +68,8 @@ void HeroAi(Monster &monster);
 
 /** Keep monsters that lost their target drift back towards their lair. */
 void LeashMonsters();
+/** Where a keep monster stands guard (its lair, or the lair's rally point). */
+void SetMonsterHome(size_t monsterId, Point tile);
 
 /** A keep monster with nothing to fight: it guards its lair instead of running its stock AI. */
 bool ShouldGuard(const Monster &monster);

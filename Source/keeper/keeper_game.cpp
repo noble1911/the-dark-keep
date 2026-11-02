@@ -30,12 +30,12 @@
 namespace devilution::keeper {
 
 const std::array<BuildInfo, NumBuildKinds> BuildKinds { {
-	{ "Zombie", 40, MT_NZOMBIE, 1 },
-	{ "Fallen", 35, MT_RFALLSP, 1 },
-	{ "Bones", 65, MT_WSKELAX, 1 },
-	{ "Archer", 100, MT_WSKELBW, 1 },
-	{ "Brute", 260, MT_FAT, 1 },
-	{ "Trap", 80, MT_INVALID, 0 },
+	{ "Zombie", 40, MT_NZOMBIE, 1, 1 },
+	{ "Fallen", 35, MT_RFALLSP, 1, 1 },
+	{ "Bones", 65, MT_WSKELAX, 1, 2 },
+	{ "Archer", 100, MT_WSKELBW, 1, 2 },
+	{ "Brute", 260, MT_FAT, 1, 4 },
+	{ "Trap", 80, MT_INVALID, 0, 0 },
 } };
 
 const std::array<SpellKind, NumSpellKinds> SpellKinds { {
@@ -68,6 +68,9 @@ constexpr int BaitUses = 3;
 constexpr int StateBroadcastInterval = TicksPerSecond;
 /** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
 constexpr int PossessDrainPerTick = 10;
+/** Population cap: room for this many supply in raid 1, growing after every raid. */
+constexpr int BaseSupply = 16;
+constexpr int SupplyPerRaid = 4;
 
 enum class Action : uint8_t {
 	RequestBuild = 1,
@@ -82,6 +85,11 @@ enum class Action : uint8_t {
 	Release,
 	Order,
 	SpawnBot,
+	RequestSell,
+	Sold,
+	RequestRally,
+	Rallied,
+	LairMember,
 };
 
 #pragma pack(push, 1)
@@ -258,6 +266,18 @@ bool IsMemberAlive(int16_t monsterId, _monster_id type)
 	return monster.hitPoints > 0 && monster.mode != MonsterMode::Death && monster.position.tile != GolemHoldingCell && monster.type().type == type && !monster.isInvalid;
 }
 
+/** Records a lair member; the id may have belonged to another lair's monster that has since died. */
+void ClaimMonster(Lair &lair, size_t index, int16_t monsterId)
+{
+	for (Lair &other : State.lairs) {
+		for (int16_t &member : other.members) {
+			if (member == monsterId)
+				member = -1;
+		}
+	}
+	lair.members[index] = monsterId;
+}
+
 /** Host only: tops a lair back up to full strength. */
 void RefillLair(Lair &lair)
 {
@@ -276,9 +296,35 @@ void RefillLair(Lair &lair)
 		const std::optional<Point> spawnTile = FindClosestValidPosition(IsFreeFloor, lair.position, 0, 4);
 		if (!spawnTile)
 			return;
-		lair.members[i] = static_cast<int16_t>(ActiveMonsters[ActiveMonsterCount]);
+		const auto monsterId = static_cast<int16_t>(ActiveMonsters[ActiveMonsterCount]);
+		ClaimMonster(lair, i, monsterId);
 		SpawnMonster(*spawnTile, Direction::South, *typeIndex);
+		// Everyone learns which monster belongs to the lair (for selling and its rally point).
+		Send(Action::LairMember, static_cast<uint8_t>(&lair - State.lairs.data()), static_cast<uint8_t>(i), {}, static_cast<uint16_t>(monsterId + 1));
 	}
+}
+
+/** Takes a sold lair's monster off the map on every client (no corpse, no bounty). */
+void DismissMonster(int16_t monsterId)
+{
+	if (monsterId < 0 || static_cast<size_t>(monsterId) >= MaxMonsters)
+		return;
+	Monster &monster = Monsters[monsterId];
+	if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell)
+		return;
+	for (size_t pid = 0; pid < State.possessed.size(); pid++) {
+		if (State.possessed[pid] == monsterId)
+			EndPossession(pid);
+	}
+	M_ClearSquares(monster);
+	monster.hitPoints = 0;
+	monster.isInvalid = true;
+}
+
+/** Where a lair's monsters stand guard. */
+Point GuardPost(const Lair &lair)
+{
+	return lair.hasRally ? lair.rally : lair.position;
 }
 
 void RefillLairs()
@@ -413,6 +459,76 @@ void ApplyBaitPlaced(uint8_t slot, Point tile)
 	bait.active = true;
 	bait.position = tile;
 	bait.uses = BaitUses;
+}
+
+void HostSell(StructureRef ref)
+{
+	if (!CanSell(ref))
+		return;
+	State.vaultGold += RefundFor(ref);
+	Send(Action::Sold, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
+	BroadcastState();
+}
+
+void ApplySold(uint8_t type, uint8_t slot)
+{
+	switch (static_cast<StructureType>(type)) {
+	case StructureType::Lair:
+		if (slot < MaxLairs) {
+			Lair &lair = State.lairs[slot];
+			for (const int16_t member : lair.members) {
+				if (IsMemberAlive(member, BuildKinds[lair.kind].type))
+					DismissMonster(member);
+			}
+			lair = {};
+			lair.members.fill(-1);
+		}
+		break;
+	case StructureType::Trap:
+		if (slot < MaxTraps)
+			State.traps[slot] = {};
+		break;
+	case StructureType::Bait:
+		if (slot < MaxBaits)
+			State.baits[slot] = {};
+		break;
+	case StructureType::Lock:
+		if (slot < MaxLocks && State.locks[slot].active) {
+			State.locks[slot] = {};
+			RebuildPaths();
+		}
+		break;
+	}
+}
+
+void HostRally(uint8_t slot, bool set, Point tile)
+{
+	if (slot >= MaxLairs || !State.lairs[slot].active || (set && !CanRallyTo(slot, tile)))
+		return;
+	Send(Action::Rallied, slot, set ? 1 : 0, tile);
+}
+
+void ApplyRally(uint8_t slot, bool set, Point tile)
+{
+	if (slot >= MaxLairs)
+		return;
+	Lair &lair = State.lairs[slot];
+	lair.hasRally = set;
+	lair.rally = set ? tile : Point {};
+	for (const int16_t member : lair.members) {
+		if (IsMemberAlive(member, BuildKinds[lair.kind].type))
+			SetMonsterHome(static_cast<size_t>(member), GuardPost(lair));
+	}
+}
+
+void ApplyLairMember(uint8_t slot, uint8_t index, int monsterId)
+{
+	if (slot >= MaxLairs || index >= MaxLairMembers || monsterId < 0 || static_cast<size_t>(monsterId) >= MaxMonsters)
+		return;
+	ClaimMonster(State.lairs[slot], index, static_cast<int16_t>(monsterId));
+	Lair &lair = State.lairs[slot];
+	if (lair.hasRally)
+		SetMonsterHome(static_cast<size_t>(monsterId), lair.rally);
 }
 
 void ApplyCast(Player &caster, size_t spell, Point tile)
@@ -594,7 +710,171 @@ bool CanBuildAt(size_t kind, Point tile, std::string_view *reason)
 		return fail("Heroes are watching");
 	if (State.vaultGold < BuildKinds[kind].cost)
 		return fail("Not enough gold");
+	if (IsLairKind(kind) && SupplyUsed() + BuildKinds[kind].supply > SupplyCap())
+		return fail("The keep is full (Pop)");
 	return true;
+}
+
+int SupplyUsed()
+{
+	int used = 0;
+	for (const Lair &lair : State.lairs) {
+		if (lair.active)
+			used += BuildKinds[lair.kind].supply;
+	}
+	return used;
+}
+
+int SupplyCap()
+{
+	return BaseSupply + SupplyPerRaid * (std::clamp<int>(State.wave, 1, NumWaves) - 1);
+}
+
+bool IsStructureActive(StructureRef ref)
+{
+	switch (ref.type) {
+	case StructureType::Lair:
+		return ref.slot < MaxLairs && State.lairs[ref.slot].active;
+	case StructureType::Trap:
+		return ref.slot < MaxTraps && State.traps[ref.slot].active;
+	case StructureType::Bait:
+		return ref.slot < MaxBaits && State.baits[ref.slot].active;
+	case StructureType::Lock:
+		return ref.slot < MaxLocks && State.locks[ref.slot].active;
+	}
+	return false;
+}
+
+Point StructurePosition(StructureRef ref)
+{
+	if (!IsStructureActive(ref))
+		return {};
+	switch (ref.type) {
+	case StructureType::Lair:
+		return State.lairs[ref.slot].position;
+	case StructureType::Trap:
+		return State.traps[ref.slot].position;
+	case StructureType::Bait:
+		return State.baits[ref.slot].position;
+	case StructureType::Lock:
+		return State.locks[ref.slot].position;
+	}
+	return {};
+}
+
+std::string_view StructureName(StructureRef ref)
+{
+	switch (ref.type) {
+	case StructureType::Lair:
+		return ref.slot < MaxLairs ? BuildKinds[State.lairs[ref.slot].kind].name : "Lair";
+	case StructureType::Trap:
+		return "Fire trap";
+	case StructureType::Bait:
+		return "Fool's gold";
+	case StructureType::Lock:
+		return "Door lock";
+	}
+	return "";
+}
+
+int RefundFor(StructureRef ref)
+{
+	if (!IsStructureActive(ref))
+		return 0;
+	int value = 0;
+	switch (ref.type) {
+	case StructureType::Lair:
+		value = BuildKinds[State.lairs[ref.slot].kind].cost;
+		break;
+	case StructureType::Trap:
+		value = BuildKinds[static_cast<size_t>(BuildKind::FireTrap)].cost;
+		break;
+	case StructureType::Bait:
+		value = BaitCost * State.baits[ref.slot].uses / BaitUses;
+		break;
+	case StructureType::Lock:
+		value = LockDoorCost * State.locks[ref.slot].strength / LockStrength;
+		break;
+	}
+	return State.phase == Phase::Raid ? value / 2 : value;
+}
+
+std::optional<StructureRef> FindStructureAt(Point tile)
+{
+	for (size_t i = 0; i < MaxLairs; i++) {
+		if (State.lairs[i].active && State.lairs[i].position == tile)
+			return StructureRef { StructureType::Lair, i };
+	}
+	for (size_t i = 0; i < MaxTraps; i++) {
+		if (State.traps[i].active && State.traps[i].position == tile)
+			return StructureRef { StructureType::Trap, i };
+	}
+	for (size_t i = 0; i < MaxBaits; i++) {
+		if (State.baits[i].active && State.baits[i].position == tile)
+			return StructureRef { StructureType::Bait, i };
+	}
+	if (const Object *door = FindDoorAt(tile); door != nullptr) {
+		for (size_t i = 0; i < MaxLocks; i++) {
+			if (State.locks[i].active && State.locks[i].position == door->position)
+				return StructureRef { StructureType::Lock, i };
+		}
+	}
+	return std::nullopt;
+}
+
+std::optional<size_t> LairOfMonster(size_t monsterId)
+{
+	for (size_t i = 0; i < MaxLairs; i++) {
+		const Lair &lair = State.lairs[i];
+		if (!lair.active)
+			continue;
+		for (const int16_t member : lair.members) {
+			// Ids are reused once a monster is gone, so only a living member of the right type counts.
+			if (member >= 0 && static_cast<size_t>(member) == monsterId && IsMemberAlive(member, BuildKinds[lair.kind].type))
+				return i;
+		}
+	}
+	return std::nullopt;
+}
+
+bool CanSell(StructureRef ref, std::string_view *reason)
+{
+	auto fail = [reason](std::string_view why) {
+		if (reason != nullptr)
+			*reason = why;
+		return false;
+	};
+	if (IsSiegeOver())
+		return fail("The siege is over");
+	if (!IsStructureActive(ref))
+		return fail("Already gone");
+	return true;
+}
+
+bool CanRallyTo(size_t lair, Point tile, std::string_view *reason)
+{
+	auto fail = [reason](std::string_view why) {
+		if (reason != nullptr)
+			*reason = why;
+		return false;
+	};
+	if (IsSiegeOver())
+		return fail("The siege is over");
+	if (lair >= MaxLairs || !State.lairs[lair].active)
+		return fail("Select a monster first");
+	if (!InDungeonBounds(tile) || !IsTileWalkable(tile, /*ignoreDoors=*/true))
+		return fail("Needs open floor");
+	return true;
+}
+
+void RequestSell(StructureRef ref)
+{
+	Send(Action::RequestSell, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
+}
+
+void RequestRally(size_t lair, std::optional<Point> tile)
+{
+	Send(Action::RequestRally, static_cast<uint8_t>(lair), tile ? 1 : 0, tile.value_or(Point {}));
 }
 
 Object *FindDoorAt(Point tile)
@@ -796,6 +1076,23 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SpawnBot:
 		if (message.a < MaxBots && message.b < NumHeroClasses && InDungeonBounds(tile))
 			SpawnBot(message.a, static_cast<HeroClassKind>(message.b), tile);
+		break;
+	case Action::RequestSell:
+		if (IsHost() && message.a <= static_cast<uint8_t>(StructureType::Lock))
+			HostSell({ static_cast<StructureType>(message.a), message.b });
+		break;
+	case Action::Sold:
+		ApplySold(message.a, message.b);
+		break;
+	case Action::RequestRally:
+		if (IsHost())
+			HostRally(message.a, message.b != 0, tile);
+		break;
+	case Action::Rallied:
+		ApplyRally(message.a, message.b != 0, tile);
+		break;
+	case Action::LairMember:
+		ApplyLairMember(message.a, message.b, static_cast<int>(Swap16LE(message.w)) - 1);
 		break;
 	}
 	return sizeof(message);
