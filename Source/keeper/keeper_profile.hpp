@@ -61,6 +61,11 @@ bool RaiseTrap(size_t trap);
 /** Gives back every point of Renown; starting items stay. Free. */
 void RespecProfile();
 
+/** The difficulty this player's games start at (the host's counts in co-op). */
+Difficulty ProfileDifficulty();
+/** Moves on to the next difficulty and saves. */
+void CycleProfileDifficulty();
+
 /** The spell bar, by slot: a spell, or -1. */
 const std::array<int8_t, NumSpellSlots> &ProfileSpellBar();
 /** Puts the spell on the bar or takes it off. @return false if the bar is full. */

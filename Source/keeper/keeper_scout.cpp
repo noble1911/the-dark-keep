@@ -136,7 +136,7 @@ ScoutInfo scout;
 /** The party only changes with what the host says about the raid, so it isn't rebuilt every frame. */
 uint32_t ScoutKey()
 {
-	return (static_cast<uint32_t>(State.wave) * 16777619U) ^ CurrentSetup().seed;
+	return (static_cast<uint32_t>(State.wave) * 16777619U) ^ CurrentSetup().seed ^ (static_cast<uint32_t>(RaidMasters()) << 8) ^ (static_cast<uint32_t>(GameDifficulty()) << 12);
 }
 
 const ScoutInfo &GetScoutInfo()
@@ -311,6 +311,13 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	const UiFlags titleFont = layout.big ? UiFlags::FontSize24 : UiFlags::FontSize12;
 	const std::string title = champions ? fmt::format("Raid {}: the champions", State.wave) : fmt::format("Raid {} of {}", State.wave, NumWaves());
 	DrawString(out, title, { { x, y }, { inner, layout.titleHeight } }, { .flags = titleFont | UiFlags::ColorGold });
+	// How hard this game is set, whoever chose it. Normal on one's own needs no saying.
+	const int masters = RaidMasters();
+	const Difficulty difficulty = GameDifficulty();
+	if (masters > 1 || difficulty != Difficulty::Normal) {
+		const std::string setting = masters > 1 ? fmt::format("{}, {} masters", DifficultyName(difficulty), masters) : std::string(DifficultyName(difficulty));
+		DrawString(out, setting, { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+	}
 	y += layout.titleHeight;
 	DrawString(out, fmt::format("{} {}.  Greed: {}.  Courage: {}.", info.party.size(), info.party.size() == 1 ? "hero" : "heroes", GreedWord(info.party), CourageWord()),
 	    { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });

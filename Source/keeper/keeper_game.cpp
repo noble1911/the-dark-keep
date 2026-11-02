@@ -216,7 +216,7 @@ void BroadcastState()
 	cmd.bCmd = CMD_KEEPER_STATE;
 	cmd.phase = static_cast<uint8_t>(State.phase);
 	cmd.wave = State.wave;
-	cmd.reserved = static_cast<uint8_t>((State.bossDown ? 1 : 0) | (State.portalEscape ? 2 : 0));
+	cmd.reserved = static_cast<uint8_t>((State.bossDown ? 1 : 0) | (State.portalEscape ? 2 : 0) | (std::min(RaidMasters(), 7) << 2) | (static_cast<int>(GameDifficulty()) << 5));
 	cmd.phaseTicks = Swap32LE(static_cast<uint32_t>(std::max(State.phaseTicks, 0)));
 	cmd.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.vaultGold)));
 	cmd.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.goldLost)));
@@ -280,6 +280,16 @@ bool IsPlacementCrowded(Point tile)
 			return true;
 	}
 	return false;
+}
+
+int CountMasters()
+{
+	int masters = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (Players[id].plractive)
+			masters++;
+	}
+	return masters;
 }
 
 int TributeFor(uint8_t wave)
@@ -766,7 +776,7 @@ private:
 void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
-	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave);
+	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave, static_cast<uint8_t>(RaidMasters()), static_cast<uint8_t>(GameDifficulty()));
 	out.Add(Action::SyncHostSlot, LobbyHostSlot());
 	// Before the hit points: raising a tier adds life, and those are the final numbers.
 	for (size_t i = 0; i < NumUpgrades; i++)
@@ -833,10 +843,13 @@ bool IsMonsterInPlay(int monsterId)
 	    && !Monsters[monsterId].isInvalid;
 }
 
-void ApplySyncBegin(uint8_t phaseId, uint8_t wave)
+void ApplySyncBegin(uint8_t phaseId, uint8_t wave, uint8_t masters, uint8_t difficulty)
 {
 	const Phase phase = static_cast<Phase>(std::min<uint8_t>(phaseId, static_cast<uint8_t>(Phase::Defeat)));
 	State.wave = wave;
+	// Before the heroes in this snapshot are rebuilt: they scale with these.
+	SetRaidMasters(masters);
+	SetGameDifficulty(static_cast<Difficulty>(difficulty));
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
 	for (Lair &lair : State.lairs) {
@@ -894,7 +907,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	const int monsterId = static_cast<int>(Swap16LE(message.w)) - 1;
 	switch (message.action) {
 	case Action::SyncBegin:
-		ApplySyncBegin(message.a, message.b);
+		ApplySyncBegin(message.a, message.b, message.x, message.y);
 		break;
 	case Action::SyncHostSlot:
 		LobbySetHostSlot(message.a);
@@ -1188,6 +1201,8 @@ void ResetGame(Point entrance, Point vault)
 	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, NumWaves()));
 	State.phase = Phase::Setup;
 	State.phaseTicks = SetupTicks;
+	LatchGameDifficulty();
+	SetRaidMasters(CountMasters());
 	for (size_t i = 0; i < NumSpellKinds; i++)
 		State.spellLevels[i] = static_cast<uint8_t>(GameSpellLevel(i));
 	for (size_t i = 0; i < NumTrapKinds; i++)
@@ -1273,6 +1288,8 @@ void GameTick()
 	switch (State.phase) {
 	case Phase::Setup:
 	case Phase::Breather:
+		// Only while preparing: the party a raid is scaled for holds until it ends, whoever comes or goes.
+		SetRaidMasters(CountMasters());
 		if (State.phaseTicks == 0)
 			StartRaid();
 		break;
@@ -1712,6 +1729,8 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
 			}
 			State.wave = message.wave;
+			SetRaidMasters((message.reserved >> 2) & 7);
+			SetGameDifficulty(static_cast<Difficulty>((message.reserved >> 5) & 3));
 			const bool wasBossDown = State.bossDown;
 			State.bossDown = (message.reserved & 1) != 0;
 			State.portalEscape = (message.reserved & 2) != 0;

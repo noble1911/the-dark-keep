@@ -64,6 +64,7 @@ namespace devilution::keeper {
 bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
+int TestDifficulty = -1;
 int TestCampaignLevel = 0;
 int TestRank = 0;
 AutoNetMode AutoNet = AutoNetMode::None;

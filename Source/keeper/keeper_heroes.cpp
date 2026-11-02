@@ -518,10 +518,10 @@ HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 	if (champion)
 		hp = hp * 3 / 2;
 	return {
-		ScaleByHeroStrength(hp),
-		std::min(ScaleByHeroStrength(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),
-		std::min(ScaleByHeroStrength(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10), 255),
-		std::min(ScaleArmorByHeroStrength(stats.armorBase + stats.armorPerRaid * wave), 255),
+		ScaleHeroCombat(hp),
+		std::min(ScaleHeroCombat(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleHeroCombat(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleHeroArmor(stats.armorBase + stats.armorPerRaid * wave), 255),
 	};
 }
 

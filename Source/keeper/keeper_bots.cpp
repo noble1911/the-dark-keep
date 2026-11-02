@@ -174,7 +174,7 @@ void ScaleBot(Player &bot, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	bot.setCharacterLevel(static_cast<uint8_t>(std::min(wave * 2 - 1, 30)));
-	const int bonus = ScaleByHeroStrength(BotStatsPerRaid * (wave - 1));
+	const int bonus = ScaleHeroCombat(BotStatsPerRaid * (wave - 1));
 	bot._pBaseStr += bonus;
 	bot._pBaseDex += bonus;
 	// Vitality does not scale: its life is scaled below, and scaling both made bots grow on the square of the level's strength.
@@ -183,7 +183,7 @@ void ScaleBot(Player &bot, bool champion)
 	bot._pMaxHPBase = bot.calculateBaseLife();
 	if (champion)
 		bot._pMaxHPBase = bot._pMaxHPBase * 3 / 2;
-	bot._pMaxHPBase = ScaleByHeroStrength(bot._pMaxHPBase);
+	bot._pMaxHPBase = ScaleHeroCombat(bot._pMaxHPBase);
 	bot._pHPBase = bot._pMaxHPBase;
 	bot._pMaxManaBase = std::max(bot.calculateBaseMana(), 60 << 6);
 	bot._pManaBase = bot._pMaxManaBase;

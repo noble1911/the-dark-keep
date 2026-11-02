@@ -63,6 +63,7 @@ struct Profile {
 	std::array<uint8_t, NumSpellKinds> spells {};
 	std::array<uint8_t, NumTrapKinds> traps {};
 	std::array<int8_t, NumSpellSlots> spellBar {};
+	Difficulty difficulty = Difficulty::Normal;
 };
 
 Profile profile;
@@ -160,6 +161,9 @@ ReadResult ReadProfile(const std::string &path, Profile &p)
 		} else if (name == "bar") {
 			if (a >= 0 && static_cast<size_t>(a) < NumSpellKinds && barSlot < NumSpellSlots)
 				p.spellBar[barSlot++] = static_cast<int8_t>(a);
+		} else if (name == "difficulty") {
+			if (a >= 0 && static_cast<size_t>(a) < NumDifficulties)
+				p.difficulty = static_cast<Difficulty>(a);
 		}
 	}
 	std::fclose(file);
@@ -404,6 +408,19 @@ void RespecProfile()
 	SaveProfile();
 }
 
+Difficulty ProfileDifficulty()
+{
+	Load();
+	return profile.difficulty;
+}
+
+void CycleProfileDifficulty()
+{
+	Load();
+	profile.difficulty = static_cast<Difficulty>((static_cast<size_t>(profile.difficulty) + 1) % NumDifficulties);
+	SaveProfile();
+}
+
 const std::array<int8_t, NumSpellSlots> &ProfileSpellBar()
 {
 	Load();
@@ -520,7 +537,7 @@ void ProfileNoteHeroSlain(int wave)
 		return;
 	Load();
 	profile.stats.heroesSlain++;
-	const int xp = HeroSlainXpBase + HeroSlainXpPerWave * wave;
+	const int xp = (HeroSlainXpBase + HeroSlainXpPerWave * wave) * DifficultyXpPercent() / 100 * PartyXpPercent() / 100;
 	AddXp(mapIsReplay ? xp * ReplayFightPercent / 100 : xp);
 }
 
@@ -538,7 +555,7 @@ void ProfileNoteRaidSurvived(int wave)
 		return;
 	Load();
 	profile.stats.raidsSurvived++;
-	const int xp = RaidXpBase + RaidXpPerWave * wave;
+	const int xp = (RaidXpBase + RaidXpPerWave * wave) * DifficultyXpPercent() / 100;
 	AddXp(mapIsReplay ? xp * ReplayFightPercent / 100 : xp);
 	SaveProfile();
 }
@@ -549,7 +566,7 @@ void ProfileNoteVictory(int campaignLevel, bool firstClear)
 		return;
 	Load();
 	profile.stats.mapsCleared++;
-	const int xp = ClearXpBase + ClearXpPerLevel * campaignLevel;
+	const int xp = (ClearXpBase + ClearXpPerLevel * campaignLevel) * DifficultyXpPercent() / 100;
 	AddXp(firstClear ? xp : xp * ReplayClearPercent / 100);
 	SaveProfile();
 }
@@ -599,6 +616,7 @@ void SaveProfile()
 		if (slot >= 0)
 			text += fmt::format("bar {} 1\n", slot);
 	}
+	text += fmt::format("difficulty {} 0\n", static_cast<int>(profile.difficulty));
 	const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
 	const bool closed = std::fclose(file) == 0;
 	if (!written || !closed) {

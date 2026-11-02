@@ -75,11 +75,49 @@ constexpr int HeroArmorStrengthPercent = 50;
 /** However a level's numbers are tuned, a raid never brings more heroes than this. */
 constexpr int MaxPartySize = 14;
 
+/** Column order: name, hero fighting strength %, XP %, blurb. Prices, tribute and bounties don't change, so Hard is simply harder. */
+struct DifficultyRules {
+	std::string_view name;
+	int strengthPercent;
+	int xpPercent;
+	std::string_view blurb;
+};
+constexpr std::array<DifficultyRules, NumDifficulties> DifficultyTable { {
+	{ "Easy", 80, 75, "Heroes hit less hard and fall sooner. 75% XP." },
+	{ "Normal", 100, 100, "The keep as it was meant to be held." },
+	{ "Hard", 125, 125, "Heroes hit harder and last longer. 125% XP." },
+} };
+
+/**
+ * Co-op monsters have twice single-player life (keeper_roster.cpp) and each master brings spells, so parties grow
+ * with the masters: `strengthPercent` on their life and damage, `partyPercent` on their number. Starting points
+ * from the square law in docs/BALANCE.md (party power goes with strength^2 * size^2); never played.
+ */
+struct MasterScale {
+	int strengthPercent;
+	int partyPercent;
+};
+constexpr MasterScale SoloScale { 100, 100 };
+/** By number of masters in a network game, from 1: alone in one, a master still gets the doubled monsters. */
+constexpr std::array<MasterScale, 4> NetworkScale { {
+	{ 140, 100 },
+	{ 125, 125 },
+	{ 130, 140 },
+	{ 135, 150 },
+} };
+
+const MasterScale &CurrentMasterScale()
+{
+	return gbIsMultiplayer ? NetworkScale[std::clamp(RaidMasters(), 1, static_cast<int>(NetworkScale.size())) - 1] : SoloScale;
+}
+
 constexpr std::string_view ProgressFileName = "campaign_progress.txt";
 constexpr std::string_view ProgressHeader = "DARKKEEP-CAMPAIGN";
 constexpr int ProgressVersion = 1;
 
 KeepSetup currentSetup;
+Difficulty gameDifficulty = Difficulty::Normal;
+int raidMasters = 1;
 
 /** From --keeper-level, so a test of a late level has the units it is meant to be played with. */
 int devRank = 0;
@@ -260,6 +298,67 @@ int ScaleByHeroStrength(int value)
 	return value * HeroStrengthPercent() / 100;
 }
 
+std::string_view DifficultyName(Difficulty difficulty)
+{
+	return DifficultyTable[static_cast<size_t>(difficulty)].name;
+}
+
+std::string_view DifficultyBlurb(Difficulty difficulty)
+{
+	return DifficultyTable[static_cast<size_t>(difficulty)].blurb;
+}
+
+Difficulty GameDifficulty()
+{
+	return gameDifficulty;
+}
+
+void SetGameDifficulty(Difficulty difficulty)
+{
+	gameDifficulty = static_cast<size_t>(difficulty) < NumDifficulties ? difficulty : Difficulty::Normal;
+}
+
+void LatchGameDifficulty()
+{
+	if (!joinedGame)
+		SetGameDifficulty(TestDifficulty >= 0 ? static_cast<Difficulty>(TestDifficulty) : ProfileDifficulty());
+}
+
+int RaidMasters()
+{
+	return raidMasters;
+}
+
+void SetRaidMasters(int masters)
+{
+	raidMasters = std::max(masters, 1);
+}
+
+int HeroCombatPercent()
+{
+	return HeroStrengthPercent() * DifficultyTable[static_cast<size_t>(gameDifficulty)].strengthPercent / 100 * CurrentMasterScale().strengthPercent / 100;
+}
+
+int ScaleHeroCombat(int value)
+{
+	return value * HeroCombatPercent() / 100;
+}
+
+int ScaleHeroArmor(int value)
+{
+	return value * (100 + (HeroCombatPercent() - 100) * HeroArmorStrengthPercent / 100) / 100;
+}
+
+int DifficultyXpPercent()
+{
+	return DifficultyTable[static_cast<size_t>(gameDifficulty)].xpPercent;
+}
+
+int PartyXpPercent()
+{
+	return 10000 / CurrentMasterScale().partyPercent;
+}
+
 int ScaleArmorByHeroStrength(int value)
 {
 	return value * (100 + (HeroStrengthPercent() - 100) * HeroArmorStrengthPercent / 100) / 100;
@@ -268,7 +367,8 @@ int ScaleArmorByHeroStrength(int value)
 int PartySizeForWave(int wave)
 {
 	const LevelRules &rules = CurrentRules();
-	return std::clamp(rules.startingParty + rules.partyGrowthPercent * (std::max(wave, 1) - 1) / 100, 1, MaxPartySize);
+	const int size = rules.startingParty + rules.partyGrowthPercent * (std::max(wave, 1) - 1) / 100;
+	return std::clamp((size * CurrentMasterScale().partyPercent + 50) / 100, 1, MaxPartySize);
 }
 
 KeepSetup SetupForCampaignLevel(int level)
@@ -379,6 +479,8 @@ bool IsJoinedGame()
 bool HostGame(GameData &gameData, const char *gameName, const char *password, int *playerId)
 {
 	gameData.nDifficulty = DIFF_NORMAL; // how hard a game is comes from the campaign
+	LatchGameDifficulty();
+	gameData.keeperReserved = static_cast<uint8_t>(GameDifficulty());
 	gameData.keeperMode = static_cast<uint8_t>(currentSetup.mode);
 	gameData.keeperLevel = static_cast<uint8_t>(currentSetup.campaignLevel);
 	WriteHostUnlocks(gameData);
@@ -399,6 +501,7 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 {
 	joinedGame = true;
 	ReadHostUnlocks(gameData);
+	SetGameDifficulty(static_cast<Difficulty>(gameData.keeperReserved));
 
 	KeepSetup setup;
 	setup.mode = gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap) ? GameMode::CustomMap : GameMode::Campaign;
@@ -422,9 +525,13 @@ void ApplyHostSetup(const GameData &gameData, const std::byte *mapBytes, size_t 
 
 std::string DescribeHostedGame(const GameData &gameData)
 {
+	const std::string_view difficulty = gameData.keeperReserved < NumDifficulties && gameData.keeperReserved != static_cast<uint8_t>(Difficulty::Normal)
+	    ? DifficultyName(static_cast<Difficulty>(gameData.keeperReserved))
+	    : "";
+	const std::string extra = difficulty.empty() ? std::string() : fmt::format(", {}", difficulty);
 	if (gameData.keeperMode == static_cast<uint8_t>(GameMode::CustomMap))
-		return fmt::format("Custom map, keeper level {}", gameData.keeperRank);
-	return fmt::format("Level {}: {}, keeper level {}", gameData.keeperLevel, CampaignLevelRules(gameData.keeperLevel).name, gameData.keeperRank);
+		return fmt::format("Custom map, keeper level {}{}", gameData.keeperRank, extra);
+	return fmt::format("Level {}: {}, keeper level {}{}", gameData.keeperLevel, CampaignLevelRules(gameData.keeperLevel).name, gameData.keeperRank, extra);
 }
 
 std::optional<KeepSetup> ContinueSetup(bool won)

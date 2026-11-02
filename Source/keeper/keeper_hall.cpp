@@ -431,6 +431,11 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 		y += 15;
 	}
 
+	const Rectangle difficultyButton { { x, area.position.y + area.size.height - 2 * ButtonHeight - 12 }, { inner, ButtonHeight } };
+	if (Button(out, difficultyButton, fmt::format("Difficulty: {}", DifficultyName(ProfileDifficulty())), true, mouse)) {
+		CycleProfileDifficulty();
+		Flash(std::string(DifficultyBlurb(ProfileDifficulty())));
+	}
 	const Rectangle respec { { x, area.position.y + area.size.height - ButtonHeight - 8 }, { inner, ButtonHeight } };
 	if (Button(out, respec, confirmRespec ? "Click again to respec" : "Respec (free)", true, mouse)) {
 		if (confirmRespec) {

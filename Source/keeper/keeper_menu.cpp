@@ -159,7 +159,7 @@ void DescribeCampaignLevel(int level)
 		return;
 	}
 	const std::string status = level > NextOpenLevel() ? fmt::format("Locked: clear level {} first", level - 1) : (level <= LevelsCleared() ? "Cleared *" : "Not yet cleared");
-	SetDescription(fmt::format("{}\n\nRaids: {}\nStarting gold: {}\nHero strength: {}%\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, status));
+	SetDescription(fmt::format("{}\n\nRaids: {}\nStarting gold: {}\nHero strength: {}%\nDifficulty: {}\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, DifficultyName(ProfileDifficulty()), status));
 }
 
 void DescribeCustomMap(int /*value*/)
