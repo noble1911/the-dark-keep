@@ -37,6 +37,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
@@ -101,8 +102,8 @@ struct Tool {
 };
 
 Tool currentTool;
-/** The spell bar for this game: the profile's choice, less anything a host's game doesn't have. */
-std::array<std::optional<size_t>, NumSpellSlots> equippedSpells;
+/** The spell bar for this game: the profile's choice, less anything a host's game doesn't have, or a joiner's picks. */
+SpellBar equippedSpells;
 
 const Monster *MyPossessed();
 void LoadSpellBar();
@@ -455,6 +456,14 @@ Rectangle SpellSlotRect(size_t i)
 	constexpr int Total = static_cast<int>(NumSpellSlots) * SpellSlotSize + (static_cast<int>(NumSpellSlots) - 1) * SpellSlotGap;
 	const int left = info.position.x + info.size.width - Total;
 	return { { left + static_cast<int>(i) * (SpellSlotSize + SpellSlotGap), info.position.y - SpellSlotSize - 8 }, { SpellSlotSize, SpellSlotSize } };
+}
+
+/** All the slots together. */
+Rectangle SpellBarRect()
+{
+	const Rectangle first = SpellSlotRect(0);
+	const Rectangle last = SpellSlotRect(NumSpellSlots - 1);
+	return { first.position, { last.position.x + last.size.width - first.position.x, first.size.height } };
 }
 
 std::optional<size_t> SpellSlotAt(Point p)
@@ -1549,7 +1558,7 @@ bool TryCastSpell(size_t index, Point tile)
 /** True if the mouse is over the HUD or one of the panels floating above it. */
 bool IsMouseOverUi()
 {
-	if (UiMouse().y >= HudRect().position.y || SpellSlotAt(UiMouse()))
+	if (UiMouse().y >= HudRect().position.y || SpellSlotAt(UiMouse()) || LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	const std::optional<Rectangle> inspect = InspectPanelRect(HudRect().position.x + 6, HudRect().position.y);
 	if (inspect && Contains(*inspect, UiMouse()))
@@ -1628,6 +1637,7 @@ void OnLevelLoaded()
 	ResetGame(entrance, FindVault(entrance));
 	ResetUnits();
 	LoadSpellBar();
+	LobbyOnLevelLoaded(equippedSpells);
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1651,6 +1661,7 @@ void OnGameEnded()
 	EditorOnGameEnded();
 	ForgetMapCache();
 	SaveProfile();
+	LobbyOnGameEnded();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1663,6 +1674,7 @@ void Tick()
 
 	// The host chose what comes next: leave, then StartGame's loop brings this client into it.
 	if (TakeRestartRequest()) {
+		LobbyNoteRematch();
 		gamemenu_exit_game(false);
 		ReturnToMainMenu = false;
 		return;
@@ -1683,6 +1695,7 @@ void Tick()
 		return; // a map being edited has no raid to simulate
 
 	GameTick();
+	LobbyTick();
 	UpdateUnitMarkers();
 
 	tickCounter++;
@@ -1800,7 +1813,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		if (index >= NumSpellSlots)
 			return;
 		if (!equippedSpells[index]) {
-			SetFeedback("No spell in that slot: equip one from the Spellbook");
+			SetFeedback(IsJoinedGame() ? "No spell in that slot: choose one between raids" : "No spell in that slot: equip one from the Spellbook");
 			return;
 		}
 		if (MyPossessed() == nullptr && !IsMouseOverUi())
@@ -1861,6 +1874,8 @@ bool OnKeyDown(SDL_Keycode key)
 		ChooseGameOverContinue();
 		return true;
 	}
+	if (key == SDLK_ESCAPE && LobbyOnEscape())
+		return true;
 	if (DispatchBoundKey(static_cast<uint32_t>(key)))
 		return true;
 
@@ -1936,6 +1951,11 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
+	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
+		if (currentTool.type == ToolType::Spell)
+			currentTool = {}; // it may just have come off the bar
+		return true;
+	}
 	if (IsGameOver()) {
 		const int width = UiHitSurface().w();
 		const int top = HudRect().position.y;
@@ -2027,6 +2047,8 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
+	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
+		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
 		const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
 		if (shift ? AddPatrolWaypoint(cursPosition) : SetRallyPoint(cursPosition))
@@ -2193,6 +2215,8 @@ void DrawUi(const Surface &out)
 	DrawInspectPanel(out, hud.position.x + 6, top);
 	DrawRaidRoster(out, UiMouse());
 	DrawRaidSummary(out, top);
+	DrawMasters(out);
+	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();

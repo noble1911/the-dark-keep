@@ -1104,6 +1104,11 @@ bool IsHost()
 	return !awaitingKeepSnapshot && MyPlayer != nullptr && MyPlayer->isLevelOwnedByLocalClient();
 }
 
+bool IsAwaitingKeepSnapshot()
+{
+	return awaitingKeepSnapshot;
+}
+
 void OnPlayerJoinedLevel(const Player &player)
 {
 	if (!IsActive() || &player == MyPlayer || !player.plractive || !player.isOnActiveLevel() || player.getId() >= NetPlayerSlots)

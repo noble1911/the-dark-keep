@@ -215,6 +215,8 @@ void GameTick();
 
 /** True on the client that owns the simulation of the keep (lowest player id on the level). */
 bool IsHost();
+/** A client that came into a game in play hasn't had the keep's state yet: its phase is only a guess. */
+bool IsAwaitingKeepSnapshot();
 
 /** Placement checks (run locally before sending; the host re-checks). */
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason = nullptr);
