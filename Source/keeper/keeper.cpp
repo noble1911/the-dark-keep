@@ -561,7 +561,7 @@ CardText DescribeCard(const Tool &tool)
 				text.hotkey = KeyLabel(KeeperAction::Spell, slot);
 		}
 		text.cost = fmt::format("{} mana", SpellManaCost(tool.index));
-		text.ready = State.mana[me] >= SpellManaCost(tool.index) * ManaScale && State.spellCooldown[me] == 0;
+		text.ready = State.mana[me] >= SpellManaCostScaled(tool.index) && State.spellCooldown[me] == 0;
 		text.description = fmt::format("Level {}. {} Your spells share a {}s recovery.", State.spellLevels[tool.index], spell.flavor, spell.cooldownTicks / 20);
 		break;
 	}
@@ -1114,7 +1114,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::ChainLightning:
-			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellKinds[currentTool.index].spellLevel + State.spellLevels[currentTool.index] + 2, MaxCrawlRadius));
+			DrawTileDiamond(out, tile, PAL16_BLUE + 6, std::min<int>(SpellEngineLevel(currentTool.index) + 3, MaxCrawlRadius));
 			DrawTileDiamond(out, tile, PAL16_BLUE + 2);
 			return;
 		case MissileID::Guardian:
@@ -1509,7 +1509,7 @@ bool TryCastSpell(size_t index, Point tile)
 		SetFeedback(fmt::format("Gathering power... {}", FormatTicks(State.spellCooldown[me])));
 		return false;
 	}
-	if (State.mana[me] < SpellManaCost(index) * ManaScale) {
+	if (State.mana[me] < SpellManaCostScaled(index)) {
 		SetFeedback("Not enough mana");
 		return false;
 	}
