@@ -258,6 +258,9 @@ void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 	}
 	if (champion)
 		hp = hp * 3 / 2;
+	hp = ScaleByHeroStrength(hp);
+	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
+	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
 	monster.maxHitPoints = hp << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
@@ -272,23 +275,13 @@ void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
-	using enum HeroClassKind;
-	switch (wave) {
-	case 1:
-		return { Warrior, Rogue };
-	case 2:
-		return { Warrior, Rogue, Sorcerer };
-	case 3:
-		return { Warrior, Warrior, Rogue, Sorcerer };
-	case 4:
-		return { Warrior, Rogue, Rogue, Sorcerer };
-	case 5:
-		return { Warrior, Warrior, Rogue, Sorcerer, Sorcerer };
-	case 6:
-		return { Warrior, Warrior, Rogue, Rogue, Sorcerer, Sorcerer };
-	default:
-		return { Warrior, Warrior, Rogue, Rogue, Sorcerer, Sorcerer };
-	}
+	// How many comes from the level. The mix stays even, grouped by class: the first few become bots.
+	std::vector<HeroClassKind> party;
+	const int size = PartySizeForWave(wave);
+	for (int i = 0; i < size; i++)
+		party.push_back(static_cast<HeroClassKind>(i % NumHeroClasses));
+	std::stable_sort(party.begin(), party.end());
+	return party;
 }
 
 namespace {
@@ -577,7 +570,7 @@ void OnMonsterInit(Monster &monster)
 	hero = {};
 	hero.active = true;
 	hero.cls = *cls;
-	hero.champion = State.wave >= NumWaves;
+	hero.champion = State.wave >= NumWaves();
 	ApplyHeroStats(monster, *cls, hero.champion);
 }
 
@@ -887,7 +880,7 @@ std::string DescribeWave(uint8_t wave)
 	std::array<int, NumHeroClasses> counts {};
 	for (const HeroClassKind cls : party)
 		counts[static_cast<size_t>(cls)]++;
-	std::string text = wave >= NumWaves ? "Champions: " : "Next raid: ";
+	std::string text = wave >= NumWaves() ? "Champions: " : "Next raid: ";
 	bool first = true;
 	for (size_t i = 0; i < NumHeroClasses; i++) {
 		if (counts[i] == 0)

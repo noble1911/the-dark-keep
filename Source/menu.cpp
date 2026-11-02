@@ -27,6 +27,8 @@
 #include "storm/storm_net.hpp"
 #include "utils/language.h"
 #include "keeper/keeper.hpp" // [DARK KEEP]
+#include "keeper/keeper_campaign.hpp" // [DARK KEEP]
+#include "keeper/keeper_menu.hpp" // [DARK KEEP]
 #include "levels/gendung.h"
 #include "utils/utf8.hpp"
 
@@ -113,7 +115,7 @@ bool DummyGetHeroInfo(_uiheroinfo * /*pInfo*/)
 	return true;
 }
 
-// [DARK KEEP] --keeper-autostart: find (or create) a throwaway "Keeper" hero, no UI.
+// [DARK KEEP] The master has no body: a hidden "Keeper" hero is found (or created), no UI.
 uint32_t AutoStartSaveNumber = UINT32_MAX;
 
 bool FindAutoStartHero(_uiheroinfo *pInfo)
@@ -142,46 +144,15 @@ void SelectAutoStartHero()
 
 bool mainmenu_select_hero_dialog(GameData *gameData)
 {
-	OptionEntryInt<uint32_t> *pSaveNumberFromOptions = nullptr;
-	_selhero_selections dlgresult = SELHERO_NEW_DUNGEON;
 	if (demo::IsRunning()) {
 		pfile_ui_set_hero_infos(DummyGetHeroInfo);
 		gbLoadGame = true;
-	} else if ((keeper::AutoStart && !gbIsMultiplayer) || (keeper::AutoNet != keeper::AutoNetMode::None && gbIsMultiplayer)) {
-		SelectAutoStartHero();
-		gameData->nDifficulty = DIFF_NORMAL;
-		gbLoadGame = false;
-	} else if (!gbIsMultiplayer) {
-		pSaveNumberFromOptions = gbIsHellfire ? &GetOptions().Hellfire.lastSinglePlayerHero : &GetOptions().Diablo.lastSinglePlayerHero;
-		gSaveNumber = **pSaveNumberFromOptions;
-		UiSelHeroSingDialog(
-		    pfile_ui_set_hero_infos,
-		    pfile_ui_save_create,
-		    pfile_delete_save,
-		    pfile_ui_set_class_stats,
-		    &dlgresult,
-		    &gSaveNumber,
-		    &gameData->nDifficulty);
-
-		gbLoadGame = (dlgresult == SELHERO_CONTINUE);
-	} else {
-		pSaveNumberFromOptions = gbIsHellfire ? &GetOptions().Hellfire.lastMultiplayerHero : &GetOptions().Diablo.lastMultiplayerHero;
-		gSaveNumber = **pSaveNumberFromOptions;
-		UiSelHeroMultDialog(
-		    pfile_ui_set_hero_infos,
-		    pfile_ui_save_create,
-		    pfile_delete_save,
-		    pfile_ui_set_class_stats,
-		    &dlgresult,
-		    &gSaveNumber);
+		return true;
 	}
-	if (dlgresult == SELHERO_PREVIOUS) {
-		return false;
-	}
-
-	if (pSaveNumberFromOptions != nullptr)
-		pSaveNumberFromOptions->SetValue(gSaveNumber);
-
+	// [DARK KEEP] No class, name or difficulty to choose; how hard a game is comes from the campaign.
+	SelectAutoStartHero();
+	gameData->nDifficulty = DIFF_NORMAL;
+	gbLoadGame = false;
 	return true;
 }
 
@@ -199,6 +170,10 @@ void mainmenu_loop()
 	RefreshMusic();
 	done = false;
 
+	// [DARK KEEP] Dev/test: the flags skip the menus that would choose the game.
+	if (keeper::AutoStart || keeper::AutoNet != keeper::AutoNetMode::None)
+		keeper::ApplyAutoStartSetup();
+
 	do {
 		_mainmenu_selections menu = MAINMENU_NONE;
 		if (demo::IsRunning() || keeper::AutoStart)
@@ -212,12 +187,25 @@ void mainmenu_loop()
 		case MAINMENU_NONE:
 			break;
 		case MAINMENU_SINGLE_PLAYER:
-			if (!InitSinglePlayerMenu() || keeper::AutoStart)
+			// [DARK KEEP] This entry is the Campaign; leaving an autostarted game lands on the main menu.
+			if ((keeper::AutoStart || demo::IsRunning() || keeper::UiCampaignLevelSelect()) && !InitSinglePlayerMenu())
+				done = true;
+			keeper::AutoStart = false;
+			break;
+		case MAINMENU_CUSTOM_MAP: // [DARK KEEP]
+			if (keeper::UiCustomMapSelect() && !InitSinglePlayerMenu())
+				done = true;
+			break;
+		case MAINMENU_MAP_EDITOR: // [DARK KEEP]
+			// INTEGRATION(editor): the editor starts here; keeper_editor reads CurrentSetup().mode == GameMode::MapEditor when the level loads.
+			keeper::SetCurrentSetup(keeper::SetupForMapEditor());
+			if (!InitSinglePlayerMenu())
 				done = true;
 			break;
 		case MAINMENU_MULTIPLAYER:
-			if (!InitMultiPlayerMenu() || keeper::AutoNet != keeper::AutoNetMode::None)
+			if (!InitMultiPlayerMenu())
 				done = true;
+			keeper::AutoNet = keeper::AutoNetMode::None; // [DARK KEEP]
 			break;
 		case MAINMENU_ATTRACT_MODE:
 			if (gbIsSpawn && !HaveIntro())

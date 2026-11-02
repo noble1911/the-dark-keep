@@ -124,7 +124,7 @@ void ScaleBot(Player &bot, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	bot.setCharacterLevel(static_cast<uint8_t>(std::min(wave * 2 - 1, 30)));
-	const int bonus = 3 * (wave - 1);
+	const int bonus = ScaleByHeroStrength(3 * (wave - 1));
 	bot._pBaseStr += bonus;
 	bot._pBaseDex += bonus;
 	bot._pBaseVit += bonus;
@@ -132,6 +132,7 @@ void ScaleBot(Player &bot, bool champion)
 	bot._pMaxHPBase = bot.calculateBaseLife();
 	if (champion)
 		bot._pMaxHPBase = bot._pMaxHPBase * 3 / 2;
+	bot._pMaxHPBase = ScaleByHeroStrength(bot._pMaxHPBase);
 	bot._pHPBase = bot._pMaxHPBase;
 	bot._pMaxManaBase = std::max(bot.calculateBaseMana(), 60 << 6);
 	bot._pManaBase = bot._pMaxManaBase;
@@ -467,7 +468,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	bot.position.future = tile;
 	bot.position.old = tile;
 
-	const bool champion = State.wave >= NumWaves;
+	const bool champion = State.wave >= NumWaves();
 	ScaleBot(bot, champion);
 	if (cls == HeroClassKind::Sorcerer)
 		LearnSpell(bot, SpellID::Firebolt, static_cast<uint8_t>(std::min(1 + State.wave / 2, 15)));

@@ -22,6 +22,7 @@
 #include <fmt/format.h>
 
 #include "DiabloUI/diabloui.h"
+#include "DiabloUI/multi/selgame.h" // [DARK KEEP]
 #include "diablo.h"
 #include "engine/demomode.h"
 #include "engine/point.hpp"
@@ -49,6 +50,7 @@
 #include "utils/str_cat.hpp"
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
+#include "keeper/keeper_campaign.hpp" // [DARK KEEP]
 
 namespace devilution {
 
@@ -98,6 +100,7 @@ void GameData::swapLE()
 	gameSeed[1] = Swap32LE(gameSeed[1]);
 	gameSeed[2] = Swap32LE(gameSeed[2]);
 	gameSeed[3] = Swap32LE(gameSeed[3]);
+	keeperSeed = Swap32LE(keeperSeed); // [DARK KEEP]
 }
 
 namespace {
@@ -477,6 +480,8 @@ void HandleEvents(_SNETEVENT *pEvt)
 		if (gameData.size != sizeof(GameData))
 			app_fatal(StrCat("Invalid size of game data: ", gameData.size));
 		sgGameInitInfo = gameData;
+		// [DARK KEEP] Only joiners get this event: take the host's setup, and the map after the GameData.
+		keeper::ApplyHostSetup(gameData, static_cast<const std::byte *>(pEvt->data) + sizeof(GameData), pEvt->databytes - sizeof(GameData));
 		sgbPlayerTurnBitTbl[playerId] = true;
 	} break;
 	case EVENT_TYPE_PLAYER_LEAVE_GAME: {
@@ -557,29 +562,33 @@ bool InitMulti(GameData *gameData)
 
 	int playerId;
 
-	// [DARK KEEP] Dev/test co-op: host or join a TCP game without the menus.
-	if (keeper::AutoNet != keeper::AutoNetMode::None) {
-		if (!SNetInitializeProvider(SELCONN_TCP, gameData))
+	// [DARK KEEP] Host or join without the menus: dev/test co-op over TCP, or everyone coming back
+	// for the next level or a retry, on the same connection type, game name and password.
+	const keeper::Rematch rematch = keeper::TakeRematch();
+	const bool isRematch = rematch.role != keeper::RematchRole::None;
+	bool connected = false;
+	if (keeper::AutoNet != keeper::AutoNetMode::None || isRematch) {
+		if (!SNetInitializeProvider(isRematch ? provider : SELCONN_TCP, gameData))
 			return false;
 		RegisterNetEventHandlers();
-		char password[] = "";
-		bool connected = false;
-		if (keeper::AutoNet == keeper::AutoNetMode::Host) {
-			gameData->nDifficulty = DIFF_NORMAL;
-			gameData->nTickRate = 20;
-			GameData gameInitInfo = *gameData;
-			gameInitInfo.swapLE();
-			connected = SNetCreateGame(nullptr, password, reinterpret_cast<char *>(&gameInitInfo), sizeof(gameInitInfo), &playerId);
+		char *password = PublicGame ? nullptr : selgame_Password;
+		if (isRematch ? rematch.role == keeper::RematchRole::Host : keeper::AutoNet == keeper::AutoNetMode::Host) {
+			gameData->nTickRate = isRematch ? rematch.tickRate : 20;
+			connected = keeper::HostGame(*gameData, isRematch ? GameName.c_str() : nullptr, password, &playerId);
 		} else {
+			std::string address = isRematch ? GameName : std::string(keeper::AutoJoinAddress);
 			for (int attempt = 0; attempt < 20 && !connected; attempt++) {
-				connected = SNetJoinGame(keeper::AutoJoinAddress, password, &playerId);
+				connected = SNetJoinGame(address.data(), password, &playerId);
 				if (!connected)
 					SDL_Delay(500);
 			}
 		}
-		if (!connected)
+		if (!connected && !isRematch)
 			app_fatal(StrCat("Dark Keep auto-net failed: ", SDL_GetError()));
-	} else {
+		if (!connected)
+			gbSelectProvider = true; // the others are gone: fall back to the menus
+	}
+	if (!connected) {
 	while (true) {
 		if (gbSelectProvider && !UiSelectProvider(gameData)) {
 			return false;
@@ -630,6 +639,7 @@ std::string FormatGameSeed(const uint32_t gameSeed[4])
 
 void InitGameInfo()
 {
+	keeper::BeginSession(); // [DARK KEEP]
 	const xoshiro128plusplus gameGenerator = ReserveSeedSequence();
 	gameGenerator.save(sgGameInitInfo.gameSeed);
 
@@ -917,8 +927,8 @@ bool NetInit(bool bSinglePlayer)
 	}
 	// explicitly randomize the town seed to divorce shops from the game seed
 	DungeonSeeds[0] = GenerateSeed();
-	// [DARK KEEP] The keep's layout is fixed: same map every game, on every client.
-	DungeonSeeds[keeper::KeepLevel] = keeper::KeepLevelSeed;
+	// [DARK KEEP] The setup picks the keep's layout: same every time, and the host's on every client.
+	DungeonSeeds[keeper::KeepLevel] = keeper::CurrentSetup().seed;
 	PublicGame = DvlNet_IsPublicGame();
 
 	Player &myPlayer = *MyPlayer;

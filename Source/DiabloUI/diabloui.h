@@ -41,6 +41,8 @@ enum _mainmenu_selections : uint8_t {
 	MAINMENU_SHOW_CREDITS,
 	MAINMENU_EXIT_DIABLO,
 	MAINMENU_ATTRACT_MODE,
+	MAINMENU_CUSTOM_MAP, // [DARK KEEP]
+	MAINMENU_MAP_EDITOR, // [DARK KEEP]
 };
 
 enum _selhero_selections : uint8_t {

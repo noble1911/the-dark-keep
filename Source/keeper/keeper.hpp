@@ -93,6 +93,8 @@ extern bool AutoStart;
 extern int TestLordHitPoints;
 /** @brief Dev/test flag (--keeper-start-wave <n>): the first raid (0 = normal). */
 extern int TestStartWave;
+/** @brief Dev/test flag (--keeper-level <n>): the campaign level to autostart or host (0 = level 1). */
+extern int TestCampaignLevel;
 
 /** @brief Dev/test flags for co-op (--keeper-host / --keeper-join <ip>): skip menus, TCP game. */
 enum class AutoNetMode : uint8_t {

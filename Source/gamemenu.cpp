@@ -52,7 +52,7 @@ TMenuItem sgSingleMenu[] = {
 	{ GMENU_ENABLED, N_("Options"),           &GamemenuOptions    },
 	{ GMENU_ENABLED, N_("Save Game"),         &gamemenu_save_game },
 	{ GMENU_ENABLED, N_("Load Game"),         &gamemenu_load_game },
-	{ GMENU_ENABLED, N_("Exit to Main Menu"), &GamemenuNewGame    },
+	{ GMENU_ENABLED, N_("Exit to Main Menu"), &gamemenu_exit_game }, // [DARK KEEP]
 	{ GMENU_ENABLED, N_("Quit Game"),         &gamemenu_quit_game },
 	{ GMENU_ENABLED, nullptr,                 nullptr             },
 	// clang-format on
@@ -62,7 +62,7 @@ TMenuItem sgMultiMenu[] = {
 	// clang-format off
 	// dwFlags,      pszStr,                  fnMenu
 	{ GMENU_ENABLED, N_("Options"),           &GamemenuOptions    },
-	{ GMENU_ENABLED, N_("Exit to Main Menu"), &GamemenuNewGame    },
+	{ GMENU_ENABLED, N_("Exit to Main Menu"), &gamemenu_exit_game }, // [DARK KEEP]
 	{ GMENU_ENABLED, N_("Quit Game"),         &gamemenu_quit_game },
 	{ GMENU_ENABLED, nullptr,                 nullptr             },
 	// clang-format on
@@ -282,6 +282,7 @@ void GamemenuSpeed(bool bActivate)
 void gamemenu_exit_game(bool bActivate)
 {
 	GamemenuNewGame(bActivate);
+	ReturnToMainMenu = true; // [DARK KEEP] no hero screen follows to stop a new game starting
 }
 
 void gamemenu_quit_game(bool bActivate)

@@ -50,13 +50,14 @@ void MainmenuEsc()
 
 void MainmenuLoad(const char *name)
 {
-	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Single Player"), MAINMENU_SINGLE_PLAYER));
-	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Multi Player"), MAINMENU_MULTIPLAYER));
+	// [DARK KEEP] The dungeon master's menu.
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Campaign"), MAINMENU_SINGLE_PLAYER));
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Custom Map"), MAINMENU_CUSTOM_MAP));
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Multiplayer"), MAINMENU_MULTIPLAYER));
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Map Editor"), MAINMENU_MAP_EDITOR));
 	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Settings"), MAINMENU_SETTINGS));
-	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Support"), MAINMENU_SHOW_SUPPORT));
-	vecMenuItems.push_back(std::make_unique<UiListItem>(_("Show Credits"), MAINMENU_SHOW_CREDITS));
 #ifndef NOEXIT
-	vecMenuItems.push_back(std::make_unique<UiListItem>(gbIsHellfire ? _("Exit Hellfire") : _("Exit Diablo"), MAINMENU_EXIT_DIABLO));
+	vecMenuItems.push_back(std::make_unique<UiListItem>(std::string_view("Exit"), MAINMENU_EXIT_DIABLO));
 #endif
 
 	if (!gbIsSpawn || gbIsHellfire) {

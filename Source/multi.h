@@ -39,6 +39,12 @@ struct GameData {
 	uint8_t fullQuests;
 	/** Used to initialise the seed table for dungeon levels so players in multiplayer games generate the same layout */
 	uint32_t gameSeed[4];
+	// [DARK KEEP] The host's keep::KeepSetup and rank (see keeper::HostGame).
+	uint8_t keeperMode;
+	uint8_t keeperLevel;
+	uint8_t keeperRank;
+	uint8_t keeperReserved;
+	uint32_t keeperSeed;
 
 	void swapLE();
 };

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "engine/point.hpp"
+#include "keeper/keeper_campaign.hpp"
 #include "tables/monstdat.h"
 
 namespace devilution {
@@ -39,9 +40,6 @@ struct HeroSummary {
 	bool champion;
 	bool fleeing;
 };
-
-/** Number of raids to survive; the last one is the champions' raid. */
-constexpr uint8_t NumWaves = 7;
 
 /** Registers the hero monster types (called right after monstdat.tsv is loaded). */
 void RegisterHeroMonsterData();
