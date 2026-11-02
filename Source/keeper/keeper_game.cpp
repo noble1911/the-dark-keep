@@ -1056,6 +1056,15 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		}
 		caster._pdir = dir; // the flame wave rolls the way its caster faces
 		break;
+	case MissileID::ChainLightning:
+		// Its bolts can't strike the tile they leave from: they leave from beside the target.
+		for (const Direction side : { Direction::NorthWest, Direction::NorthEast, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West }) {
+			if (const Point beside = tile + side; InDungeonBounds(beside) && !TileHasAny(beside, TileProperties::BlockMissile)) {
+				src = beside;
+				break;
+			}
+		}
+		break;
 	default:
 		break;
 	}
