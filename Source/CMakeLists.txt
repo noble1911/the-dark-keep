@@ -144,6 +144,7 @@ set(libdevilutionx_SRCS
   keeper/keeper_campaign.cpp
   keeper/keeper_raid.cpp
   keeper/keeper_game.cpp
+  keeper/keeper_input.cpp
   keeper/keeper_heroes.cpp
 
   qol/autopickup.cpp
