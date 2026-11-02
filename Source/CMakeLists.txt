@@ -145,6 +145,7 @@ set(libdevilutionx_SRCS
   keeper/keeper_menu.cpp
   keeper/keeper_profile.cpp
   keeper/keeper_raid.cpp
+  keeper/keeper_scout.cpp
   keeper/keeper_roster.cpp
   keeper/keeper_game.cpp
   keeper/keeper_input.cpp

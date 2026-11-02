@@ -294,15 +294,17 @@ Point GoalTile(HeroGoal goal)
 	return Portal.open ? Portal.position : Point { -1, -1 };
 }
 
-void BuildRoute(DistanceField &field, Point target, uint16_t traps)
+void BuildRoute(DistanceField &field, Point target, uint16_t traps, const RouteAssumption &assumption = {})
 {
 	static DistanceField tileCost;
 	for (auto &column : tileCost)
 		column.fill(1);
 	for (const DoorLock &lock : State.locks) {
-		if (lock.active && InDungeonBounds(lock.position))
+		if (!assumption.ignoreLocks && lock.active && InDungeonBounds(lock.position))
 			tileCost[lock.position.x][lock.position.y] += LockRoutePenalty;
 	}
+	if (assumption.extraLock && InDungeonBounds(*assumption.extraLock))
+		tileCost[assumption.extraLock->x][assumption.extraLock->y] += LockRoutePenalty;
 	for (size_t i = 0; i < MaxTraps; i++) {
 		if ((traps & (1U << i)) == 0)
 			continue;
@@ -372,6 +374,39 @@ const DistanceField &RouteField(HeroGoal goal, uint16_t knownTraps)
 	slot->lastUsed = routeClock;
 	return slot->field;
 }
+
+} // namespace
+
+std::vector<Point> EstimateHeroRoute(const RouteAssumption &assumption)
+{
+	static DistanceField field;
+	BuildRoute(field, State.vault, 0, assumption);
+	std::vector<Point> route;
+	Point tile = State.entrance;
+	if (FieldAt(field, tile) == Unreachable)
+		return route;
+	route.push_back(tile);
+	// Each step costs at least 1, so this always ends; the cap is only there for a damaged field.
+	for (size_t step = 0; step < MAXDUNX * MAXDUNY && FieldAt(field, tile) != 0; step++) {
+		std::optional<Point> best;
+		uint16_t bestValue = FieldAt(field, tile);
+		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+			const Point next = tile + dir;
+			const uint16_t value = FieldAt(field, next);
+			if (value < bestValue && CanStepDiagonal(tile, Displacement(dir))) {
+				best = next;
+				bestValue = value;
+			}
+		}
+		if (!best)
+			break;
+		tile = *best;
+		route.push_back(tile);
+	}
+	return route;
+}
+
+namespace {
 
 bool IsLockedDoorAt(Point tile)
 {

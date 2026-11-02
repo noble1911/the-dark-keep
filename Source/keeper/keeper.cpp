@@ -41,6 +41,7 @@
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_scout.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_units.hpp"
@@ -1013,10 +1014,10 @@ void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFla
 	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
 	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
-	const Point at { anchor.x * zoom - 60, anchor.y * zoom - 4 - raise * zoom };
+	const Point at { anchor.x * zoom - 100, anchor.y * zoom - 4 - raise * zoom };
 	if (at.y < 0 || at.y + 14 >= ScreenHudTop())
 		return;
-	DrawString(out, text, { at, { 120, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
+	DrawString(out, text, { at, { 200, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
 }
 
 /** The hero a Stone Curse cast at `tile` would take (it petrifies the nearest one within 5 tiles). */
@@ -1236,6 +1237,53 @@ void SelectInBox(const Rectangle &box)
 	SetSelection(std::move(found));
 }
 
+/**
+ * A route along the floor: black edged so it reads on any tileset, with dots marching towards the vault.
+ * `dashed` routes are the what-ifs, so they don't get mistaken for the expected one.
+ */
+void DrawRouteLine(const Surface &out, const std::vector<Point> &route, uint8_t color, bool dashed)
+{
+	if (overlayPass != OverlayPass::Floor)
+		return;
+	const size_t march = SDL_GetTicks() / RouteMarchMilliseconds % RouteMarchSpacing;
+	for (size_t i = 0; i + 1 < route.size(); i++) {
+		if (dashed && i % 2 != 0)
+			continue;
+		const Point from = TileCenter(route[i]);
+		const Point to = TileCenter(route[i + 1]);
+		for (const int edge : { -2, 2 })
+			DrawLine(out, from + Displacement { 0, edge }, to + Displacement { 0, edge }, 0, out.h());
+		const bool marching = !dashed && (i + RouteMarchSpacing - march) % RouteMarchSpacing == 0;
+		for (const int offset : { -1, 0, 1 })
+			DrawLine(out, from + Displacement { 0, offset }, to + Displacement { 0, offset }, marching ? PAL16_GRAY : color, out.h());
+	}
+}
+
+/** The prep-time estimate of where the party will walk, and what locking the door under the lock tool would do. */
+void DrawRoutePreview(const Surface &out)
+{
+	if (!IsRoutePreviewVisible())
+		return;
+	std::optional<Point> hoverDoor;
+	if (currentTool.type == ToolType::LockDoor && !IsMouseOverUi() && CanLockDoorAt(cursPosition)) {
+		if (const Object *door = FindDoorAt(cursPosition); door != nullptr)
+			hoverDoor = door->position;
+	}
+	const RoutePreview &preview = GetRoutePreview(hoverDoor);
+	if (preview.route.empty())
+		return;
+	DrawRouteLine(out, preview.withoutLocks, PAL16_BLUE + 4, true);
+	DrawRouteLine(out, preview.withHoverLock, PAL16_RED + 2, true);
+	DrawRouteLine(out, preview.route, PAL16_YELLOW + 2, false);
+	DrawWorldLabel(out, preview.route[preview.route.size() / 2], fmt::format("Expected route (estimate), {} steps", preview.route.size() - 1), UiFlags::ColorGold);
+	if (!preview.withoutLocks.empty())
+		DrawWorldLabel(out, preview.withoutLocks[preview.withoutLocks.size() / 2], "Way they'd take with no locks", UiFlags::ColorBlue);
+	for (const Point door : preview.bashedLocks)
+		DrawWorldLabel(out, door, "They'd bash this", UiFlags::ColorRed, 16);
+	if (hoverDoor)
+		DrawWorldLabel(out, *hoverDoor, preview.hoverVerdict, preview.hoverTurnsThem ? UiFlags::ColorGold : UiFlags::ColorWhite, 16);
+}
+
 void DrawOverlays(const Surface &out)
 {
 	DrawTileDiamond(out, State.vault, PAL16_YELLOW + 2, 1);
@@ -1281,6 +1329,7 @@ void DrawOverlays(const Surface &out)
 	}
 
 	DrawSelectionOverlay(out);
+	DrawRoutePreview(out);
 
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
 		DrawTileDiamond(out, possessed->position.tile, PAL16_ORANGE + 4);
@@ -1827,6 +1876,9 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::Sell:
 		SellSelected();
+		return;
+	case KeeperAction::RoutePreview:
+		ToggleRoutePreview();
 		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:

@@ -40,6 +40,7 @@ enum class KeeperAction : uint8_t {
 	CameraRight,
 	CameraUp,
 	CameraDown,
+	RoutePreview,
 };
 
 /** Hotkeys bind "card slot N of the current tab", never a kind: the roster can grow freely. */

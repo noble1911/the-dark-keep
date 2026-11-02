@@ -177,6 +177,18 @@ uint16_t GoalDistance(HeroGoal goal, Point tile);
  * (bits of State.traps). The route shuns those traps and locked doors, and stops short of a locked door.
  */
 std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t knownTraps);
+/** What the prep-time route preview assumes about the locks. */
+struct RouteAssumption {
+	/** As if no door were locked. */
+	bool ignoreLocks = false;
+	/** As if this door were locked too. */
+	std::optional<Point> extraLock;
+};
+/**
+ * The way a party that knows no traps would walk from the entrance to the vault, tile by tile. Empty if there
+ * is none. An estimate: it's the route field the heroes use, without bait, fights, or what they learn on the way.
+ */
+std::vector<Point> EstimateHeroRoute(const RouteAssumption &assumption);
 /** Opens the unlocked closed doors next to a hero. */
 void OpenDoorsAround(Point tile);
 /** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */
