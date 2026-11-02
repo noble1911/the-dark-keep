@@ -9,6 +9,7 @@
 #include <bitset>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <string>
 
 #include <fmt/format.h>
@@ -77,6 +78,13 @@ std::array<uint8_t, NumSpellKinds> hostSpells {};
 std::array<uint8_t, NumTrapKinds> hostTraps {};
 
 int mapXp = 0;
+/** Where the master stood when the raid in play began, so that retrying it can give back what it paid. */
+struct RaidStartMark {
+	int xp;
+	int mapXp;
+	ProfileStats stats;
+};
+std::optional<RaidStartMark> raidStart;
 bool mapIsReplay = false;
 
 std::string ProfilePath()
@@ -509,9 +517,28 @@ void ProfileBeginMap()
 {
 	Load();
 	mapXp = 0;
+	raidStart.reset();
 	const KeepSetup &setup = CurrentSetup();
 	// A joiner's own campaign doesn't advance in someone else's game, so nothing there is a first clear.
 	mapIsReplay = IsJoinedGame() || setup.mode != GameMode::Campaign || setup.campaignLevel <= LevelsCleared();
+}
+
+void ProfileMarkRaidStart()
+{
+	Load();
+	raidStart = RaidStartMark { profile.xp, mapXp, profile.stats };
+}
+
+void ProfileTakeBackRaid()
+{
+	if (!raidStart || !EarnsXp())
+		return;
+	Load();
+	profile.xp = raidStart->xp;
+	mapXp = raidStart->mapXp;
+	profile.stats = raidStart->stats;
+	raidStart.reset();
+	SaveProfile();
 }
 
 void ProfileNoteHeroSlain(int wave)

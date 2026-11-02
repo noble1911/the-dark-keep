@@ -1487,6 +1487,33 @@ void UpdatePortal()
 	OpenPortalAt((missile != nullptr && !missile->_miDelFlag) ? Point(missile->position.tile) : at);
 }
 
+void ClearRaiders()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		Monster &monster = Monsters[id];
+		if (!IsHero(monster) || monster.isInvalid)
+			continue;
+		// No bounty, no tally: this attempt is being taken back. Even one in its death throes goes.
+		Heroes[id] = {};
+		M_ClearSquares(monster);
+		monster.hitPoints = 0;
+		monster.isInvalid = true;
+	}
+	// Bots are already gone: the raid's end removed them.
+	pendingParty.clear();
+	spawnCooldown = 0;
+}
+
+void HealKeepMonsters()
+{
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		Monster &monster = Monsters[ActiveMonsters[i]];
+		if (!IsHero(monster) && IsAliveMonster(monster) && monster.type().type != MT_GOLEM)
+			monster.hitPoints = monster.maxHitPoints;
+	}
+}
+
 void ClosePortal()
 {
 	for (Missile &missile : Missiles) {

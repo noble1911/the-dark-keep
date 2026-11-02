@@ -16,6 +16,7 @@
 #include "gamemenu.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -146,6 +147,7 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+	RequestRetryRaid,
 };
 
 #pragma pack(push, 1)
@@ -173,6 +175,7 @@ struct TCmdKeeperState {
 	/** Every upgrade's tier, so a client that joined late still gets them. */
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
 	std::array<int32_t, MaxBots> botHitPoints;
+	int32_t retryGold;
 };
 #pragma pack(pop)
 
@@ -196,6 +199,8 @@ KeepSetup restartSetup;
 int restartCountdown = 0;
 /** Joiner: ticks until it leaves, once the host has surely gone. */
 int joinerRestartWait = 0;
+/** Host: goldLost when the raid began, to go back to on a retry. */
+int retryGoldLost = 0;
 
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
@@ -227,6 +232,7 @@ void BroadcastState()
 	cmd.upgradeTiers = UpgradeTiers();
 	for (size_t i = 0; i < MaxBots; i++)
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
+	cmd.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.retryGold)));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = StateBroadcastInterval;
 }
@@ -287,11 +293,40 @@ int TributeFor(uint8_t wave)
 	return ScaleByHeroStrength(100 + 25 * wave);
 }
 
+/**
+ * What a retried raid takes back and what it leaves.
+ *
+ * Back as they were at the raid's start: the vault (less what was built in the raid: a lair bought with
+ * bounty gold isn't free, and one sold mid-raid is gone) and the master's XP and stats from the raid. Each
+ * attempt pays only if it isn't taken back, so retrying can't farm XP however often it's done; leaving
+ * instead of retrying keeps that attempt's XP, as it always has.
+ * Left alone: every structure, and what the raid used up of them (spent bait, broken locks, disarmed traps).
+ *
+ * Runs on every client. Nothing here is sent: each client has the same raiders to clear.
+ */
+void ClearLostRaid()
+{
+	for (size_t pid = 0; pid < State.possessed.size(); pid++)
+		EndPossession(pid);
+	ClearRaiders();
+	// The Lord, if it fell, comes back through UpdateBoss now that the siege is on again.
+	State.bossDown = false;
+	State.portalEscape = false;
+	for (Trap &trap : State.traps)
+		trap.cooldown = 0;
+	HealKeepMonsters();
+	DismissRaidSummary();
+	ProfileTakeBackRaid();
+}
+
 /** Runs on every client when the phase changes (locally on the host, from the snapshot elsewhere). */
 void AnnouncePhase(Phase from, Phase to)
 {
 	if (from == to)
 		return;
+	// Only a retry leaves a defeat. Every client gets here, whichever way it hears of the new phase.
+	if (from == Phase::Defeat)
+		ClearLostRaid();
 	// Raid stats: every client sees the phase change, so each keeps its own tally.
 	if (from == Phase::Raid)
 		NoteRaidEnded(to, to == Phase::Breather ? TributeFor(State.wave - 1) : 0);
@@ -306,7 +341,9 @@ void AnnouncePhase(Phase from, Phase to)
 		Announce(State.wave >= NumWaves() ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
 		break;
 	case Phase::Breather:
-		if (State.wave > 1)
+		if (from == Phase::Defeat)
+			Announce(fmt::format("The keep holds on: raid {} will come again.", State.wave), UiFlags::ColorRed);
+		else if (State.wave > 1)
 			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
 		break;
 	case Phase::Victory:
@@ -437,9 +474,29 @@ void RefillLairs()
 
 void StartRaid()
 {
+	State.retryGold = State.vaultGold;
+	retryGoldLost = State.goldLost;
 	SetPhase(Phase::Raid);
 	if (IsHost())
 		StartWave(State.wave);
+}
+
+/** Host: gold spent on (negative: got back from) a structure. A raid's own building survives a retry, so a retry doesn't refund it. */
+void NoteRaidBuilding(int cost)
+{
+	if (State.phase == Phase::Raid)
+		State.retryGold -= cost;
+}
+
+void HostRetryRaid()
+{
+	if (State.phase != Phase::Defeat)
+		return;
+	State.vaultGold = std::max(State.retryGold, 0);
+	State.goldLost = retryGoldLost;
+	// Told first: the monsters RefillLairs raises must arrive after the raiders' slots are clear.
+	SetPhase(Phase::Breather);
+	RefillLairs();
 }
 
 void EndRaid()
@@ -486,6 +543,7 @@ void HostBuild(const Player &requester, size_t kind, Point tile)
 		slot = static_cast<uint8_t>(it - State.traps.begin());
 	}
 	State.vaultGold -= BuildKinds[kind].cost;
+	NoteRaidBuilding(BuildKinds[kind].cost);
 	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
 	// Now, not when the message comes back: requests that arrive together (two masters, or one quick one)
 	// must see this one when they check its slot, its tile and the Pop it takes.
@@ -534,6 +592,7 @@ void HostLockDoor(Point doorPosition)
 		return;
 	const auto slot = static_cast<uint8_t>(it - State.locks.begin());
 	State.vaultGold -= LockDoorCost;
+	NoteRaidBuilding(LockDoorCost);
 	Send(Action::DoorLocked, slot, 0, doorPosition);
 	ApplyDoorLocked(slot, doorPosition);
 	BroadcastState();
@@ -564,6 +623,7 @@ void HostPlaceBait(Point tile)
 		return;
 	const auto slot = static_cast<uint8_t>(it - State.baits.begin());
 	State.vaultGold -= BaitCost;
+	NoteRaidBuilding(BaitCost);
 	Send(Action::BaitPlaced, slot, 0, tile);
 	ApplyBaitPlaced(slot, tile);
 	BroadcastState();
@@ -585,7 +645,9 @@ void HostSell(StructureRef ref)
 {
 	if (!CanSell(ref))
 		return;
-	State.vaultGold += RefundFor(ref);
+	const int refund = RefundFor(ref);
+	State.vaultGold += refund;
+	NoteRaidBuilding(-refund);
 	Send(Action::Sold, static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
 	// Now, not when the message comes back: a second request in the same turn mustn't refund again.
 	ApplySold(static_cast<uint8_t>(ref.type), static_cast<uint8_t>(ref.slot));
@@ -1651,6 +1713,17 @@ void RequestStartRaid()
 	Send(Action::RequestStartRaid);
 }
 
+void RequestRetryRaid()
+{
+	if (CanRetryRaid())
+		Send(Action::RequestRetryRaid);
+}
+
+bool CanRetryRaid()
+{
+	return State.phase == Phase::Defeat && !IsEditorTestRun() && (!IsJoinedGame() || IsHost());
+}
+
 void RequestPossess(size_t monsterId)
 {
 	Send(Action::Possess, 0, 0, {}, static_cast<uint16_t>(monsterId));
@@ -1716,12 +1789,13 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			State.bossDown = (message.reserved & 1) != 0;
 			State.portalEscape = (message.reserved & 2) != 0;
 			AnnouncePhase(State.phase, phase);
-			if (wasBossDown && !State.bossDown && phase != Phase::Defeat)
+			if (wasBossDown && !State.bossDown && phase != Phase::Defeat && State.phase != Phase::Defeat)
 				Announce("The heroes were stopped. The Keep Lord rises again!", UiFlags::ColorRed);
 			State.phase = phase;
 			State.phaseTicks = static_cast<int>(Swap32LE(message.phaseTicks));
 			State.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.vaultGold)));
 			State.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.goldLost)));
+			State.retryGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.retryGold)));
 			for (size_t i = 0; i < 4; i++)
 				State.mana[i] = Swap16LE(message.mana[i]) * ManaScale;
 			// Before the Lord's health below, which is capped by a maximum these can raise.
@@ -1755,6 +1829,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::RequestStartRaid:
 		if (IsHost() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			StartRaid();
+		break;
+	case Action::RequestRetryRaid:
+		if (IsHost())
+			HostRetryRaid();
 		break;
 	case Action::RequestLockDoor:
 		if (IsHost())

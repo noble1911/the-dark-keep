@@ -192,6 +192,8 @@ struct KeepState {
 	int vaultGold = 0;
 	/** Gold carried out of the keep by escaped thieves, this game. */
 	int goldLost = 0;
+	/** What the vault goes back to if this raid is lost and retried: its gold at the raid's start, less what the raid's own building cost. */
+	int retryGold = 0;
 	std::array<int, 4> mana {};
 	std::array<int, 4> spellCooldown {};
 	/** Levels of every spell and trap type in this game (see GameSpellLevel). 0 = not available. */
@@ -282,6 +284,10 @@ void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
 void RequestCastSpell(size_t spell, Point tile);
 void RequestStartRaid();
+/** After a defeat: the vault goes back to the raid's start and the raid comes again (see ClearLostRaid in keeper_game.cpp). */
+void RequestRetryRaid();
+/** The defeat screen offers the retry: the host's to choose, like the whole-level one. */
+bool CanRetryRaid();
 /** The game's creator, once the siege is over: everyone leaves and meets again in `next`. */
 void RequestRestart(const KeepSetup &next);
 void RequestPossess(size_t monsterId);

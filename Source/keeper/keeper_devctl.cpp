@@ -122,6 +122,7 @@ void WriteState()
 	line += fmt::format(" heroes={} loot={} monsters={} boss={},{} bossHp={}/{} bossDown={}",
 	    heroes, inKeep ? GoldInFlight() : 0, keepers, boss != nullptr ? boss->position.tile.x : -1, boss != nullptr ? boss->position.tile.y : -1,
 	    boss != nullptr ? boss->hitPoints >> 6 : 0, boss != nullptr ? boss->maxHitPoints >> 6 : 0, State.bossDown);
+	line += fmt::format(" retryGold={}", State.retryGold);
 	line += fmt::format(" xp={} mapXp={} klevel={} renown={} cleared={} curs={},{} mouse={},{} screen={}x{} level={} entrance={},{} vault={},{}",
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
@@ -420,6 +421,8 @@ void Execute(const std::string &line)
 		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
 	} else if (command == "raid") {
 		RequestStartRaid();
+	} else if (command == "retry") {
+		RequestRetryRaid();
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;

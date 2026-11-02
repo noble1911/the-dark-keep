@@ -85,6 +85,10 @@ void ForgetHostUnlocks();
 // ---- earning XP ------------------------------------------------------------------------------
 
 void ProfileBeginMap();
+/** A raid began: what ProfileTakeBackRaid goes back to. */
+void ProfileMarkRaidStart();
+/** The lost raid is being retried: its XP and stats didn't happen, and nor did the defeat, unless it's lost for good. */
+void ProfileTakeBackRaid();
 void ProfileNoteHeroSlain(int wave);
 void ProfileNoteMonsterLost();
 void ProfileNoteRaidSurvived(int wave);
