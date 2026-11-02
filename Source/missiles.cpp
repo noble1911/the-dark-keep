@@ -331,7 +331,7 @@ bool MonsterMHit(const Player &player, Monster &monster, int mindam, int maxdam,
 		dam >>= 2;
 
 	if (keeper::SimulatesLocally(player)) // [DARK KEEP] bots are simulated on every client
-		ApplyMonsterDamage(damageType, monster, dam);
+		keeper::IsBot(player) ? ApplySimulatedMonsterDamage(damageType, monster, dam) : ApplyMonsterDamage(damageType, monster, dam);
 
 	if (monster.hasNoLife()) {
 		M_StartKill(monster, player);
@@ -1072,7 +1072,7 @@ bool MonsterTrapHit(Monster &monster, int mindam, int maxdam, int dist, MissileI
 		dam <<= 6;
 	if (resist)
 		dam /= 4;
-	ApplyMonsterDamage(damageType, monster, dam);
+	ApplySimulatedMonsterDamage(damageType, monster, dam); // [DARK KEEP] traps and monsters' missiles fly on every client
 #ifdef _DEBUG
 	if (DebugGodMode)
 		monster.hitPoints = 0;

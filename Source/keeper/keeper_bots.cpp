@@ -552,6 +552,13 @@ bool IsLivingBot(const Player &player)
 	return IsBot(player) && player.plractive && !player.hasNoLife() && player.isOnActiveLevel();
 }
 
+namespace {
+
+constexpr int32_t BotLifeGone = -1;
+constexpr int32_t BotLifeUnknown = -2;
+
+} // namespace
+
 bool HoldsBotAlive(const Player &player)
 {
 	return IsBot(player) && IsActive() && !IsHost();
@@ -559,15 +566,24 @@ bool HoldsBotAlive(const Player &player)
 
 int32_t BotLifeForSync(size_t slot)
 {
+	if (PendingSpawn[slot])
+		return BotLifeUnknown; // its spawn message is already on its way, ahead of this one
 	const Player &bot = Players[FirstBotId + slot];
-	return bot.plractive ? std::max(bot._pHitPoints, 0) : -1;
+	return bot.plractive ? std::max(bot._pHitPoints, 0) : BotLifeGone;
 }
 
 void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
 {
 	Player &bot = Players[FirstBotId + slot];
-	if (hitPoints < 0 || !IsLivingBot(bot))
+	if (hitPoints == BotLifeUnknown || !IsLivingBot(bot))
 		return;
+	if (hitPoints == BotLifeGone) {
+		// It left the keep on the host. This copy can't die any more, so it has to go too.
+		const BotState &state = Bots[slot];
+		NoteHeroLeft(state.fleeing, std::max(state.carried, 0));
+		RemoveBot(bot);
+		return;
+	}
 	if (hitPoints == 0)
 		SyncPlrKill(bot, DeathReason::MonsterOrTrap);
 	else

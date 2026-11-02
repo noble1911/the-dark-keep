@@ -195,27 +195,6 @@ int restartCountdown = 0;
 /** Joiner: ticks until it leaves, once the host has surely gone. */
 int joinerRestartWait = 0;
 
-/**
- * Host: slots handed out whose placement message hasn't come back yet. Requests that arrive together
- * (two masters, or one quick one) must not get the same slot, or one structure vanishes after being paid for.
- */
-std::bitset<MaxLairs> pendingLairs;
-std::bitset<MaxTraps> pendingTraps;
-std::bitset<MaxLocks> pendingLocks;
-std::bitset<MaxBaits> pendingBaits;
-
-template <typename Slots, typename Pending>
-std::optional<uint8_t> ReserveSlot(const Slots &slots, Pending &pending)
-{
-	for (size_t i = 0; i < slots.size(); i++) {
-		if (!slots[i].active && !pending.test(i)) {
-			pending.set(i);
-			return static_cast<uint8_t>(i);
-		}
-	}
-	return std::nullopt;
-}
-
 void Send(Action action, uint8_t a = 0, uint8_t b = 0, Point position = {}, uint16_t w = 0)
 {
 	TCmdKeeper cmd;
@@ -481,15 +460,31 @@ void EndRaid()
 
 // ---- host-side request handling ----------------------------------------------
 
+void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile);
+void ApplyDoorLocked(uint8_t slot, Point doorPosition);
+void ApplyBaitPlaced(uint8_t slot, Point tile);
+
 void HostBuild(const Player &requester, size_t kind, Point tile)
 {
 	if (kind >= BuildKinds.size() || !CanBuildAt(kind, tile))
 		return;
-	const std::optional<uint8_t> slot = IsLairKind(kind) ? ReserveSlot(State.lairs, pendingLairs) : ReserveSlot(State.traps, pendingTraps);
-	if (!slot)
-		return;
+	uint8_t slot = 0xFF;
+	if (IsLairKind(kind)) {
+		const auto it = std::find_if(State.lairs.begin(), State.lairs.end(), [](const Lair &lair) { return !lair.active; });
+		if (it == State.lairs.end())
+			return;
+		slot = static_cast<uint8_t>(it - State.lairs.begin());
+	} else {
+		const auto it = std::find_if(State.traps.begin(), State.traps.end(), [](const Trap &trap) { return !trap.active; });
+		if (it == State.traps.end())
+			return;
+		slot = static_cast<uint8_t>(it - State.traps.begin());
+	}
 	State.vaultGold -= BuildKinds[kind].cost;
-	Send(Action::Built, *slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
+	Send(Action::Built, slot, static_cast<uint8_t>(kind), tile, static_cast<uint16_t>(requester.getId()));
+	// Now, not when the message comes back: requests that arrive together (two masters, or one quick one)
+	// must see this one when they check its slot, its tile and the Pop it takes.
+	ApplyBuilt(slot, static_cast<uint8_t>(kind), tile);
 	BroadcastState();
 }
 
@@ -501,8 +496,9 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 	if (IsLairKind(kind)) {
 		if (slot >= MaxLairs)
 			return;
-		pendingLairs.reset(slot);
 		Lair &lair = State.lairs[slot];
+		if (lair.active && lair.kind == kind && lair.position == tile)
+			return; // the host's own placement coming back
 		lair = {};
 		lair.active = true;
 		lair.kind = kind;
@@ -514,8 +510,9 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 	} else {
 		if (slot >= MaxTraps)
 			return;
-		pendingTraps.reset(slot);
 		Trap &trap = State.traps[slot];
+		if (trap.active && trap.kind == kind - NumLairKinds && trap.position == tile)
+			return;
 		trap.active = true;
 		trap.position = tile;
 		trap.cooldown = summon;
@@ -527,19 +524,20 @@ void HostLockDoor(Point doorPosition)
 {
 	if (!CanLockDoorAt(doorPosition))
 		return;
-	const std::optional<uint8_t> slot = ReserveSlot(State.locks, pendingLocks);
-	if (!slot)
+	const auto it = std::find_if(State.locks.begin(), State.locks.end(), [](const DoorLock &lock) { return !lock.active; });
+	if (it == State.locks.end())
 		return;
+	const auto slot = static_cast<uint8_t>(it - State.locks.begin());
 	State.vaultGold -= LockDoorCost;
-	Send(Action::DoorLocked, *slot, 0, doorPosition);
+	Send(Action::DoorLocked, slot, 0, doorPosition);
+	ApplyDoorLocked(slot, doorPosition);
 	BroadcastState();
 }
 
 void ApplyDoorLocked(uint8_t slot, Point doorPosition)
 {
-	if (slot >= MaxLocks)
+	if (slot >= MaxLocks || (State.locks[slot].active && State.locks[slot].position == doorPosition))
 		return;
-	pendingLocks.reset(slot);
 	Object *door = FindObjectAtPosition(doorPosition);
 	if (door == nullptr || !door->isDoor())
 		return;
@@ -556,19 +554,20 @@ void HostPlaceBait(Point tile)
 {
 	if (!CanPlaceBaitAt(tile))
 		return;
-	const std::optional<uint8_t> slot = ReserveSlot(State.baits, pendingBaits);
-	if (!slot)
+	const auto it = std::find_if(State.baits.begin(), State.baits.end(), [](const Bait &bait) { return !bait.active; });
+	if (it == State.baits.end())
 		return;
+	const auto slot = static_cast<uint8_t>(it - State.baits.begin());
 	State.vaultGold -= BaitCost;
-	Send(Action::BaitPlaced, *slot, 0, tile);
+	Send(Action::BaitPlaced, slot, 0, tile);
+	ApplyBaitPlaced(slot, tile);
 	BroadcastState();
 }
 
 void ApplyBaitPlaced(uint8_t slot, Point tile)
 {
-	if (slot >= MaxBaits)
+	if (slot >= MaxBaits || (State.baits[slot].active && State.baits[slot].position == tile))
 		return;
-	pendingBaits.reset(slot);
 	Bait &bait = State.baits[slot];
 	bait.active = true;
 	bait.position = tile;
@@ -1157,6 +1156,11 @@ bool TakesMonsterSyncFrom(const Player &sender)
 	return false;
 }
 
+bool IgnoresMonsterSyncMove(const Monster &monster)
+{
+	return IsPossessed(monster) || IsAnyOf(monster.mode, MonsterMode::MeleeAttack, MonsterMode::SpecialMeleeAttack, MonsterMode::RangedAttack, MonsterMode::SpecialRangedAttack);
+}
+
 bool IsAwaitingKeepSnapshot()
 {
 	return awaitingKeepSnapshot;
@@ -1175,10 +1179,6 @@ void OnPlayerJoinedLevel(const Player &player)
 void ResetGame(Point entrance, Point vault)
 {
 	State = {};
-	pendingLairs.reset();
-	pendingTraps.reset();
-	pendingLocks.reset();
-	pendingBaits.reset();
 	State.entrance = entrance;
 	State.vault = vault;
 	State.vaultGold = StartingGold();

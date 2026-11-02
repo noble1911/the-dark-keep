@@ -1136,7 +1136,7 @@ void MonsterAttackMonster(Monster &attacker, Monster &target, int hper, int mind
 		return;
 
 	const int dam = RandomIntBetween(mind, maxd) << 6;
-	ApplyMonsterDamage(DamageType::Physical, target, dam);
+	ApplySimulatedMonsterDamage(DamageType::Physical, target, dam); // [DARK KEEP]
 
 	if (attacker.isPlayerMinion()) {
 		const auto playerId = static_cast<size_t>(attacker.goalVar3);
@@ -3911,6 +3911,26 @@ void AddDoppelganger(Monster &monster)
 	if (target != Point { 0, 0 }) {
 		const size_t typeIndex = GetMonsterTypeIndex(monster.type().type);
 		SpawnMonster(target, monster.direction, typeIndex);
+	}
+}
+
+// [DARK KEEP] Fights between heroes and keep monsters run on every client, so nobody tells the others about a
+// blow: they each land it themselves, and the host's sync settles the life. Only the host's copy dies.
+void ApplySimulatedMonsterDamage(DamageType damageType, Monster &monster, int damage)
+{
+	if (!keeper::IsActive()) {
+		ApplyMonsterDamage(damageType, monster, damage);
+		return;
+	}
+	lua::OnMonsterTakeDamage(&monster, damage, static_cast<int>(damageType));
+	monster.hitPoints -= damage;
+	if (!monster.hasNoLife())
+		return;
+	if (keeper::IsHost()) {
+		delta_kill_monster(monster, monster.position.tile, *MyPlayer);
+		NetSendCmdLocParam1(false, CMD_MONSTDEATH, monster.position.tile, static_cast<uint16_t>(monster.getId()));
+	} else {
+		monster.hitPoints = 1 << 6;
 	}
 }
 

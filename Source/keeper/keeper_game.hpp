@@ -230,6 +230,8 @@ bool IsAwaitingKeepSnapshot();
  * who no longer sees a hero could walk the host's Keep Lord away from that hero for ever, and the raid never ends.
  */
 bool TakesMonsterSyncFrom(const Player &sender);
+/** The host's position for this monster would interrupt what it is doing: a master drives it, or it is in mid-attack. */
+bool IgnoresMonsterSyncMove(const Monster &monster);
 
 /** Placement checks (run locally before sending; the host re-checks). */
 bool CanBuildAt(size_t kind, Point tile, std::string_view *reason = nullptr);

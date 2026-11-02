@@ -5,6 +5,7 @@
  */
 #include <cstdint>
 
+#include <algorithm>
 #include <limits>
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
@@ -163,6 +164,16 @@ void SyncMonster(bool isOwner, const TSyncMonster &monsterSync)
 		return;
 	}
 
+	// [DARK KEEP] OnSyncData only lets this through from the host. Its life is the true one; a possessed
+	// monster answers to its master here, and a blow in mid-swing lands before the next sync moves it.
+	if (keeper::IsActive()) {
+		const int hitPoints = SwapSigned32LE(monsterSync._mhitpoints);
+		if (hitPoints > 0)
+			monster.hitPoints = std::min(hitPoints, monster.maxHitPoints);
+		if (keeper::IgnoresMonsterSyncMove(monster))
+			return;
+	}
+
 	const Point position { monsterSync._mx, monsterSync._my };
 	const uint8_t enemyId = monsterSync._menemy;
 
@@ -314,7 +325,8 @@ size_t OnSyncData(const TSyncHeader &header, size_t maxCmdSize, const Player &pl
 					SyncMonster(isOwner, monsterSyncs[i]);
 			}
 
-			delta_sync_monster(monsterSyncs[i], level);
+			if (keeper::TakesMonsterSyncFrom(player)) // [DARK KEEP] whoHit comes with it: only the host's counts, and masters earn no engine XP from it
+				delta_sync_monster(monsterSyncs[i], level);
 		}
 	}
 
