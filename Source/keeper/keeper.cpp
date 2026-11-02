@@ -1251,11 +1251,12 @@ void DrawRouteLine(const Surface &out, const std::vector<Point> &route, uint8_t 
 			continue;
 		const Point from = TileCenter(route[i]);
 		const Point to = TileCenter(route[i + 1]);
-		for (const int edge : { -2, 2 })
-			DrawLine(out, from + Displacement { 0, edge }, to + Displacement { 0, edge }, 0, out.h());
+		// Offsets on both axes: routes run in every direction on the screen.
+		for (const Displacement edge : { Displacement { -2, 0 }, Displacement { 2, 0 }, Displacement { 0, -2 }, Displacement { 0, 2 } })
+			DrawLine(out, from + edge, to + edge, 0, out.h());
 		const bool marching = !dashed && (i + RouteMarchSpacing - march) % RouteMarchSpacing == 0;
-		for (const int offset : { -1, 0, 1 })
-			DrawLine(out, from + Displacement { 0, offset }, to + Displacement { 0, offset }, marching ? PAL16_GRAY : color, out.h());
+		for (const Displacement body : { Displacement { -1, 0 }, Displacement { 1, 0 }, Displacement { 0, -1 }, Displacement { 0, 1 }, Displacement { 0, 0 } })
+			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, out.h());
 	}
 }
 
@@ -1275,9 +1276,9 @@ void DrawRoutePreview(const Surface &out)
 	DrawRouteLine(out, preview.withoutLocks, PAL16_BLUE + 4, true);
 	DrawRouteLine(out, preview.withHoverLock, PAL16_RED + 2, true);
 	DrawRouteLine(out, preview.route, PAL16_YELLOW + 2, false);
-	DrawWorldLabel(out, preview.route[preview.route.size() / 2], fmt::format("Expected route (estimate), {} steps", preview.route.size() - 1), UiFlags::ColorGold);
+	DrawWorldLabel(out, preview.route[preview.route.size() / 2], fmt::format("Route estimate: {} steps", preview.route.size() - 1), UiFlags::ColorGold);
 	if (!preview.withoutLocks.empty())
-		DrawWorldLabel(out, preview.withoutLocks[preview.withoutLocks.size() / 2], "Way they'd take with no locks", UiFlags::ColorBlue);
+		DrawWorldLabel(out, preview.withoutLocks[preview.withoutLocks.size() / 2], "Their way with no locks", UiFlags::ColorBlue);
 	for (const Point door : preview.bashedLocks)
 		DrawWorldLabel(out, door, "They'd bash this", UiFlags::ColorRed, 16);
 	if (hoverDoor)

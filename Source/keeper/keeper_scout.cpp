@@ -65,7 +65,7 @@ void BuildPreview(std::optional<Point> hoverDoor)
 		preview.hoverVerdict = fmt::format("Turns them away: {:+} steps", extra);
 		preview.hoverTurnsThem = true;
 	} else if (RouteHas(preview.route, *hoverDoor)) {
-		preview.hoverVerdict = "They'd bash through: no short way round";
+		preview.hoverVerdict = "They'd just bash it down";
 	} else {
 		preview.hoverVerdict = "Not on their route";
 	}
