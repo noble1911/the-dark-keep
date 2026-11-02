@@ -2024,9 +2024,11 @@ void Player::occupyTile(Point tilePosition, bool isMoving) const
 	dPlayer[tilePosition.x][tilePosition.y] = isMoving ? -id : id;
 }
 
-const Player *Player::levelOwner() const
+const Player *Player::levelOwner(const Player *excluding /*= nullptr*/) const
 {
 	for (const Player &other : Players) {
+		if (&other == excluding)
+			continue;
 		if (!other.plractive)
 			continue;
 		if (other._pLvlChanging)

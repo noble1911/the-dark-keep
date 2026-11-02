@@ -23,17 +23,22 @@ function Get-ProfileGames([string]$ProfileDir) {
 
 function Stop-ProfileGames([string[]]$Names) {
     foreach ($name in $Names) {
-        foreach ($game in Get-ProfileGames "$script:Root\build\test-profiles\$name") { Stop-Process -Id $game.ProcessId -Force -ErrorAction SilentlyContinue }
+        foreach ($game in Get-ProfileGames "$script:Root\build\test-profiles\$name") {
+            Stop-Process -Id $game.ProcessId -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $game.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+        }
     }
-    Start-Sleep -Milliseconds 300
 }
 
-function Sync-GameData([string]$DataDir = "E:\Games\Diablo") {
+function Sync-GameData([string]$DataDir = "E:\Games\Diablo", [switch]$NoSync) {
     # DataDir is read-only: its MPQs are hardlinked next to our exe (as scripts\run-desktop.ps1 does).
-    # A running game may be reading these, so they stay as they are until it has gone.
-    if (Get-ExeInstances) {
-        Write-Host "    a game is running from this build: assets and mods not refreshed"
-    } else {
+    # A running game may be reading the assets and mods, and each checkout has its own, so only this
+    # build's games matter. They stay as they are if the caller says stale data is fine.
+    $running = @(Get-ExeInstances)
+    if ($running -and -not $NoSync) {
+        throw "$($running.Count) game(s) running from this build (pid $($running.ProcessId -join ', ')) would keep assets and mods from refreshing. Stop them, or pass -NoSync to run on the data as it is."
+    }
+    if (-not $NoSync) {
         Copy-Item -Recurse -Force "$script:Root\build\assets\*" (New-Item -ItemType Directory -Force "$script:ExeDir\assets")
         if (Test-Path "$script:ExeDir\mods") { Remove-Item -Recurse -Force "$script:ExeDir\mods" }
         Copy-Item -Recurse -Force "$script:Root\build\mods" "$script:ExeDir\mods"

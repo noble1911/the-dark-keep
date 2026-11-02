@@ -9,11 +9,13 @@ param(
     [int]$Height = 720,
     # Start at the main menu instead of straight in the keep.
     [switch]$Menu,
+    # Leave assets and mods as they are, for running beside another game from this build.
+    [switch]$NoSync,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$GameArgs
 )
 . "$PSScriptRoot\common.ps1"
 Stop-ProfileGames $Name
-Sync-GameData
+Sync-GameData -NoSync:$NoSync
 $profileDir = New-TestProfile $Name $Width $Height
 $a = @(); if (-not $Menu) { $a += '--keeper-autostart' }
 if ($GameArgs) { $a += $GameArgs }

@@ -503,7 +503,7 @@ void ApplyBuilt(uint8_t slot, uint8_t kind, Point tile)
 			return;
 		Lair &lair = State.lairs[slot];
 		if (lair.active && lair.kind == kind && lair.position == tile)
-			return; // the host's own placement coming back
+			return; // a joiner already told by the snapshot
 		lair = {};
 		lair.active = true;
 		lair.kind = kind;
@@ -991,15 +991,7 @@ bool IsAnotherMasterInKeep()
  */
 bool ShouldSendSnapshotTo(const Player &joiner)
 {
-	if (awaitingKeepSnapshot)
-		return false;
-	for (size_t i = 0; i < NetPlayerSlots; i++) {
-		const Player &other = Players[i];
-		if (&other == &joiner || !other.plractive || other._pLvlChanging || other._pmode == PM_NEWLVL || other.plrlevel != KeepLevel || other.plrIsOnSetLevel)
-			continue;
-		return &other == MyPlayer;
-	}
-	return false;
+	return !awaitingKeepSnapshot && MyPlayer->levelOwner(&joiner) == MyPlayer;
 }
 
 void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
@@ -1746,8 +1738,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		if (IsHost())
 			HostBuild(player, message.a, tile);
 		break;
+	// The host applied these as it sent them, and may have sold the structure since.
 	case Action::Built:
-		ApplyBuilt(message.a, message.b, tile);
+		if (&player != MyPlayer)
+			ApplyBuilt(message.a, message.b, tile);
 		break;
 	case Action::Cast:
 		ApplyCast(player, message.a, tile);
@@ -1761,14 +1755,16 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			HostLockDoor(tile);
 		break;
 	case Action::DoorLocked:
-		ApplyDoorLocked(message.a, tile);
+		if (&player != MyPlayer)
+			ApplyDoorLocked(message.a, tile);
 		break;
 	case Action::RequestBait:
 		if (IsHost())
 			HostPlaceBait(tile);
 		break;
 	case Action::BaitPlaced:
-		ApplyBaitPlaced(message.a, tile);
+		if (&player != MyPlayer)
+			ApplyBaitPlaced(message.a, tile);
 		break;
 	case Action::Possess: {
 		const size_t pid = player.getId();

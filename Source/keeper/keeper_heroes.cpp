@@ -531,7 +531,7 @@ void HeroEscapes(Monster &monster, HeroState &hero, bool throughPortal)
 		Announce(fmt::format("A {} escaped through the portal!", ClassName(hero)));
 		hero.carried = std::max(hero.carried, 0);
 	}
-	NoteHeroLeft(hero.fleeing && !State.bossDown, std::max(hero.carried, 0));
+	NoteHeroLeft(!throughPortal && hero.fleeing, std::max(hero.carried, 0));
 	if (hero.carried > 0) {
 		State.goldLost += hero.carried;
 		Announce(fmt::format("A {} escaped with {} gold!", ClassName(hero), hero.carried));

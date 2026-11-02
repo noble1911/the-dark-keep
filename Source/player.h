@@ -892,7 +892,7 @@ public:
 	/** @brief Checks if the player level is owned by local client. */
 	bool isLevelOwnedByLocalClient() const;
 	/** The player whose client runs this player's level: the lowest id that is really on it. */
-	const Player *levelOwner() const;
+	const Player *levelOwner(const Player *excluding = nullptr) const;
 
 	/** @brief Checks if the player is holding an item of the provided type, and is usable. */
 	bool isHoldingItem(const ItemType type) const
