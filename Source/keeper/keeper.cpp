@@ -33,9 +33,11 @@
 #include "gmenu.h"
 #include "init.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_units.hpp"
@@ -185,7 +187,7 @@ void CenterCameraOn(Point tile)
 
 bool CanUseKeyboardCamera()
 {
-	return gbActive && !ChatFlag && !gmenu_is_active();
+	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys();
 }
 
 /** The engine's zoom renders a half-size view and doubles it. */
@@ -1536,10 +1538,13 @@ void OnLevelLoaded()
 	CancelBoxDrag();
 	tickCounter = 0;
 	lastCameraTicks = SDL_GetTicks();
+	NoteMapLevelLoaded();
+	EditorOnLevelLoaded();
 }
 
 void OnGameEnded()
 {
+	EditorOnGameEnded();
 	active = false;
 	ClearSelection();
 	CancelBoxDrag();
@@ -1563,6 +1568,9 @@ void Tick()
 			ParkPlayer(player);
 	}
 	RevealKeep();
+	if (IsEditorActive())
+		return; // a map being edited has no raid to simulate
+	MapNetTick();
 
 	GameTick();
 	UpdateUnitMarkers();
@@ -1583,6 +1591,7 @@ void UpdateCamera()
 {
 	if (!IsActive())
 		return;
+	EditorUpdateFrame();
 
 	const uint32_t now = SDL_GetTicks();
 	const float dt = std::min<uint32_t>(now - lastCameraTicks, 50) / 1000.F;
@@ -1729,6 +1738,10 @@ bool OnKeyDown(SDL_Keycode key)
 {
 	if (!IsActive())
 		return false;
+	if (IsEditorActive())
+		return EditorOnKeyDown(key);
+	if (EditorOnTestKey(key))
+		return true;
 
 	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
 		ChooseGameOverContinue();
@@ -1806,6 +1819,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 {
 	if (!IsActive())
 		return false;
+	if (IsEditorActive())
+		return EditorOnMouseDown(/*right=*/false);
 
 	if (IsGameOver()) {
 		const int width = UiHitSurface().w();
@@ -1895,6 +1910,8 @@ bool OnRightMouseDown()
 {
 	if (!IsActive())
 		return false;
+	if (IsEditorActive())
+		return EditorOnMouseDown(/*right=*/true);
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
 		const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
 		if (shift ? AddPatrolWaypoint(cursPosition) : SetRallyPoint(cursPosition))
@@ -1912,6 +1929,8 @@ bool OnMouseWheel(int deltaY)
 {
 	if (!IsActive() || deltaY == 0 || gmenu_is_active())
 		return false;
+	if (IsEditorActive())
+		return EditorOnMouseWheel(deltaY);
 	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
 		return true;
 	if (Contains(BarRect(), UiMouse())) {
@@ -1953,7 +1972,7 @@ void DrawUi(const Surface &out);
  * Draws the UI at UiScale(): shrinks the screen into the UI surface (so translucent panels blend
  * with the view), draws the UI there, and copies back only the pixels the UI changed, blown up.
  */
-void DrawScaledUi(const Surface &out)
+void DrawScaledUi(const Surface &out, void (*drawUi)(const Surface &) = DrawUi)
 {
 	const int scale = UiScale();
 	const int width = out.w() / scale;
@@ -1970,7 +1989,7 @@ void DrawScaledUi(const Surface &out)
 		std::memcpy(&uiBackground[static_cast<size_t>(y) * width], dst, width);
 	}
 
-	DrawUi(ui);
+	drawUi(ui);
 
 	for (int y = 0; y < height; y++) {
 		const uint8_t *row = ui.at(0, y);
@@ -1990,6 +2009,14 @@ void DrawScaledUi(const Surface &out)
 
 void DrawHud(const Surface &out)
 {
+	if (IsEditorActive()) {
+		EditorDrawWorld(out);
+		if (UiScale() > 1)
+			DrawScaledUi(out, EditorDrawUi);
+		else
+			EditorDrawUi(out);
+		return;
+	}
 	DrawOverlays(out);
 	DrawBoxDrag(out);
 	DrawUnitBars(out);
@@ -2098,8 +2125,39 @@ void DrawUi(const Surface &out)
 			drawButton(0, GameOverContinueLabel(*next));
 		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
 	}
+	EditorDrawTestBanner(out);
 }
 
 } // namespace
+
+void CenterCamera(Point tile)
+{
+	CenterCameraOn(tile);
+}
+
+void SetViewZoom(bool zoomed)
+{
+	SetZoom(zoomed);
+}
+
+bool IsViewZoomed()
+{
+	return ZoomFactor() > 1;
+}
+
+int UiPixelScale()
+{
+	return UiScale();
+}
+
+Point UiMousePosition()
+{
+	return UiMouse();
+}
+
+int UiBarHeight()
+{
+	return HudHeight();
+}
 
 } // namespace devilution::keeper

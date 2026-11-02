@@ -63,6 +63,8 @@
 #include "inv.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_input.hpp" // [DARK KEEP]
+#include "keeper/keeper_campaign.hpp" // [DARK KEEP]
+#include "keeper/keeper_map.hpp" // [DARK KEEP]
 #include "levels/drlg_l1.h"
 #include "levels/drlg_l2.h"
 #include "levels/drlg_l3.h"
@@ -1163,6 +1165,12 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-autostart") { // [DARK KEEP] dev/test: straight into a single-player keep
 			keeper::AutoStart = true;
 			gbShowIntro = false;
+		} else if (arg == "--keeper-editor") { // [DARK KEEP] straight into the map editor
+			keeper::AutoStart = true;
+			gbShowIntro = false;
+			keeper::KeepSetup setup = keeper::CurrentSetup();
+			setup.mode = keeper::GameMode::MapEditor;
+			keeper::SetCurrentSetup(setup);
 		} else if (arg == "--keeper-start-wave") { // [DARK KEEP] dev/test: begin at a later raid
 			if (i + 1 < argc)
 				keeper::TestStartWave = std::atoi(argv[++i]);
@@ -3421,6 +3429,7 @@ void LoadGameLevelCalculateCursor()
 
 tl::expected<void, std::string> LoadGameLevel(bool firstflag, lvl_entry lvldir)
 {
+	keeper::PrepareMapLevel(); // [DARK KEEP] reads the map, whose tileset decides leveltype
 	const _music_id neededTrack = GetLevelMusic(leveltype);
 
 	ClearFloatingNumbers();

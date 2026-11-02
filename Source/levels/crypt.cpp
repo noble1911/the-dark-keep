@@ -837,4 +837,21 @@ void PlaceCryptLights()
 	}
 }
 
+// [DARK KEEP] Map editor: see KeeperL1Build().
+void KeeperCryptPlaceStairs(Point stairsUp, Point stairsDown)
+{
+	if (stairsUp.x >= 0)
+		L5STAIRSUPHF.place(stairsUp);
+	if (stairsDown.x >= 0)
+		L5STAIRSDOWN.place(stairsDown);
+}
+
+void KeeperCryptFinish(bool decorate)
+{
+	if (decorate)
+		CryptSubstitution();
+	else
+		ApplyCryptShadowsPatterns();
+}
+
 } // namespace devilution

@@ -1339,4 +1339,81 @@ void LoadL1Dungeon(const char *path, Point spawn)
 	}
 }
 
+// [DARK KEEP] Builds a level from an editor's floor mask (DungeonMask) with the generator's own joining rules.
+void KeeperL1Build(Point stairsUp, Point stairsDown, const uint8_t openings[DMAXX][DMAXY], bool decorate)
+{
+	const bool crypt = leveltype == DTYPE_CRYPT;
+
+	InitDungeonFlags();
+	MakeDmt();
+	FixTilesPatterns();
+
+	// Doors and arches go in straight walls, where AddWall() would put them: 1 is a door, 2 an arch.
+	for (int j = 0; j < DMAXY; j++) {
+		for (int i = 0; i < DMAXX; i++) {
+			if (openings[i][j] == 0)
+				continue;
+			const bool door = openings[i][j] == 1;
+			if (dungeon[i][j] == HWall)
+				dungeon[i][j] = door ? HDoor : HArch;
+			else if (dungeon[i][j] == VWall)
+				dungeon[i][j] = door ? VDoor : VArch;
+			else
+				continue;
+			if (door)
+				Protected.set(i, j);
+		}
+	}
+
+	FloodTransparencyValues(Floor);
+
+	if (crypt) {
+		KeeperCryptPlaceStairs(stairsUp, stairsDown);
+	} else {
+		if (stairsUp.x >= 0)
+			STAIRSUP.place(stairsUp);
+		if (stairsDown.x >= 0)
+			STAIRSDOWN.place(stairsDown);
+	}
+
+	for (int j = 0; j < DMAXY; j++) {
+		for (int i = 0; i < DMAXX; i++) {
+			if (dungeon[i][j] == EntranceStairs) {
+				const int xx = (2 * i) + 16;
+				const int yy = (2 * j) + 16;
+				DRLG_CopyTrans(xx, yy + 1, xx, yy);
+				DRLG_CopyTrans(xx + 1, yy + 1, xx + 1, yy);
+			}
+		}
+	}
+
+	FixTransparency();
+	if (crypt)
+		FixCryptDirtTiles();
+	else
+		FixDirtTiles();
+	FixCornerTiles();
+
+	if (crypt) {
+		KeeperCryptFinish(decorate);
+	} else {
+		if (decorate)
+			Substitution();
+		ApplyShadowsPatterns();
+		if (decorate) {
+			const int numt = GenerateRnd(5) + 5;
+			for (int i = 0; i < numt; i++)
+				PlaceMiniSet(LAMPS, DMAXX * DMAXY, true);
+			FillFloor();
+		}
+	}
+
+	memcpy(pdungeon, dungeon, sizeof(pdungeon));
+}
+
+void KeeperL1Pass3()
+{
+	Pass3();
+}
+
 } // namespace devilution

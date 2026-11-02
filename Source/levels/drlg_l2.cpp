@@ -2831,6 +2831,55 @@ void CreateL2Dungeon(uint32_t rseed, lvl_entry entry)
 	Pass3();
 }
 
+// [DARK KEEP] Builds a level from an editor's layout ('.' floor, '#' wall, ' ' rock, 'D' door).
+void KeeperL2Build(const char grid[DMAXX][DMAXY], Point stairsUp, Point stairsDown, bool decorate)
+{
+	Protected.reset();
+	memcpy(predungeon, grid, sizeof(predungeon));
+	memset(dungeon, 12, sizeof(dungeon));
+	for (int j = 0; j < DMAXY; j++) {
+		for (int i = 0; i < DMAXX; i++) {
+			DoPatternCheck(i, j);
+		}
+	}
+	// FixTilesPatterns(), but it may not turn painted floor into wall or painted wall into floor: generated
+	// walls always end at a corner, so it runs a free-ended wall on through the floor beyond it.
+	for (int j = 0; j < DMAXY - 1; j++) {
+		for (int i = 0; i < DMAXX - 1; i++) {
+			if (dungeon[i][j] == 1 && dungeon[i][j + 1] == 3 && predungeon[i][j + 1] != '.')
+				dungeon[i][j + 1] = 1;
+			if (dungeon[i][j] == 3 && dungeon[i][j + 1] == 1 && predungeon[i][j + 1] == '.')
+				dungeon[i][j + 1] = 3;
+			if (dungeon[i][j] == 3 && dungeon[i + 1][j] == 7 && predungeon[i + 1][j] == '.')
+				dungeon[i + 1][j] = 3;
+			if (dungeon[i][j] == 2 && dungeon[i + 1][j] == 3 && predungeon[i + 1][j] != '.')
+				dungeon[i + 1][j] = 2;
+			if (dungeon[i][j] == 11 && dungeon[i + 1][j] == 14)
+				dungeon[i + 1][j] = 16;
+			if (dungeon[i][j] == 15 && dungeon[i][j + 1] == 1)
+				dungeon[i][j + 1] = 8;
+		}
+	}
+	FloodTransparencyValues(3);
+	FixTransparency();
+	if (stairsUp.x >= 0)
+		USTAIRS.place(stairsUp);
+	if (stairsDown.x >= 0)
+		DSTAIRS.place(stairsDown);
+	// FixLockout() is left out on purpose: it would add doors the author didn't place.
+	FixDoors();
+	FixDirtTiles();
+	if (decorate)
+		Substitution();
+	ApplyShadowsPatterns();
+	memcpy(pdungeon, dungeon, sizeof(pdungeon));
+}
+
+void KeeperL2Pass3()
+{
+	Pass3();
+}
+
 void LoadPreL2Dungeon(const char *path)
 {
 	memset(dungeon, 12, sizeof(dungeon));

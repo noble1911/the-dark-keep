@@ -25,5 +25,8 @@ bool PlaceCryptStairs(lvl_entry entry);
 void CryptSubstitution();
 void SetCryptSetPieceRoom();
 void PlaceCryptLights();
+/** [DARK KEEP] Map editor: see KeeperL1Build(). */
+void KeeperCryptPlaceStairs(Point stairsUp, Point stairsDown);
+void KeeperCryptFinish(bool decorate);
 
 } // namespace devilution

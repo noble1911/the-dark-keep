@@ -89,6 +89,14 @@ void DrawHud(const Surface &out);
 /** scrollrt, per tile: the translucent ghost of the lair monster about to be placed under the cursor. */
 void DrawPlacementGhost(const Surface &out, Point tile, Point targetBufferPosition);
 
+/** Camera and HUD metrics, for the map editor's own UI. */
+void CenterCamera(Point tile);
+void SetViewZoom(bool zoomed);
+bool IsViewZoomed();
+int UiPixelScale();
+Point UiMousePosition();
+int UiBarHeight();
+
 /** @brief Dev/test flag (--keeper-autostart): skip menus and start a single-player keep. */
 extern bool AutoStart;
 

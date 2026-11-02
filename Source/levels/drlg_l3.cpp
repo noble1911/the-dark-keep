@@ -2191,6 +2191,42 @@ void CreateL3Dungeon(uint32_t rseed, lvl_entry entry)
 	PlaceLights();
 }
 
+// [DARK KEEP] Builds Caves or a Nest from an editor's mask (DungeonMask): caves are cut on the tile corners.
+void KeeperL3Build(Point stairsUp, Point stairsDown, bool decorate)
+{
+	const bool nest = leveltype == DTYPE_NEST;
+	Protected.reset();
+	for (int j = 0; j < DMAXY; j++) {
+		for (int i = 0; i < DMAXX; i++) {
+			dungeon[i][j] = DungeonMask.test(i, j) ? 1 : 0;
+		}
+	}
+	MakeMegas();
+	if (stairsUp.x >= 0)
+		(nest ? L6UP : L3UP).place(stairsUp);
+	if (stairsDown.x >= 0)
+		(nest ? L6DOWN : L3DOWN).place(stairsDown);
+	if (decorate) {
+		if (nest) {
+			PlaceMiniSetRandom1x1(7, 29, 25);
+			PlaceMiniSetRandom1x1(9, 33, 25);
+			PlaceMiniSetRandom1x1(10, 39, 25);
+		} else {
+			PlaceMiniSetRandom1x1(7, 106, 25);
+			PlaceMiniSetRandom1x1(7, 107, 25);
+			PlaceMiniSetRandom1x1(7, 108, 25);
+			PlaceMiniSetRandom1x1(9, 109, 25);
+			PlaceMiniSetRandom1x1(10, 110, 25);
+		}
+	}
+	memcpy(pdungeon, dungeon, sizeof(pdungeon));
+}
+
+void KeeperL3Pass3()
+{
+	Pass3();
+}
+
 void LoadPreL3Dungeon(const char *path)
 {
 	memset(dungeon, 8, sizeof(dungeon));
