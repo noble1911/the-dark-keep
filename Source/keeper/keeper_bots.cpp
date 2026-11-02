@@ -40,7 +40,7 @@ constexpr int BotSight = 7;
 constexpr int SorcererRange = 8;
 constexpr int RogueRange = 9;
 constexpr int ThinkInterval = 6;
-constexpr int RogueDisarmPercent = 60;
+constexpr int RogueDisarmPercent = 40;
 constexpr int RogueSpotRange = 3;
 constexpr int FearHealthDivisor = 4;
 constexpr int FearChancePercent = 50;
@@ -209,8 +209,8 @@ constexpr int BotStatsPerRaid = 2;
 constexpr int BotPotionsBase = 1;
 constexpr int BotRaidsPerPotion = 4;
 /** Gold for killing a bot. Bots who run and get away pay nothing, which is a good third of them. */
-constexpr int BotBountyBase = 45;
-constexpr int BotBountyPerWave = 15;
+constexpr int BotBountyBase = 54;
+constexpr int BotBountyPerWave = 18;
 
 void ScaleBot(Player &bot, bool champion)
 {

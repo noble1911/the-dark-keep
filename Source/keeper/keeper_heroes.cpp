@@ -95,8 +95,8 @@ constexpr std::array<HeroStatLine, NumHeroClasses> HeroStats { {
 constexpr int HeroMinDamagePerTenRaids = 6;
 constexpr int HeroMaxDamagePerTenRaids = 12;
 /** Gold for killing a monster hero. Heroes who run and get away pay nothing, which is a good third of them. */
-constexpr int HeroBountyBase = 30;
-constexpr int HeroBountyPerWave = 8;
+constexpr int HeroBountyBase = 36;
+constexpr int HeroBountyPerWave = 10;
 /**
  * The Keep Lord at 100% strength. Parties gain damage faster than strength, as they grow, so his life also
  * grows per campaign level: a few heroes leaking past the army must not end the keep at once.
@@ -147,7 +147,7 @@ constexpr uint16_t TrapRoutePenalty = 20;
 constexpr int TrapDangerRadius = 1;
 /** How far away a hero with a clear view notices a trap going off. */
 constexpr int TrapWitnessRange = 8;
-constexpr int RogueDisarmPercent = 50;
+constexpr int RogueDisarmPercent = 35;
 constexpr int RogueSpotRange = 3;
 constexpr int WarriorBashBlows = 3;
 constexpr int OtherBashBlows = 1;
