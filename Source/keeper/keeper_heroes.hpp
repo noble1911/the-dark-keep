@@ -41,7 +41,7 @@ constexpr uint16_t LockRoutePenalty = 40;
 /** A raid's heroes appear on free floor up to this far from the entrance, nearest first. */
 constexpr unsigned HeroSpawnRadius = 6;
 
-/** A hero can stand here, or will open the door here. */
+/** A hero's route can go through here: open floor, a door, or a barricade to bash. Monsters can't use that last. */
 bool IsPassable(Point tile);
 bool CanStepDiagonal(Point from, Displacement step);
 void BuildField(DistanceField &field, Point target);
