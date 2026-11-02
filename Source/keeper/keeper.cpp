@@ -2570,36 +2570,27 @@ void DrawUi(const Surface &out)
 	}
 
 	if (IsGameOver() && !CoopHasHostLeft()) {
-		const bool won = State.phase == Phase::Victory;
-		const Rectangle banner = GameOverBanner(out.w(), top);
-		DrawHalfTransparentRectTo(out, banner.position.x, banner.position.y, banner.size.width, banner.size.height);
-		DrawString(out, won ? "THE KEEP STANDS" : "THE KEEP HAS FALLEN", { banner.position + Displacement { 0, 10 }, { banner.size.width, 30 } },
-		    { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | (won ? UiFlags::ColorGold : UiFlags::ColorRed) });
-		DrawString(out, (won ? fmt::format("All {} raids repelled with {} gold left.", NumWaves(), State.vaultGold) : std::string("The Keep Lord is slain and the heroes escaped.")) + fmt::format(" +{} XP.", MapXpEarned()) + (gbIsMultiplayer ? CoopGameOverLine() : std::string()) + (CanRetryRaid() ? fmt::format(" A retry starts with {} gold and gives back this raid's XP.", std::max(State.retryGold, 0)) : ""),
-		    { banner.position + Displacement { 0, 50 }, { banner.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
-		const std::vector<GameOverChoice> choices = GameOverChoices();
-		const auto drawButton = [&](int index, std::string_view label) {
-			const Rectangle button = GameOverButton(out.w(), top, index, static_cast<int>(choices.size()));
-			DrawHalfTransparentRectTo(out, button.position.x, button.position.y, button.size.width, button.size.height);
-			const UiFlags color = Contains(button, UiMouse()) ? UiFlags::ColorGold : UiFlags::ColorWhite;
-			DrawString(out, FitText(label, button.size.width - 4), { button.position + Displacement { 0, 3 }, { button.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
-		};
-		for (size_t i = 0; i < choices.size(); i++) {
-			switch (choices[i]) {
+		std::vector<std::string> labels;
+		for (const GameOverChoice choice : GameOverChoices()) {
+			switch (choice) {
 			case GameOverChoice::RetryRaid:
-				drawButton(static_cast<int>(i), fmt::format("Retry raid {} (Enter)", State.wave));
+				labels.push_back(fmt::format("Retry raid {} (Enter)", State.wave));
 				break;
 			case GameOverChoice::Continue:
-				drawButton(static_cast<int>(i), CoopStartingTicks() > 0 ? std::string("Start now (Enter)") : GameOverContinueLabel(*GameOverContinue()));
+				labels.push_back(CoopStartingTicks() > 0 ? std::string("Start now (Enter)") : GameOverContinueLabel(*GameOverContinue()));
 				break;
 			case GameOverChoice::Keeper:
-				drawButton(static_cast<int>(i), fmt::format("Keeper: {} Renown", RenownAvailable()));
+				labels.push_back(fmt::format("Keeper: {} Renown", RenownAvailable()));
 				break;
 			case GameOverChoice::Leave:
-				drawButton(static_cast<int>(i), IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+				labels.push_back(IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
 				break;
 			}
 		}
+		std::string note = gbIsMultiplayer ? CoopGameOverLine() : std::string();
+		if (CanRetryRaid())
+			note += fmt::format(" A retry starts with {} gold and gives back this raid's XP.", std::max(State.retryGold, 0));
+		DrawMapSummary(out, UiMouse(), labels, note);
 	}
 	DrawCoopHostLeft(out, top);
 	EditorDrawTestBanner(out);
