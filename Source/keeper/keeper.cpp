@@ -70,8 +70,9 @@ char AutoJoinAddress[128] = "127.0.0.1";
 
 namespace {
 
-/** Ambient light level for the whole keep (0 = fully lit, 15 = pitch black). */
+/** Ambient light for the whole keep (0 = fully lit, 15 = pitch black). The Catacombs' and Caves' art is darker. */
 constexpr uint8_t AmbientLight = 3;
+constexpr uint8_t DarkTilesetAmbientLight = 1;
 /** Camera speed in screen pixels per second. */
 constexpr float CameraSpeed = 720.F;
 /** Mouse distance from the window edge (pixels) that scrolls the camera. */
@@ -168,10 +169,11 @@ void RevealKeep()
 
 void ApplyAmbientLight()
 {
+	const uint8_t ambient = IsAnyOf(leveltype, DTYPE_CATACOMBS, DTYPE_CAVES) ? DarkTilesetAmbientLight : AmbientLight;
 	for (int x = 0; x < MAXDUNX; x++) {
 		for (int y = 0; y < MAXDUNY; y++) {
-			dPreLight[x][y] = std::min(dPreLight[x][y], AmbientLight);
-			dLight[x][y] = std::min(dLight[x][y], AmbientLight);
+			dPreLight[x][y] = std::min(dPreLight[x][y], ambient);
+			dLight[x][y] = std::min(dLight[x][y], ambient);
 		}
 	}
 }
