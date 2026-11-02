@@ -1776,8 +1776,9 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			// death has to be counted first, at the raid's own bounty.
 			if (phase == Phase::Raid) {
 				for (size_t i = 0; i < MaxBots; i++) {
-					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
-					ApplyBotPositionSync(i, { message.botTiles[i][0], message.botTiles[i][1] }, message.botPotions[i]);
+					const int32_t life = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i])));
+					ApplyBotLifeSync(i, life);
+					ApplyBotPositionSync(i, life, { message.botTiles[i][0], message.botTiles[i][1] }, message.botPotions[i]);
 				}
 			}
 			State.wave = message.wave;

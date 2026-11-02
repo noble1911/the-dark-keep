@@ -298,13 +298,14 @@ constexpr int PossessManaCost = 10;
 /** Dev/test (--keeper-devctl): sets off a trap at a tile, whoever stands there. */
 void DevFireTrap(size_t slot, Point victim);
 
-/** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
 /** Host: a Rogue disarmed a trap (botSlot empty: a monster hero's). Everyone hears of it. */
 void DisarmTrap(size_t trapSlot, std::optional<size_t> botSlot);
+/** Host: a hero robbed the vault, or lost its nerve. Joiners can't work this out for themselves. */
 void NotifyBotLooted(size_t slot, int amount);
 void NotifyBotFled(size_t slot);
 void NotifyHeroLooted(size_t monsterId, int amount);
 void NotifyHeroFled(size_t monsterId);
+/** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
 void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
 void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 

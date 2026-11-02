@@ -806,12 +806,15 @@ void SnapBot(Player &bot, Point tile)
 
 } // namespace
 
-void ApplyBotPositionSync(size_t slot, Point hostTile, uint8_t potions)
+void ApplyBotPositionSync(size_t slot, int32_t hostLife, Point hostTile, uint8_t potions)
 {
 	Player &bot = Players[FirstBotId + slot];
-	if (!IsLivingBot(bot) || !InDungeonBounds(hostTile))
+	// Negative life: the host has no such bot yet or any more, so its tile and potions mean nothing.
+	if (hostLife < 0 || !IsLivingBot(bot) || !InDungeonBounds(hostTile))
 		return;
 	BotState &state = Bots[slot];
+	if (potions < state.potions)
+		PlaySfxLoc(SfxID::ItemPotion, bot.position.tile); // a joiner's copy doesn't drink for itself
 	state.potions = potions;
 	DevctlNoteBotDrift(Point(bot.position.tile).WalkingDistance(hostTile));
 	if (!DevctlBotSyncOn())
