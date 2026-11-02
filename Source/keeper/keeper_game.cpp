@@ -534,9 +534,11 @@ void HostLockDoor(Point doorPosition)
 	if (it == State.locks.end())
 		return;
 	const auto slot = static_cast<uint8_t>(it - State.locks.begin());
+	ApplyDoorLocked(slot, doorPosition);
+	if (!State.locks[slot].active)
+		return; // no structure, no charge
 	State.vaultGold -= LockDoorCost;
 	Send(Action::DoorLocked, slot, 0, doorPosition);
-	ApplyDoorLocked(slot, doorPosition);
 	BroadcastState();
 }
 
@@ -851,6 +853,8 @@ void ApplySyncBegin(uint8_t phaseId, uint8_t wave)
 		lair.members.fill(-1);
 	}
 	State.traps = {};
+	for (size_t slot = 0; slot < MaxLocks; slot++)
+		RemoveBarricade(slot); // the host's list follows, and each barricade comes back with its lock
 	State.locks = {};
 	State.baits = {};
 	State.possessed.fill(-1);
@@ -1429,7 +1433,7 @@ std::string_view StructureName(StructureRef ref)
 	case StructureType::Bait:
 		return "Fool's gold";
 	case StructureType::Lock:
-		return "Door lock";
+		return UsesBarricades() ? "Barricade" : "Door lock";
 	}
 	return "";
 }
@@ -1594,9 +1598,17 @@ bool CanLockDoorAt(Point tile, std::string_view *reason)
 			return fail("Too wide to bar: find a neck");
 		if (BarricadeSlotAt(tile))
 			return fail("Already barred");
+		if (!CanPlaceBarricadeLine(line))
+			return fail("Something is in the way");
 		for (const Point at : line) {
 			if (BarricadeSlotAt(at))
 				return fail("Already barred");
+			if (IsPlacementCrowded(at))
+				return fail("Too close to another structure");
+			for (const Lair &lair : State.lairs) {
+				if (lair.active && ((lair.hasRally && lair.rally == at) || std::find(lair.route.begin(), lair.route.begin() + lair.routeCount, at) != lair.route.begin() + lair.routeCount))
+					return fail("One of your rally points is there");
+			}
 			if (dMonster[at.x][at.y] != 0 || dPlayer[at.x][at.y] != 0)
 				return fail("Something is in the way");
 			if (at.WalkingDistance(State.entrance) < EntranceKeepOut || at.WalkingDistance(State.vault) < VaultKeepOut)

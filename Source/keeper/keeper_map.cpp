@@ -232,7 +232,11 @@ void BuildCavesOrNest(const KeepMap &map, const CellGrid &grid, bool decorate)
 	if (map.tileset == MapTileset::Caves) {
 		for (int x = 0; x < DMAXX; x++) {
 			for (int y = 0; y < DMAXY; y++) {
-				if (static_cast<MapCell>(grid[x][y]) == MapCell::Door) {
+				if (static_cast<MapCell>(grid[x][y]) != MapCell::Door || x + 1 >= DMAXX || y + 1 >= DMAXY)
+					continue;
+				// A gate needs a whole floor tile, which is cut on these four corners. In solid wall the cell stays wall.
+				const auto open = [&grid](int cx, int cy) { return IsAnyOf(static_cast<MapCell>(grid[cx][cy]), MapCell::Floor, MapCell::Door); };
+				if (open(x + 1, y) && open(x, y + 1) && open(x + 1, y + 1)) {
 					floorPlan[x][y] = static_cast<uint8_t>(MapCell::Floor);
 					gates[x][y] = 1;
 				}

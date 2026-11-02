@@ -1204,7 +1204,7 @@ void StepHome(Monster &monster, Point home)
 		int8_t path[MaxPathLengthPlayer];
 		/** Maps a path step to the direction to walk. */
 		constexpr Direction StepDirections[9] = { Direction::South, Direction::NorthEast, Direction::NorthWest, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West };
-		const int steps = FindPath(CanStep, [](Point tile) { return IsPassable(tile); }, position, home, path, MaxPathLengthPlayer);
+		const int steps = FindPath(CanStep, [](Point tile) { return InDungeonBounds(tile) && IsTileWalkable(tile, /*ignoreDoors=*/true); }, position, home, path, MaxPathLengthPlayer);
 		if (steps > 0 && path[0] > 0 && path[0] < 9) {
 			StepTowards(monster, StepDirections[path[0]]);
 			return;

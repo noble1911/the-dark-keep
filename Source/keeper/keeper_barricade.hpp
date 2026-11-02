@@ -23,6 +23,8 @@ constexpr int MaxBarricadeWidth = 12;
 bool UsesBarricades();
 /** The line across the narrowest way through `tile`, wall to wall. Empty if it's wider than the limit or wouldn't seal. */
 std::vector<Point> BarricadeLine(Point tile);
+/** No breakable or non-solid object on the line, and room for its objects in the level. */
+bool CanPlaceBarricadeLine(const std::vector<Point> &line);
 /** @return false if something stands in the way. Keeps the line for this lock slot. */
 bool PlaceBarricade(size_t lockSlot, Point tile);
 void RemoveBarricade(size_t lockSlot);
