@@ -65,6 +65,12 @@ bool PetrifyBot(Player &bot, int ticks);
 bool IsPetrifiedBot(const Player &player);
 /** Any living bot within `distance` tiles of `tile`. */
 bool IsBotNear(Point tile, int distance);
+/** Every client: bots who can see trap `trapSlot` at `trapPosition` fire learn to route around it. */
+void BotsWitnessTrap(size_t trapSlot, Point trapPosition, int range);
+/** Healthy bot nearest `from` within `range`, still on the heist. */
+std::optional<Point> NearestHealthyBot(Point from, int range);
+/** Walking distance to the vault of the rearmost bot still heading there (0 = none). */
+uint16_t BotRearVaultDistance();
 
 /** The portal channel is done: the bot casts the real Town Portal spell. */
 void BotCastTownPortal(Player &bot);

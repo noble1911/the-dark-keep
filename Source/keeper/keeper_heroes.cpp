@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <optional>
 #include <queue>
 #include <vector>
@@ -90,6 +91,35 @@ constexpr int HeroSight = 6;
 constexpr int GuardRadius = 8;
 constexpr int SpawnIntervalTicks = 15;
 
+/** Trap and bait masks hold one bit per slot. */
+static_assert(MaxTraps <= 16);
+static_assert(MaxBaits <= 8);
+
+// Hero AI tuning. Route penalties are in "steps a hero would rather walk instead".
+/** Per danger tile: crossing a trap's 3 tile zone is worth a detour of about 3x this. */
+constexpr uint16_t TrapRoutePenalty = 20;
+/** Tiles from a trap that set it off (matches UpdateTraps). */
+constexpr int TrapDangerRadius = 1;
+/** A locked door is bashed only if the open way round is longer than this many extra steps. */
+constexpr uint16_t LockRoutePenalty = 40;
+/** How far away a hero with a clear view notices a trap going off. */
+constexpr int TrapWitnessRange = 8;
+constexpr int RogueDisarmPercent = 50;
+constexpr int RogueSpotRange = 3;
+constexpr int WarriorBashBlows = 3;
+constexpr int OtherBashBlows = 1;
+/** How far each class notices fool's gold. Sorcerers aren't fooled by it at all. */
+constexpr int WarriorBaitSight = 8;
+constexpr int RogueBaitSight = 10;
+constexpr int SorcererBaitSight = 0;
+constexpr int FearHealthDivisor = 4;
+constexpr int FearChancePercent = 60;
+/** Most steps a hero spends falling back, so it can't run from a fight for good. */
+constexpr int FallBackMaxSteps = 12;
+/** Waiting for the party: a hero this many tiles ahead of the rearguard holds, in pauses of this length. */
+constexpr int RegroupLeadTiles = 10;
+constexpr int RegroupWaitTicks = 10;
+
 struct HeroState {
 	bool active = false;
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -98,10 +128,14 @@ struct HeroState {
 	bool fleeing = false;
 	bool fearRolled = false;
 	uint8_t baitsVisited = 0;
+	/** Traps a Rogue has rolled to disarm. */
 	uint16_t trapsSeen = 0;
+	/** Traps this hero saw go off or spotted: its route avoids them. */
+	uint16_t trapsKnown = 0;
+	bool fellBack = false;
+	int fallBackSteps = 0;
+	int regroupBudget = RegroupBudgetTicks;
 };
-
-constexpr int BaitSight = 8;
 
 std::array<HeroState, MaxMonsters> Heroes;
 std::array<Point, MaxMonsters> Homes;
@@ -165,6 +199,162 @@ uint16_t FieldAt(const DistanceField &field, Point tile)
 	if (!InDungeonBounds(tile))
 		return Unreachable;
 	return field[tile.x][tile.y];
+}
+
+/**
+ * A route field: like the plain fields, but each tile also costs its penalty, so the lowest neighbour
+ * is always the cheapest way on. It depends only on the goal, the known traps and the locks, so every
+ * client computes the same one, and heroes with the same knowledge share it.
+ */
+struct RouteEntry {
+	bool valid = false;
+	HeroGoal goal = HeroGoal::Vault;
+	uint16_t traps = 0;
+	/** Where those traps stand: a slot can be sold and reused. */
+	uint32_t trapSites = 0;
+	uint32_t lastUsed = 0;
+	DistanceField field;
+};
+/** Each hero uses one route at a time, so this holds a whole party whatever each of them knows. */
+constexpr size_t RouteCacheSize = 12;
+std::array<RouteEntry, RouteCacheSize> Routes;
+uint32_t routeClock = 0;
+
+void InvalidateRoutes()
+{
+	for (RouteEntry &entry : Routes)
+		entry.valid = false;
+}
+
+uint32_t TrapSitesOf(uint16_t traps)
+{
+	uint32_t sites = 0;
+	for (size_t i = 0; i < MaxTraps; i++) {
+		if ((traps & (1U << i)) != 0)
+			sites = sites * 31 + static_cast<uint32_t>(State.traps[i].position.x * 256 + State.traps[i].position.y + 1);
+	}
+	return sites;
+}
+
+Point GoalTile(HeroGoal goal)
+{
+	switch (goal) {
+	case HeroGoal::Vault:
+		return State.vault;
+	case HeroGoal::Entrance:
+		return State.entrance;
+	case HeroGoal::Portal:
+		break;
+	}
+	return Portal.open ? Portal.position : Point { -1, -1 };
+}
+
+void BuildRoute(DistanceField &field, Point target, uint16_t traps)
+{
+	static DistanceField tileCost;
+	for (auto &column : tileCost)
+		column.fill(1);
+	for (const DoorLock &lock : State.locks) {
+		if (lock.active && InDungeonBounds(lock.position))
+			tileCost[lock.position.x][lock.position.y] += LockRoutePenalty;
+	}
+	for (size_t i = 0; i < MaxTraps; i++) {
+		if ((traps & (1U << i)) == 0)
+			continue;
+		const Point trap = State.traps[i].position;
+		for (int dx = -TrapDangerRadius; dx <= TrapDangerRadius; dx++) {
+			for (int dy = -TrapDangerRadius; dy <= TrapDangerRadius; dy++) {
+				const Point tile = trap + Displacement { dx, dy };
+				if (InDungeonBounds(tile))
+					tileCost[tile.x][tile.y] += TrapRoutePenalty;
+			}
+		}
+	}
+
+	for (auto &column : field)
+		column.fill(Unreachable);
+	if (!InDungeonBounds(target))
+		return;
+	// Dijkstra over (distance << 16 | x << 8 | y).
+	std::priority_queue<uint32_t, std::vector<uint32_t>, std::greater<>> open;
+	field[target.x][target.y] = 0;
+	open.push(static_cast<uint32_t>(target.x) << 8 | static_cast<uint32_t>(target.y));
+	while (!open.empty()) {
+		const uint32_t top = open.top();
+		open.pop();
+		const Point tile { static_cast<int>((top >> 8) & 0xFF), static_cast<int>(top & 0xFF) };
+		const uint32_t distance = top >> 16;
+		if (distance != field[tile.x][tile.y])
+			continue;
+		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+			const Displacement step(dir);
+			const Point neighbour = tile + step;
+			if (!IsPassable(neighbour) || !CanStepDiagonal(tile, step))
+				continue;
+			const uint32_t next = distance + tileCost[neighbour.x][neighbour.y];
+			if (next >= field[neighbour.x][neighbour.y])
+				continue;
+			field[neighbour.x][neighbour.y] = static_cast<uint16_t>(next);
+			open.push(next << 16 | static_cast<uint32_t>(neighbour.x) << 8 | static_cast<uint32_t>(neighbour.y));
+		}
+	}
+}
+
+/** The route to `goal` for a hero who knows `knownTraps`. Valid until the next call that builds a route. */
+const DistanceField &RouteField(HeroGoal goal, uint16_t knownTraps)
+{
+	uint16_t traps = 0;
+	for (size_t i = 0; i < MaxTraps; i++) {
+		if ((knownTraps & (1U << i)) != 0 && State.traps[i].active)
+			traps |= static_cast<uint16_t>(1U << i);
+	}
+	const uint32_t sites = TrapSitesOf(traps);
+	routeClock++;
+	RouteEntry *slot = &Routes[0];
+	for (RouteEntry &entry : Routes) {
+		if (entry.valid && entry.goal == goal && entry.traps == traps && entry.trapSites == sites) {
+			entry.lastUsed = routeClock;
+			return entry.field;
+		}
+		if (!entry.valid || (slot->valid && entry.lastUsed < slot->lastUsed))
+			slot = &entry;
+	}
+	BuildRoute(slot->field, GoalTile(goal), traps);
+	slot->valid = true;
+	slot->goal = goal;
+	slot->traps = traps;
+	slot->trapSites = sites;
+	slot->lastUsed = routeClock;
+	return slot->field;
+}
+
+bool IsLockedDoorAt(Point tile)
+{
+	Object *door = FindObjectAtPosition(tile);
+	return door != nullptr && door->isDoor() && KeeperIsDoorClosed(*door) && FindLock(door->position) != nullptr;
+}
+
+/** A locked door next to `from` that the route says to go through: no open neighbour is any cheaper. */
+std::optional<Point> LockedDoorOnRoute(const DistanceField &field, Point from)
+{
+	std::optional<Point> door;
+	uint16_t doorValue = FieldAt(field, from);
+	uint16_t openValue = Unreachable;
+	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
+		const Point tile = from + dir;
+		const uint16_t value = FieldAt(field, tile);
+		if (value == Unreachable || !CanStepDiagonal(from, Displacement(dir)))
+			continue;
+		if (!IsLockedDoorAt(tile)) {
+			openValue = std::min(openValue, value);
+		} else if (value < doorValue) {
+			door = tile;
+			doorValue = value;
+		}
+	}
+	if (door && doorValue <= openValue)
+		return door;
+	return std::nullopt;
 }
 
 bool IsAliveMonster(const Monster &monster)
@@ -350,79 +540,47 @@ void HeroOpenDoors(const Monster &monster)
 	}
 }
 
-/** If a locked door blocks the way along the field, hammer at it. */
+/** If the route goes through a locked door, hammer at it. */
 bool TryBashLockedDoor(Monster &monster, HeroState &hero, const DistanceField &field)
 {
-	const Point position = monster.position.tile;
-	const uint16_t here = FieldAt(field, position);
-	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
-		const Point tile = position + dir;
-		if (FieldAt(field, tile) >= here)
-			continue;
-		Object *door = FindObjectAtPosition(tile);
-		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door))
-			continue;
-		DoorLock *lock = FindLock(door->position);
-		if (lock == nullptr)
-			continue;
-		monster.enemyPosition = tile;
-		monster.flags |= MFLAG_NO_ENEMY; // swing at the door, not at a monster
-		KeeperStartMeleeAttack(monster);
-		lock->strength -= hero.cls == HeroClassKind::Warrior ? 3 : 1;
-		if (lock->strength <= 0) {
-			lock->active = false;
-			KeeperOperateDoor(*door, false);
-			Announce(fmt::format("A {} smashed through a locked door!", ClassName(hero)));
-		}
-		return true;
-	}
-	return false;
+	const std::optional<Point> door = LockedDoorOnRoute(field, monster.position.tile);
+	if (!door)
+		return false;
+	monster.enemyPosition = *door;
+	monster.flags |= MFLAG_NO_ENEMY; // swing at the door, not at a monster
+	KeeperStartMeleeAttack(monster);
+	StrikeLockedDoor(*door, BashBlows(hero.cls), fmt::format("A {}", ClassName(hero)));
+	return true;
 }
 
 /** Greedy heroes detour to treasure piles they can see. @return true if the hero acted. */
 bool TryGoForBait(Monster &monster, HeroState &hero)
 {
-	if (hero.carried != 0 || hero.fleeing || hero.cls == HeroClassKind::Sorcerer)
+	if (hero.carried != 0 || hero.fleeing)
 		return false;
 	const Point position = monster.position.tile;
-	int best = -1;
-	int bestDistance = 0;
-	for (size_t i = 0; i < MaxBaits; i++) {
-		const Bait &bait = State.baits[i];
-		if (!bait.active || (hero.baitsVisited & (1U << i)) != 0)
-			continue;
-		const int distance = position.WalkingDistance(bait.position);
-		if (distance > BaitSight || !LineClearMissile(position, bait.position))
-			continue;
-		if (best == -1 || distance < bestDistance) {
-			best = static_cast<int>(i);
-			bestDistance = distance;
-		}
-	}
-	if (best == -1)
+	const std::optional<size_t> slot = FindBaitFor(hero.cls, position, hero.baitsVisited);
+	if (!slot)
 		return false;
-	Bait &bait = State.baits[best];
-	if (bestDistance <= 1) {
-		hero.baitsVisited |= static_cast<uint8_t>(1U << best);
-		if (--bait.uses <= 0)
-			bait.active = false;
-		Announce(fmt::format("A {} wastes time on fool's gold.", ClassName(hero)), UiFlags::ColorGold);
-		KeeperAiDelay(monster, 40);
+	const Point bait = State.baits[*slot].position;
+	if (position.WalkingDistance(bait) <= 1) {
+		ConsumeBait(*slot, hero.baitsVisited, fmt::format("A {}", ClassName(hero)));
+		KeeperAiDelay(monster, BaitLingerTicks);
 		return true;
 	}
-	if (StepTowards(monster, GetDirection(position, bait.position)))
+	if (StepTowards(monster, GetDirection(position, bait)))
 		return true;
-	hero.baitsVisited |= static_cast<uint8_t>(1U << best); // can't reach it: give up on this pile
+	hero.baitsVisited |= static_cast<uint8_t>(1U << *slot); // can't reach it: give up on this pile
 	return false;
 }
 
-/** Badly hurt heroes may lose their nerve (once): they drop any loot and run for the exit. */
+/** Badly hurt heroes may lose their nerve (once): they drop any loot and run. With no friend near, they always do. */
 void CheckFear(const Monster &monster, HeroState &hero)
 {
-	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * 4 >= monster.maxHitPoints)
+	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)
 		return;
 	hero.fearRolled = true;
-	if (GenerateRnd(100) >= 60)
+	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= FearChancePercent)
 		return;
 	hero.fleeing = true;
 	if (hero.carried > 0) {
@@ -442,14 +600,42 @@ void RogueCheckTraps(const Monster &monster, HeroState &hero)
 		return;
 	for (size_t i = 0; i < MaxTraps; i++) {
 		Trap &trap = State.traps[i];
-		if (!trap.active || (hero.trapsSeen & (1U << i)) != 0 || monster.position.tile.WalkingDistance(trap.position) > 3)
+		if (!trap.active || (hero.trapsSeen & (1U << i)) != 0 || monster.position.tile.WalkingDistance(trap.position) > RogueSpotRange)
 			continue;
 		hero.trapsSeen |= static_cast<uint16_t>(1U << i);
-		if (GenerateRnd(100) < 50) {
+		hero.trapsKnown |= static_cast<uint16_t>(1U << i);
+		if (GenerateRnd(100) < RogueDisarmPercent) {
 			trap.active = false;
 			Announce("A Rogue disarmed one of your Fire Traps!");
 		}
 	}
+}
+
+} // namespace
+
+void StepHome(Monster &monster, Point home);
+
+namespace {
+
+/** A wounded hero in a fight breaks off, once, and runs to a healthy friend. @return true if it moved. */
+bool TryFallBack(Monster &monster, HeroState &hero)
+{
+	if (hero.champion || hero.fleeing || hero.carried != 0)
+		return false;
+	if (hero.fallBackSteps == 0) {
+		if (hero.fellBack || (monster.flags & MFLAG_NO_ENEMY) != 0 || monster.hitPoints * 100 >= monster.maxHitPoints * FallBackHealthPercent)
+			return false;
+		hero.fellBack = true;
+		hero.fallBackSteps = FallBackMaxSteps;
+	}
+	const std::optional<Point> ally = NearestHealthyHero(monster.position.tile, FallBackAllyRange);
+	if (!ally || monster.position.tile.WalkingDistance(*ally) <= FallBackArriveDistance) {
+		hero.fallBackSteps = 0;
+		return false;
+	}
+	hero.fallBackSteps--;
+	StepHome(monster, *ally);
+	return true;
 }
 
 } // namespace
@@ -694,9 +880,10 @@ void HeroAi(Monster &monster)
 				HeroEscapes(monster, hero);
 				return;
 			}
-			if (TryBashLockedDoor(monster, hero, ToPortal))
+			const DistanceField &route = RouteField(HeroGoal::Portal, hero.trapsKnown);
+			if (TryBashLockedDoor(monster, hero, route))
 				return;
-			if (!FollowField(monster, ToPortal))
+			if (!FollowField(monster, route))
 				KeeperAiDelay(monster, 5);
 			return;
 		}
@@ -707,6 +894,9 @@ void HeroAi(Monster &monster)
 			return;
 		}
 	}
+
+	if (!State.bossDown && TryFallBack(monster, hero))
+		return;
 
 	if (!hero.fleeing && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
 		const Monster &enemy = Monsters[monster.enemy];
@@ -758,9 +948,15 @@ void HeroAi(Monster &monster)
 			}
 			return;
 		}
-		if (TryBashLockedDoor(monster, hero, ToVault))
+		if (hero.regroupBudget > 0 && IsAheadOfParty(monster.position.tile)) {
+			hero.regroupBudget -= RegroupWaitTicks;
+			KeeperAiDelay(monster, RegroupWaitTicks);
 			return;
-		if (!FollowField(monster, ToVault))
+		}
+		const DistanceField &route = RouteField(HeroGoal::Vault, hero.trapsKnown);
+		if (TryBashLockedDoor(monster, hero, route))
+			return;
+		if (!FollowField(monster, route))
 			KeeperAiDelay(monster, 5);
 		return;
 	}
@@ -769,9 +965,10 @@ void HeroAi(Monster &monster)
 		HeroEscapes(monster, hero);
 		return;
 	}
-	if (TryBashLockedDoor(monster, hero, ToEntrance))
+	const DistanceField &route = RouteField(HeroGoal::Entrance, hero.trapsKnown);
+	if (TryBashLockedDoor(monster, hero, route))
 		return;
-	if (!FollowField(monster, ToEntrance))
+	if (!FollowField(monster, route))
 		KeeperAiDelay(monster, 5);
 }
 
@@ -964,6 +1161,7 @@ void RebuildPaths()
 {
 	BuildField(ToVault, State.vault);
 	BuildField(ToEntrance, State.entrance);
+	InvalidateRoutes();
 }
 
 void StartWave(uint8_t wave)
@@ -1067,6 +1265,7 @@ void OpenPortalAt(Point position)
 	Portal.botCaster = -1;
 	Portal.awaitingBotCast = false;
 	BuildField(ToPortal, Portal.position);
+	InvalidateRoutes();
 	Announce("The heroes opened a portal out of the keep!");
 }
 
@@ -1203,22 +1402,24 @@ uint16_t GoalDistance(HeroGoal goal, Point tile)
 	return Unreachable;
 }
 
-std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps)
+std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t knownTraps)
 {
+	const DistanceField &route = RouteField(goal, knownTraps);
 	Point at = from;
 	for (int i = 0; i < steps; i++) {
-		const uint16_t here = GoalDistance(goal, at);
-		if (here == 0 || here == Unreachable)
+		uint16_t best = FieldAt(route, at);
+		if (best == 0 || best == Unreachable)
 			break;
 		std::optional<Point> next;
 		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 			const Point candidate = at + dir;
-			if (GoalDistance(goal, candidate) < here && CanStepDiagonal(at, Displacement(dir))) {
+			const uint16_t value = FieldAt(route, candidate);
+			if (value < best && CanStepDiagonal(at, Displacement(dir))) {
 				next = candidate;
-				break;
+				best = value;
 			}
 		}
-		if (!next)
+		if (!next || IsLockedDoorAt(*next))
 			break;
 		at = *next;
 	}
@@ -1237,19 +1438,9 @@ void OpenDoorsAround(Point tile)
 	}
 }
 
-std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from)
+std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps)
 {
-	const uint16_t here = GoalDistance(goal, from);
-	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West, Direction::NorthWest, Direction::SouthEast }) {
-		const Point tile = from + dir;
-		if (GoalDistance(goal, tile) >= here)
-			continue;
-		Object *door = FindObjectAtPosition(tile);
-		if (door == nullptr || !door->isDoor() || !KeeperIsDoorClosed(*door) || FindLock(door->position) == nullptr)
-			continue;
-		return tile;
-	}
-	return std::nullopt;
+	return LockedDoorOnRoute(RouteField(goal, knownTraps), from);
 }
 
 void StrikeLockedDoor(Point tile, int blows, std::string_view who)
@@ -1265,7 +1456,109 @@ void StrikeLockedDoor(Point tile, int blows, std::string_view who)
 		lock->active = false;
 		KeeperOperateDoor(*door, false);
 		Announce(fmt::format("{} smashed through a locked door!", who));
+		RebuildPaths();
 	}
+}
+
+int BashBlows(HeroClassKind cls)
+{
+	return cls == HeroClassKind::Warrior ? WarriorBashBlows : OtherBashBlows;
+}
+
+std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t baitsVisited)
+{
+	int sight = 0;
+	switch (cls) {
+	case HeroClassKind::Warrior:
+		sight = WarriorBaitSight;
+		break;
+	case HeroClassKind::Rogue:
+		sight = RogueBaitSight;
+		break;
+	case HeroClassKind::Sorcerer:
+		sight = SorcererBaitSight;
+		break;
+	}
+	if (sight <= 0)
+		return std::nullopt;
+	std::optional<size_t> best;
+	int bestDistance = 0;
+	for (size_t i = 0; i < MaxBaits; i++) {
+		const Bait &bait = State.baits[i];
+		if (!bait.active || (baitsVisited & (1U << i)) != 0)
+			continue;
+		const int distance = position.WalkingDistance(bait.position);
+		if (distance > sight || !LineClearMissile(position, bait.position))
+			continue;
+		if (!best || distance < bestDistance) {
+			best = i;
+			bestDistance = distance;
+		}
+	}
+	return best;
+}
+
+void ConsumeBait(size_t slot, uint8_t &baitsVisited, std::string_view who)
+{
+	Bait &bait = State.baits[slot];
+	baitsVisited |= static_cast<uint8_t>(1U << slot);
+	if (--bait.uses <= 0)
+		bait.active = false;
+	Announce(fmt::format("{} wastes time on fool's gold.", who), UiFlags::ColorGold);
+}
+
+void NoteTrapFired(size_t trapSlot)
+{
+	if (trapSlot >= MaxTraps)
+		return;
+	const Point trap = State.traps[trapSlot].position;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		const Monster &monster = Monsters[id];
+		if (!Heroes[id].active || !IsAliveMonster(monster))
+			continue;
+		const int distance = monster.position.tile.WalkingDistance(trap);
+		if (distance <= TrapDangerRadius || (distance <= TrapWitnessRange && LineClearMissile(monster.position.tile, trap)))
+			Heroes[id].trapsKnown |= static_cast<uint16_t>(1U << trapSlot);
+	}
+	BotsWitnessTrap(trapSlot, trap, TrapWitnessRange);
+}
+
+std::optional<Point> NearestHealthyHero(Point from, int range)
+{
+	std::optional<Point> best = NearestHealthyBot(from, range);
+	int bestDistance = best ? from.WalkingDistance(*best) : 0;
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		const Monster &monster = Monsters[id];
+		if (!Heroes[id].active || Heroes[id].fleeing || Heroes[id].carried != 0 || !IsAliveMonster(monster))
+			continue;
+		if (monster.hitPoints * 100 < monster.maxHitPoints * HealthyAllyPercent)
+			continue;
+		const int distance = from.WalkingDistance(monster.position.tile);
+		if (distance <= range && (!best || distance < bestDistance)) {
+			best = Point(monster.position.tile);
+			bestDistance = distance;
+		}
+	}
+	return best;
+}
+
+bool IsAheadOfParty(Point position)
+{
+	const uint16_t mine = FieldAt(ToVault, position);
+	if (mine == Unreachable)
+		return false;
+	uint16_t rear = BotRearVaultDistance();
+	for (size_t i = 0; i < ActiveMonsterCount; i++) {
+		const unsigned id = ActiveMonsters[i];
+		if (!Heroes[id].active || Heroes[id].fleeing || Heroes[id].carried != 0 || !IsAliveMonster(Monsters[id]))
+			continue;
+		const uint16_t distance = FieldAt(ToVault, Monsters[id].position.tile);
+		if (distance != Unreachable)
+			rear = std::max(rear, distance);
+	}
+	return rear > mine + RegroupLeadTiles;
 }
 
 int TakeFromVault(int carryCap)

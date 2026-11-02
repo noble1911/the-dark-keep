@@ -104,7 +104,7 @@ std::optional<HeroSummary> GetHeroSummary(const Monster &monster);
 /** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
 std::string DescribeWave(uint8_t wave);
 
-/** Recomputes the vault/entrance distance fields (after level load, or when doors change). */
+/** Recomputes the vault/entrance distance fields and drops the cached routes (after level load, or when locks change). */
 void RebuildPaths();
 
 // ---- the Keep Lord and the heroes' way out --------------------------------
@@ -134,15 +134,42 @@ enum class HeroGoal : uint8_t {
 	Entrance,
 	Portal,
 };
-/** Steps to the goal along the hero paths (0xFFFF = unreachable). */
+/** Plain walking distance to the goal, ignoring traps and locks (0xFFFF = unreachable). For "have I arrived?". */
 uint16_t GoalDistance(HeroGoal goal, Point tile);
-/** A tile up to `steps` steps closer to the goal along the hero paths. */
-std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps);
+/**
+ * A tile up to `steps` steps along the route to the goal, for a hero who knows the traps in `knownTraps`
+ * (bits of State.traps). The route shuns those traps and locked doors, and stops short of a locked door.
+ */
+std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t knownTraps);
 /** Opens the unlocked closed doors next to a hero. */
 void OpenDoorsAround(Point tile);
-/** A locked, closed door next to `from` on the way to the goal. */
-std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from);
+/** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */
+std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps);
 void StrikeLockedDoor(Point doorTile, int blows, std::string_view who);
+/** Damage one swing does to a locked door. */
+int BashBlows(HeroClassKind cls);
+
+/** How long a hero stands gawping at fool's gold, in game ticks. */
+constexpr int BaitLingerTicks = 40;
+/** The fool's gold pile (slot in State.baits) this class would go for from `position`, if any. */
+std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t baitsVisited);
+/** The hero reached the pile: uses it up and marks it visited. */
+void ConsumeBait(size_t slot, uint8_t &baitsVisited, std::string_view who);
+
+/** Every client, from UpdateTraps: heroes who can see the trap learn to route around it. */
+void NoteTrapFired(size_t trapSlot);
+
+// Morale, shared by both kinds of hero. No healer class exists, so a wounded hero falls back on a healthy ally.
+constexpr int FallBackHealthPercent = 40;
+constexpr int HealthyAllyPercent = 60;
+constexpr int FallBackAllyRange = 12;
+constexpr int FallBackArriveDistance = 2;
+/** Living hero with at least HealthyAllyPercent health, still on the heist, nearest `from` within `range`. */
+std::optional<Point> NearestHealthyHero(Point from, int range);
+/** Ticks of waiting each hero has to spend on letting the party catch up: it can never stall the raid for long. */
+constexpr int RegroupBudgetTicks = 10 * 20;
+/** True if a hero at `position` is well ahead of the rearmost hero still heading for the vault. */
+bool IsAheadOfParty(Point position);
 /** Takes up to `carryCap` gold out of the vault. @return the amount taken */
 int TakeFromVault(int carryCap);
 int CarryCapacity(HeroClassKind cls);

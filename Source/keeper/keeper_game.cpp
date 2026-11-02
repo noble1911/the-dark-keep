@@ -576,6 +576,7 @@ void UpdateTraps()
 			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
 			AddMissile(trap.position, *victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, 20 + 5 * State.wave, 0);
 			trap.cooldown = TrapRearmTicks;
+			NoteTrapFired(static_cast<size_t>(&trap - State.traps.data()));
 		}
 	}
 }
