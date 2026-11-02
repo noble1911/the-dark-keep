@@ -16,6 +16,7 @@
 #include "engine/random.hpp"
 #include "items.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
@@ -45,6 +46,11 @@ constexpr int FearChancePercent = 50;
 constexpr int FallBackMaxThinks = 12;
 /** Near a known trap, walk the route tile by tile: the engine's path to a far waypoint would cut through it. */
 constexpr int CarefulTrapRange = 9;
+/** A joiner's copy of a bot, tiles from the host's: nearer than the first is left alone, then it walks over, then it jumps. */
+constexpr int BotCorrectDistance = 2;
+constexpr int BotSnapDistance = 5;
+/** Far enough to jump even out of a swing or a spell, which otherwise get to finish. */
+constexpr int BotForceSnapDistance = 10;
 /** How long a bot waits for a hero in its way before stepping aside. One heading out waits longer: it has right of way. */
 constexpr int BotGiveWayTicks = 20;
 
@@ -445,14 +451,9 @@ void DrinkIfHurt(Player &bot, BotState &state)
 	PlaySfxLoc(SfxID::ItemPotion, bot.position.tile);
 }
 
-void CheckFear(Player &bot, BotState &state)
+void BotStartsFleeing(const Player &bot, BotState &state)
 {
-	if (state.fearRolled || state.fleeing || state.potions > 0 || bot._pHitPoints * FearHealthDivisor >= bot._pMaxHP)
-		return;
 	state.fearRolled = true;
-	// With no friend near, a hero with no potions left always runs.
-	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= FearChancePercent)
-		return;
 	state.fleeing = true;
 	if (state.carried > 0) {
 		AddVaultGold(state.carried);
@@ -462,6 +463,27 @@ void CheckFear(Player &bot, BotState &state)
 	} else {
 		Announce(fmt::format("{} flees in terror!", bot._pName), UiFlags::ColorGold);
 	}
+}
+
+void BotLoots(const Player &bot, BotState &state, int amount)
+{
+	state.carried = amount;
+	NoteGoldLooted(amount);
+	Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, amount));
+}
+
+void CheckFear(Player &bot, BotState &state)
+{
+	if (HoldsBotAlive(bot)) // the host says when it runs
+		return;
+	if (state.fearRolled || state.fleeing || state.potions > 0 || bot._pHitPoints * FearHealthDivisor >= bot._pMaxHP)
+		return;
+	state.fearRolled = true;
+	// With no friend near, a hero with no potions left always runs.
+	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= FearChancePercent)
+		return;
+	NotifyBotFled(SlotOf(bot));
+	BotStartsFleeing(bot, state);
 }
 
 void RogueCheckTraps(const Player &bot, BotState &state)
@@ -475,8 +497,8 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 		state.trapsSeen |= static_cast<uint16_t>(1U << i);
 		state.trapsKnown |= static_cast<uint16_t>(1U << i);
 		if (SyncedRoll(bot, static_cast<uint32_t>(i) + static_cast<uint32_t>(trap.position.x * 256 + trap.position.y) * 16) < RogueDisarmPercent) {
-			trap.active = false;
-			Announce(fmt::format("{} disarmed one of your {}s!", bot._pName, TrapKinds[trap.kind].name));
+			if (!HoldsBotAlive(bot))
+				DisarmTrap(i, SlotOf(bot));
 		}
 	}
 }
@@ -614,10 +636,10 @@ void Think(Player &bot, BotState &state)
 
 	if (GoalDistance(HeroGoal::Vault, position) <= 1) {
 		// Rogues are here for the gold; the others came for the Lord and wait for him at the vault.
-		if (state.cls == HeroClassKind::Rogue && State.vaultGold > 0) {
-			state.carried = TakeFromVault(CarryCapacity(state.cls));
-			NoteGoldLooted(state.carried);
-			Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, state.carried));
+		if (state.cls == HeroClassKind::Rogue && State.vaultGold > 0 && !HoldsBotAlive(bot)) {
+			const int amount = TakeFromVault(CarryCapacity(state.cls));
+			NotifyBotLooted(SlotOf(bot), amount);
+			BotLoots(bot, state, amount);
 		}
 		return;
 	}
@@ -663,6 +685,54 @@ int32_t BotLifeForSync(size_t slot)
 	return bot.plractive ? std::max(bot._pHitPoints, 0) : BotLifeGone;
 }
 
+BotSyncFacts BotFactsForSync(size_t slot)
+{
+	const Player &bot = Players[FirstBotId + slot];
+	return { bot.plractive ? Point(bot.position.tile) : Point {}, static_cast<uint8_t>(std::clamp(Bots[slot].potions, 0, 255)) };
+}
+
+namespace {
+
+/** Puts a joiner's copy on the host's tile (or the nearest free one), standing, ready to think again. */
+void SnapBot(Player &bot, Point tile)
+{
+	ClearBotFromMap(bot);
+	const std::optional<Point> free = FindClosestValidPosition([&bot](Point position) { return PosOkPlayer(bot, position); }, tile, 0, 3);
+	PlaceBot(bot, free.value_or(Point(bot.position.tile)));
+}
+
+} // namespace
+
+void ApplyBotPositionSync(size_t slot, Point hostTile, uint8_t potions)
+{
+	Player &bot = Players[FirstBotId + slot];
+	if (!IsLivingBot(bot) || !InDungeonBounds(hostTile))
+		return;
+	BotState &state = Bots[slot];
+	state.potions = potions;
+	DevctlNoteBotDrift(Point(bot.position.tile).WalkingDistance(hostTile));
+	if (!DevctlBotSyncOn())
+		return;
+	// Where it is heading: a copy one step from the host's tile is only showing network delay.
+	const int drift = Point(bot.position.future).WalkingDistance(hostTile);
+	if (drift < BotCorrectDistance)
+		return;
+	const bool midAction = IsAnyOf(bot._pmode, PM_ATTACK, PM_RATTACK, PM_SPELL, PM_GOTHIT);
+	if (drift >= BotForceSnapDistance || (drift >= BotSnapDistance && !midAction)) {
+		SnapBot(bot, hostTile);
+		DevctlNoteBotFix(/*snap=*/true);
+		return;
+	}
+	// Close enough to walk there. A copy already walking stays on its route: it is following the host's.
+	if (bot._pmode == PM_STAND && state.petrifiedTicks == 0) {
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+		MakePlrPath(bot, hostTile, true);
+		state.thinkCooldown = ThinkInterval;
+		DevctlNoteBotFix(/*snap=*/false);
+	}
+}
+
 void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
 {
 	Player &bot = Players[FirstBotId + slot];
@@ -673,11 +743,26 @@ void ApplyBotLifeSync(size_t slot, int32_t hitPoints)
 		RemoveBot(bot);
 		return;
 	}
+	DevctlNoteBotLifeDrift(std::abs(bot._pHitPoints - hitPoints) >> 6);
 	if (hitPoints == 0) {
 		SyncPlrKill(bot, DeathReason::MonsterOrTrap);
 		HandleDeath(bot, Bots[slot]); // now: the raid may end before the next tick looks
 	} else
 		SetPlayerHitPoints(bot, std::min(hitPoints, bot._pMaxHP));
+}
+
+void ApplyBotLooted(size_t slot, int amount)
+{
+	const Player &bot = Players[FirstBotId + slot];
+	if (IsLivingBot(bot))
+		BotLoots(bot, Bots[slot], amount);
+}
+
+void ApplyBotFled(size_t slot)
+{
+	const Player &bot = Players[FirstBotId + slot];
+	if (IsLivingBot(bot) && !Bots[slot].fleeing)
+		BotStartsFleeing(bot, Bots[slot]);
 }
 
 void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
@@ -781,7 +866,8 @@ void UpdateBots()
 
 		OpenDoorsAround(bot.position.tile);
 		RogueCheckTraps(bot, state);
-		DrinkIfHurt(bot, state);
+		if (!HoldsBotAlive(bot)) // a joiner gets the result in the bot's life and potions
+			DrinkIfHurt(bot, state);
 		CheckFear(bot, state);
 
 		if (bot._pmode != PM_STAND)

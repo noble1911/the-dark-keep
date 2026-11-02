@@ -6,6 +6,7 @@
 #include "keeper/keeper_devctl.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
@@ -236,6 +237,55 @@ void WatchRaid()
 	    watch.wave, inKeep ? PhaseName(State.phase) : "left", KeepTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
 }
 
+struct DriftStats {
+	int samples = 0;
+	int64_t total = 0;
+	int worst = 0;
+	void add(int value)
+	{
+		samples++;
+		total += value;
+		worst = std::max(worst, value);
+	}
+	std::string describe() const
+	{
+		return fmt::format("n={} mean={:.2f} max={}", samples, samples > 0 ? static_cast<double>(total) / samples : 0.0, worst);
+	}
+};
+bool botSyncOn = true;
+DriftStats botTiles;
+DriftStats botLife;
+std::array<int, 6> botTileBuckets {};
+DriftStats monsterTiles;
+DriftStats monsterLife;
+int botSnaps = 0;
+int botWalks = 0;
+size_t bytesSent = 0;
+uint32_t driftStartTicks = 0;
+uint32_t driftStartTime = 0;
+
+void WriteDrift()
+{
+	const uint32_t seconds = std::max<uint32_t>((SDL_GetTicks() - driftStartTime) / 1000, 1);
+	const uint32_t gameSeconds = std::max<uint32_t>((KeepTicks() - driftStartTicks) / 20, 1);
+	Output(fmt::format("drift gameSeconds={} botTiles {} hist0/1/2/3-4/5-9/10+={},{},{},{},{},{} botLife {} snaps={} walks={} monsterTiles {} monsterLife {} stateBytes={} perGameSecond={} realSeconds={}",
+	    gameSeconds, botTiles.describe(), botTileBuckets[0], botTileBuckets[1], botTileBuckets[2], botTileBuckets[3], botTileBuckets[4], botTileBuckets[5], botLife.describe(), botSnaps, botWalks, monsterTiles.describe(), monsterLife.describe(), bytesSent, bytesSent / gameSeconds, seconds));
+}
+
+void ResetDrift()
+{
+	botTiles = {};
+	botLife = {};
+	botTileBuckets = {};
+	monsterTiles = {};
+	monsterLife = {};
+	botSnaps = 0;
+	botWalks = 0;
+	bytesSent = 0;
+	driftStartTicks = KeepTicks();
+	driftStartTime = SDL_GetTicks();
+}
+
 void WriteMonsters()
 {
 	if (!IsActive())
@@ -404,6 +454,13 @@ void Execute(const std::string &line)
 	} else if (command == "trapfire") {
 		in >> a >> b >> c;
 		DevFireTrap(static_cast<size_t>(a), { b, c });
+	} else if (command == "botsync") {
+		in >> a;
+		botSyncOn = a != 0;
+	} else if (command == "drift") {
+		WriteDrift();
+	} else if (command == "driftreset") {
+		ResetDrift();
 	} else if (command == "autocast") {
 		autocast.clear();
 		in >> autocast;
@@ -482,6 +539,38 @@ bool IsWaiting()
 }
 
 } // namespace
+
+bool DevctlBotSyncOn()
+{
+	return botSyncOn;
+}
+
+void DevctlNoteBotDrift(int tiles)
+{
+	botTiles.add(tiles);
+	botTileBuckets[tiles <= 2 ? tiles : (tiles <= 4 ? 3 : (tiles <= 9 ? 4 : 5))]++;
+}
+
+void DevctlNoteBotLifeDrift(int hitPoints)
+{
+	botLife.add(hitPoints);
+}
+
+void DevctlNoteBotFix(bool snap)
+{
+	(snap ? botSnaps : botWalks)++;
+}
+
+void DevctlNoteMonsterDrift(int tiles, int hitPoints)
+{
+	monsterTiles.add(tiles);
+	monsterLife.add(hitPoints);
+}
+
+void DevctlNoteSent(size_t bytes)
+{
+	bytesSent += bytes;
+}
 
 void DevctlInit(std::string path)
 {

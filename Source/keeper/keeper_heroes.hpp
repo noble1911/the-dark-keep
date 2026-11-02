@@ -119,6 +119,8 @@ constexpr int StoneImmunityTicks = 5 * 20;
 bool IsStoneImmuneHero(const Monster &monster);
 void NoteHeroStoned(const Monster &monster, int ticks);
 /** The host's copy of a monster hero got out: a joiner's does too, with the host's facts. */
+void ApplyHeroLooted(size_t monsterId, int amount);
+void ApplyHeroFled(size_t monsterId);
 void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 
 /** Host: queues the party for a wave. */
