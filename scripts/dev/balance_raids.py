@@ -12,6 +12,7 @@ Modes:
     army   the army and the Lord only
     traps  adds the traps
     spells adds the spells, at the mana share in the plan
+    sloppy traps and spells at half that casting rate, no upgrades: a rough stand-in for a weaker player
     full   adds upgrades, traps and spells
 
 The game's random numbers run the same from the same start, so identical runs would come out nearly identical
@@ -36,7 +37,10 @@ EXE = EXE_DIR / "devilutionx.exe"
 CREATE_NO_WINDOW = 0x08000000
 SPEED = 200  # ticks a second, as asked of `speed`: raids are timed in ticks, so this only saves waiting
 GAME_SECONDS_LIMIT = 300  # real seconds; even the longest raids run in about a minute at this speed
-COOP_PORT = 6128  # co-op test games elsewhere share 6112 and could join each other: keep one worker to stay on this port
+COOP_PORT = 6128  # co-op tests in other checkouts share 6112 and could join each other. Each extra worker takes the next port.
+MODES = ("army", "traps", "spells", "sloppy", "full")
+# What CanBuildAt says of a tile. Its other refusals hold for every tile.
+TILE_REFUSALS = ("Needs open floor", "Too close to", "Heroes are watching")
 INI = """[Graphics]
 Fullscreen=0
 Fit to Screen=0
@@ -155,8 +159,9 @@ def distances(rows, start):
     return seen, parent
 
 
-def place(game, kind, count, candidates, used, spacing_gap=0.03):
-    """Builds `count` of a kind on the candidates, in order, moving on past refused tiles. @return how many stood."""
+def place(game, kind, count, candidates, used):
+    """Builds `count` of a kind on the candidates, in order. Moves on past a bad tile; any other refusal, such as
+    a full keep, would refuse every tile, so it ends the job. @return how many stood."""
     built = 0
     while built < count and candidates:
         tile = candidates.pop(0)
@@ -164,8 +169,11 @@ def place(game, kind, count, candidates, used, spacing_gap=0.03):
             continue
         token = f"b{time.time()}"
         lines = game.ask(f"build {kind} {tile[0]} {tile[1]}\nwait 25\necho {token}", token)
-        if any("refused" in line for line in lines):
-            continue
+        refusals = [line for line in lines if "refused" in line]
+        if refusals:
+            if any(reason in refusals[0] for reason in TILE_REFUSALS):
+                continue
+            return built
         used.append(tile)
         built += 1
     return built
@@ -206,7 +214,7 @@ def one_raid(plan, mode, profile, coop_port=0):
             want += unit["count"]
             built += place(game, unit["index"], unit["count"], ring, used)
         traps_built = 0
-        if mode in ("full", "traps"):
+        if mode in ("full", "traps", "sloppy"):
             # Along the way in, out of the keep-out zones, spaced so a party passes each one.
             route = []
             # The entrance is on the stairs, which aren't floor: start from the floor nearest them.
@@ -221,8 +229,10 @@ def one_raid(plan, mode, profile, coop_port=0):
                 for _ in range(tiers):
                     game.ask(f"upgrade {upgrade}\nwait 30\necho upgrade-done", "upgrade-done")
         cast = ""
-        if mode in ("full", "spells") and plan["casts"]:
-            cast = f"autocast {','.join(str(c) for c in plan['casts'])} {plan['cast_every_ticks']}"
+        if mode in ("full", "spells", "sloppy") and plan["casts"]:
+            # Only full buys the mana upgrades, so only full casts at the upgraded rate.
+            every = {"full": plan["cast_every_ticks"], "spells": plan["cast_every_ticks_plain"], "sloppy": plan["cast_every_ticks_plain"] * 2}[mode]
+            cast = f"autocast {','.join(str(c) for c in plan['casts'])} {every}"
         if joiner:
             joiner.ask(f"fillmana\n{cast}\necho joiner-ready", "joiner-ready")
         speed = "" if coop_port else f"speed {SPEED}"
@@ -269,6 +279,9 @@ def main():
     parser.add_argument("--label", default="")
     parser.add_argument("--coop", action="store_true", help="host and joiner, on ports of their own")
     args = parser.parse_args()
+    for mode in args.modes.split(","):
+        if mode not in MODES:
+            parser.error(f"unknown mode {mode}: choose from {', '.join(MODES)}")
     plans = {p["level"]: p for p in json.loads(Path(args.plan).read_text())}
     jobs = [(plans[int(level)], mode, run) for level in args.levels.split(",") for mode in args.modes.split(",") for run in range(args.runs)]
     profiles = collections.deque(f"bal{i}" for i in range(args.workers))

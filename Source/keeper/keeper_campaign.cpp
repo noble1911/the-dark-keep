@@ -62,7 +62,7 @@ constexpr std::array<LevelRules, NumCampaignLevels> CampaignLevels { {
 	{ "Throne of Ash",    10, 4200, 205, 6, 100, 0x71C6E09B },
 } };
 
-/** Custom maps and the editor have no place in the curve: these are the keep's original rules. */
+/** Custom maps and the editor have no place in the curve: these are their own rules, set to match level 1. */
 constexpr LevelRules CustomRules { "Custom Map", 7, 1800, 90, 2, 80, KeepLevelSeed };
 // clang-format on
 

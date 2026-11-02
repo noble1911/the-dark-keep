@@ -32,7 +32,8 @@ TRAP_PASS_SECONDS = 12  # a party takes this long to pass a trap, in and out: he
 SHOCK_HITS = 3          # a Shock Trap's lightning hits several times: measured 42 from 14 a hit
 TRAP_GOLD_SHARE = 0.25  # share of the gold the typical player puts into traps
 SPELL_EFFICIENCY = 0.5  # a typical player lands this share of what mana and cooldowns allow
-TRAP_EFFICIENCY = 0.2   # traps removed about 10 points of a party's life in real raids: Rogues disarm most of them
+TRAP_EFFICIENCY = 0.3   # measured: traps add 39, 31, 10, 8 points of party life removed on levels 5, 10, 15, 20. This fits their mean, not each level
+SHOCK_WALL_FULL_LEVEL = 3  # a Shock Wall's engine level sets how long it lasts: from here up, walls pile up (measured 6 of 6 alone)
 NOVA_HITS = 15          # balls of a Nova's ring that reach each victim: it bursts on them. Measured: 4 casts killed a party
 UPGRADE_GOLD_SHARE = 0.25  # share of a level's gold the typical player puts into upgrades
 FEAR_ALONE = 0.5        # share of badly hurt heroes with no healthy friend near: those always run
@@ -45,7 +46,6 @@ HERO_SWING = 16 / 20    # hero monsters: 16-frame attack at one frame per tick
 BOT_THINK = 6 / 20      # ThinkInterval in keeper_bots.cpp
 BLOCK_UPTIME = 0.8      # share of attacks that land while a bot stands or swings, so can block
 SHARE_KINDS, SHARE_SPELLS, SHARE_TRAPS = 55, 35, 10  # how the typical player splits Renown
-FOCUS_FAMILIES = 4      # the typical player climbs this many monster families
 MASTER_MAGIC_TO_HIT = 10 + 50  # the master is a Warrior: 10 magic + 50 base (GetMagicToHit)
 HERO_MONSTER_LEVEL = 5  # RegisterHeroMonsterData
 
@@ -329,7 +329,8 @@ class Game:
         if name == "Ring":
             return (11 + clvl) / 8 * 20 * EXPOSURE_SECONDS  # AddFireWall again: it overwrites what the ring passes
         if name == "Shock Wall":
-            return (11 + clvl) / 4 * 20 * 0.6 * 2  # ProcessWallControl; heroes walk through unwarned: two tiles' worth
+            # ProcessWallControl; heroes walk through unwarned: two tiles' worth, less if the walls don't last to pile up
+            return (11 + clvl) / 4 * 20 * 0.6 * 2 * min((spl + 1) / (SHOCK_WALL_FULL_LEVEL + 1), 1)
         if name == "Inferno":
             return (8 * (clvl / 2) + 16) * 1.5 / 64 * 20 * INFERNO_SECONDS  # AddInferno
         if name == "Chain":
@@ -415,7 +416,6 @@ class Player:
         self.spells = {s["name"]: 1 for s in game.spells if s["rank"] <= 1}
         self.traps = {t["name"]: 1 for t in game.traps if t["rank"] <= 1}
         self.spent = {"kinds": 0, "spells": 0, "traps": 0}
-        self.families = []
 
     def family_next(self, keeper_level):
         """Next tier of each family, if the keeper level allows it."""
@@ -464,8 +464,6 @@ class Player:
         if self.game.kind_renown(kind) > budget:
             return SAVE_UP
         self.kinds.add(kind["id"])
-        if kind["family"] not in self.families and len(self.families) < FOCUS_FAMILIES:
-            self.families.append(kind["family"])
         return self.game.kind_renown(kind)
 
     def buy_spells(self, keeper_level, budget):
@@ -861,15 +859,16 @@ def write_plan(game, rows, path):
             return game.spell_damage(spell, raised, clvl) * hit * min(SPELL_TARGETS[spell["name"]], len(party)) / game.mana_cost(spell, raised)
         casts = sorted(owned, key=per_mana, reverse=True)[:3]
         mana_percent = 100 + last["tiers"][3] * game.upgrades[3]["effect"]
-        regen = game.g["ManaRegenPerTick"] * mana_percent / 100 * 20 / 100
         seconds = game.raid_seconds(level)
-        rate = SPELL_EFFICIENCY * (game.g["MaxMana"] / seconds + regen)
+        def cast_rate(percent):
+            regen = game.g["ManaRegenPerTick"] * percent / 100 * 20 / 100
+            return SPELL_EFFICIENCY * (game.g["MaxMana"] / seconds + regen)
         average = sum(game.mana_cost(s, row["spells"][s["name"]]) for s in casts) / max(len(casts), 1)
         plans.append(dict(level=level, wave=last["wave"], army=[dict(index=k["index"], name=k["name"], count=n) for k, n in last["army"] if n],
                           tiers=last["tiers"], spell_levels={str(i): row["spells"][s["name"]] for i, s in enumerate(game.spells) if s["name"] in row["spells"]},
                           trap_levels={str(i): row["traps"][t["name"]] for i, t in enumerate(game.traps) if t["name"] in row["traps"]},
                           trap_kind=lairs + game.traps.index(last["trap_kind"]) if last["trap_kind"] else 0, trap_count=last["trap_count"],
-                          casts=[game.spells.index(s) for s in casts], cast_names=[s["name"] for s in casts], cast_every_ticks=int(average / rate * 20),
+                          casts=[game.spells.index(s) for s in casts], cast_names=[s["name"] for s in casts], cast_every_ticks=int(average / cast_rate(mana_percent) * 20), cast_every_ticks_plain=int(average / cast_rate(100) * 20),
                           gold_left=max(last["gold"] // 4, 200)))
     Path(path).write_text(json.dumps(plans, indent=1))
 

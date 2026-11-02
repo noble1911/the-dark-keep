@@ -29,8 +29,14 @@ from 90%: read rows and totals, not single cells.
 - **Army:** the model's army and the Lord, nothing else.
 - **Traps:** adds the model's traps along the way in.
 - **Spells:** adds spells, at half of what mana allows, aimed at a hero.
-- **Sloppy:** traps and spells at half that casting rate (a quarter of the mana), no upgrades.
+- **Sloppy:** traps and spells at half that casting rate (about a quarter of the mana), no upgrades.
 - **Full:** traps, spells at half the mana, and the model's upgrades.
+
+To run these again: `--modes army,traps,spells,sloppy,full`, with a plan from `balance_model.py --plan`.
+
+**The Spells and Sloppy columns are overstated.** Those raids cast at the rate worked out with the mana upgrades, though those modes buy
+none. For Spells that was 14% over half the mana on levels 1, 5 and 10, 27% on level 15 and 36% on level 20; Sloppy was over its rate by the same
+share. The harness now sets the rate per mode. The columns above are from before that fix and were not re-run.
 
 Totals: army 5 of 40, traps 3 of 40, spells 11 of 40, sloppy 13 of 40, full 39 of 48.
 
@@ -95,9 +101,9 @@ that look real:
    Bounties and start gold move results more.
 4. **Unit tier matters far more than the model thought.** Armies of Reapers won 16 of 16 on level 20, when the model's
    player one level earlier, still on rank 10 Night Clans, won 0 of 8. The model's player now buys the strongest thing on offer.
-5. **Rogues disarm most traps.** Before the change, usually only 0-8 of up to 16 traps were left at the end of a raid. With disarm chances
-   lowered, traps alone remove 57%, 53%, 35% and 53% of party life on levels 5, 10, 15 and 20, against 18%, 22%, 25% and 45% for the army
-   alone, for a quarter of the gold. They rarely win a raid alone (3 of 40).
+5. **Rogues disarm most traps.** Usually only 0-8 of up to 16 traps were left at the end of a raid. Traps
+   alone added about 15 points of party life on level 5, 15 on level 10 and little on levels 15 and 20, for a quarter of the
+   gold. Disarm chances are now lower, and traps' value still needs a person's view.
 6. **Runs must differ.** The game's random numbers repeat from the same start, so identical runs came out nearly identical and
    looked far more certain than they were. The harness now varies each layout.
 7. **Some raids never end.** Four of the 40 traps-only raids on the final table hit the harness's limit, three on level 1 and one on level 10. On level 1 the party stands in a line at 57,67 to 57,69 with the raid never ending, for 300 real seconds at speed. That looks like heroes refusing to pass a trap in a one-wide corridor. It is a possible stall bug, not a balance number, and needs someone to look at it.
@@ -147,6 +153,13 @@ that hero before, so the figures here understate those three spells. Its figures
 777-1365 (before the cut), Shock Wall 1100-1270 (before the cut), Wall 27-46, Inferno 2-20, Wave 0-23, Chain about 190.
 Monsters also regenerate about 3 life a second at level 20, which isn't modelled. It also found Slayers weak for their price, Hidden
 kinds slow to land a first hit, and Captain (35 gold, rank 2) cheaper than Bones (40 gold, rank 1). None of these three is changed here.
+
+## Limits of the tools
+
+- `trapFires` in the harness's output counts any rise in a trap's cooldown, so a trap placed mid-raid also counts as a firing. The
+  harness places traps before the raid, so its figures here are not affected, but read it with care in other tests.
+- `TRAP_EFFICIENCY` fits the mean of the traps' measured effect, not each level: they do far more on levels 5 and 10 than on 15 and 20.
+- The model's Shock Wall now scales with how long its walls last, fitted to two sets of 6 raids on level 10.
 
 ## Measured against calculated
 
@@ -322,26 +335,26 @@ Army names show what the model's player would field, not a recommendation.
 
 | Lvl/raid | Life before | Life after | Best army before | Best army after | R before | R after | Swarm before | R+ before | Swarm after | R+ after | R+ co-op | Lord: party / quarter / would kill in |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1/5 | 1528 | 839 | 5 Brute | 8 Brute | 0.12 | 0.75 | 16 Bones: 0.01 | 0.32 | 32 Fallen: 0.06 | 1.21 | 2.22 | 31s / 95s / 60s |
-| 2/5 | 1599 | 885 | 5 Brute | 8 Brute | 0.10 | 0.56 | 17 Bones: 0.01 | 0.50 | 35 Fallen: 0.06 | 1.07 | 2.14 | 35s / 112s / 61s |
-| 3/5 | 1702 | 979 | 5 Brute + 2 Horror Axe | 4 Black Death + 6 Brute | 0.08 | 0.53 | 18 Bones: 0.01 | 0.40 | 38 Fallen: 0.05 | 1.11 | 1.97 | 35s / 107s / 61s |
-| 4/6 | 2392 | 1180 | 6 Winged + 2 Brute | 7 Brute + 9 Carcass | 0.07 | 0.36 | 21 Bones: 0.00 | 0.33 | 45 Fallen: 0.04 | 0.71 | 1.39 | 36s / 151s / 74s |
-| 5/6 | 2646 | 1290 | 8 Winged + 1 Flesh Clan | 9 Brute + 4 Carcass | 0.05 | 0.31 | 22 Bones: 0.00 | 0.25 | 48 Fallen: 0.04 | 0.61 | 1.20 | 41s / 179s / 77s |
-| 6/6 | 3119 | 1482 | 5 Stone Clan + 9 Flesh Clan | 9 Stone Clan + 4 Brute | 0.04 | 0.29 | 23 Bones: 0.00 | 0.15 | 51 Fallen: 0.03 | 0.61 | 1.11 | 39s / 143s / 81s |
-| 7/7 | 3755 | 1600 | 2 Stone Clan + 18 Flesh Clan | 18 Stone Clan | 0.04 | 0.38 | 26 Bones: 0.00 | 0.13 | 58 Fallen: 0.03 | 0.87 | 1.46 | 35s / 142s / 95s |
-| 8/7 | 4225 | 1706 | 4 Stone Clan + 7 Mud Man | 12 Gargoyle | 0.04 | 0.34 | 27 Bones: 0.00 | 0.12 | 61 Fallen: 0.03 | 0.75 | 1.31 | 33s / 158s / 101s |
-| 9/7 | 4594 | 1706 | 2 Toad Demon + 14 Stone Clan | 9 Gargoyle + 4 Brute | 0.04 | 0.32 | 28 Bones: 0.00 | 0.11 | 64 Fallen: 0.03 | 0.78 | 1.46 | 35s / 168s / 103s |
-| 10/8 | 6543 | 2296 | 8 Toad Demon + 7 Stone Clan | 10 Toad Demon + 1 Flesh Clan | 0.03 | 0.33 | 31 Bones: 0.00 | 0.08 | 71 Fallen: 0.03 | 0.64 | 1.27 | 30s / 123s / 151s |
-| 11/8 | 7284 | 2385 | 11 Toad Demon + 1 Mud Man | 11 Toad Demon | 0.03 | 0.34 | 32 Bones: 0.00 | 0.06 | 74 Fallen: 0.03 | 0.65 | 1.29 | 32s / 133s / 159s |
-| 12/8 | 8134 | 2480 | 12 Toad Demon + 2 Mud Man | 11 Blood Claw + 1 Mud Man | 0.02 | 0.48 | 33 Bones: 0.00 | 0.05 | 77 Fallen: 0.03 | 0.93 | 1.71 | 35s / 145s / 163s |
-| 13/8 | 9328 | 2758 | 15 Toad Demon | 12 Blood Claw + 1 Winged | 0.02 | 0.41 | 34 Bones: 0.00 | 0.04 | 80 Fallen: 0.03 | 0.78 | 1.40 | 34s / 158s / 179s |
-| 14/9 | 11418 | 3091 | 18 Toad Demon + 1 Winged | 13 Blood Claw + 4 Mud Man | 0.02 | 0.37 | 37 Bones: 0.00 | 0.03 | 87 Fallen: 0.03 | 0.71 | 1.38 | 29s / 150s / 225s |
-| 15/9 | 12817 | 3200 | 18 Toad Demon + 2 Winged | 11 Blood Claw + 6 Toad Demon | 0.02 | 0.36 | 38 Bones: 0.00 | 0.03 | 90 Fallen: 0.03 | 0.72 | 1.38 | 31s / 164s / 236s |
-| 16/9 | 14575 | 3314 | 10 Toad Demon + 19 Winged | 10 Blood Claw + 8 Toad Demon | 0.01 | 0.36 | 39 Bones: 0.00 | 0.02 | 93 Fallen: 0.03 | 0.79 | 1.52 | 31s / 172s / 220s |
-| 17/9 | 16139 | 3431 | 6 Reaper + 3 Toad Demon | 17 Blood Claw + 2 Toad Demon | 0.03 | 0.33 | 40 Bones: 0.00 | 0.05 | 96 Fallen: 0.03 | 0.87 | 1.59 | 33s / 183s / 229s |
-| 18/10 | 22439 | 4281 | 7 Reaper + 2 Toad Demon | 10 Crypt Demon + 2 Mud Man | 0.02 | 0.66 | 43 Bones: 0.00 | 0.03 | 96 Fallen: 0.03 | 1.53 | 2.84 | 34s / 138s / 314s |
-| 19/10 | 25114 | 4670 | 8 Reaper | 11 Crypt Demon + 2 Mud Man | 0.02 | 0.52 | 44 Bones: 0.00 | 0.03 | 96 Fallen: 0.02 | 1.28 | 2.57 | 39s / 152s / 311s |
-| 20/10 | 31426 | 5535 | 7 Reaper + 3 Toad Demon | 15 Crypt Demon | 0.01 | 0.71 | 45 Bones: 0.00 | 0.02 | 96 Fallen: 0.02 | 1.67 | 3.07 | 46s / 326s / 320s |
+| 1/5 | 1528 | 839 | 5 Brute | 8 Brute | 0.12 | 0.75 | 16 Bones: 0.01 | 0.36 | 32 Fallen: 0.06 | 1.29 | 2.37 | 31s / 95s / 60s |
+| 2/5 | 1599 | 885 | 5 Brute | 8 Brute | 0.10 | 0.56 | 17 Bones: 0.01 | 0.50 | 35 Fallen: 0.06 | 1.18 | 2.37 | 35s / 112s / 61s |
+| 3/5 | 1702 | 979 | 5 Brute + 2 Horror Axe | 4 Black Death + 6 Brute | 0.08 | 0.53 | 18 Bones: 0.01 | 0.40 | 38 Fallen: 0.05 | 1.25 | 2.22 | 35s / 107s / 61s |
+| 4/6 | 2392 | 1180 | 6 Winged + 2 Brute | 7 Brute + 9 Carcass | 0.07 | 0.36 | 21 Bones: 0.00 | 0.33 | 45 Fallen: 0.04 | 0.81 | 1.57 | 36s / 151s / 74s |
+| 5/6 | 2646 | 1290 | 8 Winged + 1 Flesh Clan | 9 Brute + 4 Carcass | 0.05 | 0.31 | 22 Bones: 0.00 | 0.26 | 48 Fallen: 0.04 | 0.70 | 1.37 | 41s / 179s / 77s |
+| 6/6 | 3119 | 1482 | 5 Stone Clan + 9 Flesh Clan | 9 Stone Clan + 4 Brute | 0.04 | 0.29 | 23 Bones: 0.00 | 0.19 | 51 Fallen: 0.03 | 0.72 | 1.31 | 39s / 143s / 81s |
+| 7/7 | 3755 | 1600 | 2 Stone Clan + 18 Flesh Clan | 18 Stone Clan | 0.04 | 0.38 | 26 Bones: 0.00 | 0.17 | 58 Fallen: 0.03 | 1.13 | 1.90 | 35s / 142s / 95s |
+| 8/7 | 4225 | 1706 | 4 Stone Clan + 7 Mud Man | 12 Gargoyle | 0.04 | 0.34 | 27 Bones: 0.00 | 0.17 | 61 Fallen: 0.03 | 0.94 | 1.65 | 33s / 158s / 101s |
+| 9/7 | 4594 | 1706 | 2 Toad Demon + 14 Stone Clan | 9 Gargoyle + 4 Brute | 0.04 | 0.32 | 28 Bones: 0.00 | 0.15 | 64 Fallen: 0.03 | 1.03 | 1.91 | 35s / 168s / 103s |
+| 10/8 | 6543 | 2296 | 8 Toad Demon + 7 Stone Clan | 10 Toad Demon + 1 Flesh Clan | 0.03 | 0.33 | 31 Bones: 0.00 | 0.09 | 71 Fallen: 0.03 | 0.76 | 1.52 | 30s / 123s / 151s |
+| 11/8 | 7284 | 2385 | 11 Toad Demon + 1 Mud Man | 11 Toad Demon | 0.03 | 0.34 | 32 Bones: 0.00 | 0.07 | 74 Fallen: 0.03 | 0.77 | 1.54 | 32s / 133s / 159s |
+| 12/8 | 8134 | 2480 | 12 Toad Demon + 2 Mud Man | 11 Blood Claw + 1 Mud Man | 0.02 | 0.48 | 33 Bones: 0.00 | 0.05 | 77 Fallen: 0.03 | 1.11 | 2.03 | 35s / 145s / 163s |
+| 13/8 | 9328 | 2758 | 15 Toad Demon | 12 Blood Claw + 1 Winged | 0.02 | 0.41 | 34 Bones: 0.00 | 0.04 | 80 Fallen: 0.03 | 0.94 | 1.68 | 34s / 158s / 179s |
+| 14/9 | 11418 | 3091 | 18 Toad Demon + 1 Winged | 13 Blood Claw + 4 Mud Man | 0.02 | 0.37 | 37 Bones: 0.00 | 0.04 | 87 Fallen: 0.03 | 0.85 | 1.65 | 29s / 150s / 225s |
+| 15/9 | 12817 | 3200 | 18 Toad Demon + 2 Winged | 11 Blood Claw + 6 Toad Demon | 0.02 | 0.36 | 38 Bones: 0.00 | 0.03 | 90 Fallen: 0.03 | 0.86 | 1.66 | 31s / 164s / 236s |
+| 16/9 | 14575 | 3314 | 10 Toad Demon + 19 Winged | 10 Blood Claw + 8 Toad Demon | 0.01 | 0.36 | 39 Bones: 0.00 | 0.02 | 93 Fallen: 0.03 | 0.97 | 1.85 | 31s / 172s / 220s |
+| 17/9 | 16139 | 3431 | 6 Reaper + 3 Toad Demon | 17 Blood Claw + 2 Toad Demon | 0.03 | 0.33 | 40 Bones: 0.00 | 0.05 | 96 Fallen: 0.03 | 1.10 | 2.03 | 33s / 183s / 229s |
+| 18/10 | 22439 | 4281 | 7 Reaper + 2 Toad Demon | 10 Crypt Demon + 2 Mud Man | 0.02 | 0.66 | 43 Bones: 0.00 | 0.04 | 96 Fallen: 0.03 | 1.84 | 3.41 | 34s / 138s / 314s |
+| 19/10 | 25114 | 4670 | 8 Reaper | 11 Crypt Demon + 2 Mud Man | 0.02 | 0.52 | 44 Bones: 0.00 | 0.03 | 96 Fallen: 0.02 | 1.56 | 3.12 | 39s / 152s / 311s |
+| 20/10 | 31426 | 5535 | 7 Reaper + 3 Toad Demon | 15 Crypt Demon | 0.01 | 0.71 | 45 Bones: 0.00 | 0.02 | 96 Fallen: 0.02 | 1.98 | 3.64 | 46s / 326s / 320s |
 
 The Lord's column reads "lasts against the
 whole party / a quarter of it / would kill the whole party alone".
@@ -370,10 +383,10 @@ Custom maps use `CustomRules` and count as level 1 for Pop and master level, wha
 
 | Keeper | Keeper level | Start gold | Heroes | Party life | Best army | R | R+ | Lord lasts |
 |---|---|---|---|---|---|---|---|---|
-| New keeper | 1 | 1800 | 6 | 1039 | 12 Brute | 0.82 | 1.31 | 20s |
-| After level 5 | 7 | 1800 | 6 | 1039 | 5 Flesh Clan + 9 Brute | 0.82 | 1.37 | 20s |
-| After level 10 | 12 | 1800 | 6 | 1039 | 2 Gargoyle + 5 Toad Demon | 1.09 | 1.91 | 20s |
-| After level 20 | 22 | 1800 | 6 | 1039 | 2 Crypt Demon + 1 Black Knight | 1.93 | 3.63 | 20s |
+| New keeper | 1 | 1800 | 6 | 1039 | 12 Brute | 0.82 | 1.46 | 20s |
+| After level 5 | 7 | 1800 | 6 | 1039 | 5 Flesh Clan + 9 Brute | 0.82 | 1.56 | 20s |
+| After level 10 | 12 | 1800 | 6 | 1039 | 2 Gargoyle + 5 Toad Demon | 1.09 | 2.28 | 20s |
+| After level 20 | 22 | 1800 | 6 | 1039 | 2 Crypt Demon + 1 Black Knight | 1.93 | 4.59 | 20s |
 
 A new keeper can hold, and a veteran's unlocks make it easy. That follows from custom maps having a single
 set of rules.
@@ -575,7 +588,7 @@ chance and the assumed number of victims. Now:
 | 10 | 19 | Fireball | 15 | 10 | 10.0 | 3.0 | 195 | 87 | 8.7 | 4% |
 | 10 | 19 | Chain | 1 | 3 | 30.0 | 5.0 | 86 | 153 | 5.1 | 7% |
 | 10 | 19 | Chain | 15 | 10 | 15.0 | 5.0 | 126 | 225 | 15.0 | 10% |
-| 10 | 19 | Shock Wall | 1 | 0 | 40.0 | 5.0 | 180 | 240 | 6.0 | 10% |
+| 10 | 19 | Shock Wall | 1 | 0 | 40.0 | 5.0 | 45 | 60 | 1.5 | 3% |
 | 10 | 19 | Shock Wall | 15 | 7 | 20.0 | 5.0 | 180 | 240 | 12.0 | 10% |
 | 10 | 19 | Wave | 1 | 3 | 25.0 | 4.0 | 61 | 109 | 4.4 | 5% |
 | 10 | 19 | Wave | 15 | 10 | 12.5 | 4.0 | 61 | 109 | 8.7 | 5% |
@@ -593,7 +606,7 @@ chance and the assumed number of victims. Now:
 | 20 | 39 | Fireball | 15 | 10 | 10.0 | 3.0 | 325 | 148 | 14.8 | 3% |
 | 20 | 39 | Chain | 1 | 3 | 30.0 | 5.0 | 161 | 295 | 9.8 | 5% |
 | 20 | 39 | Chain | 15 | 10 | 15.0 | 5.0 | 236 | 432 | 28.8 | 8% |
-| 20 | 39 | Shock Wall | 1 | 0 | 40.0 | 5.0 | 300 | 411 | 10.3 | 7% |
+| 20 | 39 | Shock Wall | 1 | 0 | 40.0 | 5.0 | 75 | 103 | 2.6 | 2% |
 | 20 | 39 | Shock Wall | 15 | 7 | 20.0 | 5.0 | 300 | 411 | 20.6 | 7% |
 | 20 | 39 | Wave | 1 | 3 | 25.0 | 4.0 | 111 | 203 | 8.1 | 4% |
 | 20 | 39 | Wave | 15 | 10 | 12.5 | 4.0 | 111 | 203 | 16.3 | 4% |
