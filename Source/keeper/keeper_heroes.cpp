@@ -21,6 +21,7 @@
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "missiles.h"
@@ -566,11 +567,13 @@ void OnMonsterInit(Monster &monster)
 		monster.minDamage = 12;
 		monster.maxDamage = 24;
 		monster.armorClass = 40;
+		OnKeepMonsterInit(monster);
 		return;
 	}
 	const std::optional<HeroClassKind> cls = HeroClassOf(monster.type().type);
 	if (!cls) {
 		Heroes[id] = {};
+		OnKeepMonsterInit(monster);
 		return;
 	}
 	HeroState &hero = Heroes[id];
