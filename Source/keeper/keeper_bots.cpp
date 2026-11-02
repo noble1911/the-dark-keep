@@ -53,6 +53,9 @@ constexpr int MonkHealCooldownTicks = 100;
 constexpr int MaxBotBlockPercent = 75;
 /** A Warrior prefers a monster on a softer friend over a nearer one on itself, by this many tiles. */
 constexpr int WarriorProtectBonus = 3;
+/** Ticks without getting closer to its goal before a bot shoves past a hero coming the other way, then past anyone. */
+constexpr int StuckTicksBeforeSqueeze = 30;
+constexpr int StuckTicksBeforeShove = 100;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -80,6 +83,10 @@ struct BotState {
 	int healCooldown = 0;
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
+	/** How close it has come to its goal, and the ticks since it last came closer. */
+	HeroGoal progressGoal = HeroGoal::Vault;
+	uint16_t bestDistance = 0xFFFF;
+	int stuckTicks = 0;
 };
 
 constexpr uint8_t SaidDash = 1;
@@ -363,6 +370,7 @@ std::optional<SpellID> SpellAgainst(const Monster &target)
 
 void Attack(Player &bot, BotState &state, Monster &target)
 {
+	state.stuckTicks = 0;
 	const size_t monsterId = target.getId();
 	const int distance = bot.position.tile.WalkingDistance(target.position.tile);
 	const bool clearShot = HasLineOfSight(bot.position.tile, target.position.tile);
@@ -582,6 +590,27 @@ bool TryFallBack(Player &bot, BotState &state)
 	return true;
 }
 
+/**
+ * Heading for a goal: if the bot hasn't come any closer for a while, its way is shut by another hero. A path
+ * round may exist on paper and still not move it, so this goes by progress, not by whether a path was found.
+ */
+bool TrySqueezePast(Player &bot, BotState &state, HeroGoal goal, bool headsOut)
+{
+	const uint16_t distance = GoalDistance(goal, bot.position.tile);
+	if (goal != state.progressGoal) {
+		state.progressGoal = goal;
+		state.bestDistance = distance;
+		state.stuckTicks = 0;
+	} else if (distance < state.bestDistance) {
+		state.bestDistance = distance;
+		state.stuckTicks = 0;
+	}
+	if (state.stuckTicks < StuckTicksBeforeSqueeze || !BotSqueezePast(bot, goal, state.trapsKnown, headsOut, state.stuckTicks >= StuckTicksBeforeShove))
+		return false;
+	state.stuckTicks = 0;
+	return true;
+}
+
 /** On the run with the way shut by a monster: fight it rather than stand there. */
 bool FightIfBlocked(Player &bot, BotState &state)
 {
@@ -644,8 +673,8 @@ void Think(Player &bot, BotState &state)
 	}
 
 	if (state.carried != 0 || state.fleeing) {
-		if (!Travel(bot, state, HeroGoal::Entrance) && !FightIfBlocked(bot, state))
-			BotSqueezePast(bot, HeroGoal::Entrance, state.trapsKnown, true);
+		if (!TrySqueezePast(bot, state, HeroGoal::Entrance, true) && !Travel(bot, state, HeroGoal::Entrance))
+			FightIfBlocked(bot, state);
 		return;
 	}
 
@@ -674,11 +703,16 @@ void Think(Player &bot, BotState &state)
 		bot.destAction = ACTION_NONE;
 		return;
 	}
-	if (!Travel(bot, state, HeroGoal::Vault) && !FightIfBlocked(bot, state))
-		BotSqueezePast(bot, HeroGoal::Vault, state.trapsKnown, false);
+	if (!TrySqueezePast(bot, state, HeroGoal::Vault, false) && !Travel(bot, state, HeroGoal::Vault))
+		FightIfBlocked(bot, state);
 }
 
 } // namespace
+
+bool IsHeroInHazard(const Player &player)
+{
+	return IsLivingBot(player) && IsHazardous(player.position.tile);
+}
 
 void PlaceBot(Player &bot, Point tile)
 {
@@ -855,6 +889,7 @@ void UpdateBots()
 		DrinkIfHurt(bot, state);
 		CheckFear(bot, state);
 
+		state.stuckTicks++;
 		if (state.kiteCooldown > 0)
 			state.kiteCooldown--;
 		if (state.healCooldown > 0)

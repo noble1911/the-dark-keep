@@ -167,6 +167,9 @@ constexpr int MonkHealCooldownTurns = 100;
 constexpr int MonkHealRange = 6;
 constexpr int MonkHealBelowPercent = 70;
 constexpr int MonkHealPercent = 15;
+/** AI turns without getting closer to its goal before a hero shoves past one coming the other way, then past anyone. */
+constexpr int StuckTurnsBeforeSqueeze = 12;
+constexpr int StuckTurnsBeforeShove = 40;
 /** Ticks of quiet between heroes' lines in the event log. */
 constexpr int HeroSpeechQuietTicks = 5 * 20;
 /**
@@ -202,6 +205,10 @@ struct HeroState {
 	int healCooldown = 0;
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
+	/** How close it has come to its goal, and the AI turns since it last came closer. */
+	HeroGoal progressGoal = HeroGoal::Vault;
+	uint16_t bestDistance = 0xFFFF;
+	int stuckTurns = 0;
 };
 
 std::array<HeroState, MaxMonsters> Heroes;
@@ -729,7 +736,7 @@ void PlaceMonsterHero(Monster &monster, Point tile)
  * @param place moves the hero asking
  */
 template <typename Place>
-bool SqueezePast(Point from, const DistanceField &route, bool headsOut, Place place)
+bool SqueezePast(Point from, const DistanceField &route, bool headsOut, bool anyone, Place place)
 {
 	const uint16_t here = FieldAt(route, from);
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
@@ -740,7 +747,7 @@ bool SqueezePast(Point from, const DistanceField &route, bool headsOut, Place pl
 		if (pid >= 0 && IsLivingBot(Players[pid])) {
 			Player &other = Players[pid];
 			const std::optional<BotSummary> summary = GetBotSummary(other);
-			if (other._pmode != PM_STAND || IsPetrifiedBot(other) || (summary->fleeing || summary->carried != 0) == headsOut)
+			if (other._pmode != PM_STAND || IsPetrifiedBot(other) || (!anyone && (summary->fleeing || summary->carried != 0) == headsOut))
 				continue;
 			PlaceBot(other, from);
 			place(tile);
@@ -749,7 +756,7 @@ bool SqueezePast(Point from, const DistanceField &route, bool headsOut, Place pl
 		const int mid = dMonster[tile.x][tile.y] - 1;
 		if (mid >= 0 && Heroes[mid].active && IsAliveMonster(Monsters[mid])) {
 			Monster &other = Monsters[mid];
-			if (IsNoneOf(other.mode, MonsterMode::Stand, MonsterMode::Delay) || (Heroes[mid].fleeing || Heroes[mid].carried != 0) == headsOut)
+			if (IsNoneOf(other.mode, MonsterMode::Stand, MonsterMode::Delay) || (!anyone && (Heroes[mid].fleeing || Heroes[mid].carried != 0) == headsOut))
 				continue;
 			PlaceMonsterHero(other, from);
 			place(tile);
@@ -757,6 +764,26 @@ bool SqueezePast(Point from, const DistanceField &route, bool headsOut, Place pl
 		}
 	}
 	return false;
+}
+
+/** Heading for a goal: if the hero hasn't come any closer for a while, it may have to change places to get on. */
+bool TrySqueezePast(Monster &monster, HeroState &hero, HeroGoal goal, const DistanceField &route, bool headsOut)
+{
+	const uint16_t distance = FieldAt(route, monster.position.tile);
+	if (goal != hero.progressGoal) {
+		hero.progressGoal = goal;
+		hero.bestDistance = distance;
+		hero.stuckTurns = 0;
+	} else if (distance < hero.bestDistance) {
+		hero.bestDistance = distance;
+		hero.stuckTurns = 0;
+	} else {
+		hero.stuckTurns++;
+	}
+	if (hero.stuckTurns < StuckTurnsBeforeSqueeze || !SqueezePast(monster.position.tile, route, headsOut, hero.stuckTurns >= StuckTurnsBeforeShove, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
+		return false;
+	hero.stuckTurns = 0;
+	return true;
 }
 
 /** A wounded hero in a fight breaks off, once, and runs to a healthy friend. @return true if it moved. */
@@ -1178,10 +1205,9 @@ void HeroAi(Monster &monster)
 		const DistanceField &route = RouteField(HeroGoal::Vault, hero.trapsKnown);
 		if (TryBashLockedDoor(monster, hero, route))
 			return;
-		if (FollowField(monster, route) || FightIfBlocked(monster))
+		if (TrySqueezePast(monster, hero, HeroGoal::Vault, route, false) || FollowField(monster, route) || FightIfBlocked(monster))
 			return;
-		if (!SqueezePast(monster.position.tile, route, false, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
-			KeeperAiDelay(monster, 5);
+		KeeperAiDelay(monster, 5);
 		return;
 	}
 
@@ -1192,10 +1218,9 @@ void HeroAi(Monster &monster)
 	const DistanceField &route = RouteField(HeroGoal::Entrance, hero.trapsKnown);
 	if (TryBashLockedDoor(monster, hero, route))
 		return;
-	if (FollowField(monster, route) || FightIfBlocked(monster))
+	if (TrySqueezePast(monster, hero, HeroGoal::Entrance, route, true) || FollowField(monster, route) || FightIfBlocked(monster))
 		return;
-	if (!SqueezePast(monster.position.tile, route, true, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
-		KeeperAiDelay(monster, 5);
+	KeeperAiDelay(monster, 5);
 }
 
 namespace {
@@ -1809,9 +1834,14 @@ void OpenDoorsAround(Point tile)
 	}
 }
 
-bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut)
+bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut, bool anyone)
 {
-	return SqueezePast(bot.position.tile, RouteField(goal, knownTraps), headsOut, [&bot](Point tile) { PlaceBot(bot, tile); });
+	return SqueezePast(bot.position.tile, RouteField(goal, knownTraps), headsOut, anyone, [&bot](Point tile) { PlaceBot(bot, tile); });
+}
+
+bool IsHeroInHazard(const Monster &monster)
+{
+	return IsActive() && IsHero(monster) && IsHazardous(monster.position.tile);
 }
 
 std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps)

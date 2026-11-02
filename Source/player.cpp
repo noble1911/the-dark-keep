@@ -2655,6 +2655,8 @@ void StartPlrHit(Player &player, int dam, bool forcehit)
 	player.Say(HeroSpeech::ArghClang);
 
 	RedrawComponent(PanelDrawComponent::Health);
+	if (!forcehit && keeper::IsHeroInHazard(player)) // [DARK KEEP] a burn doesn't hold it there to burn again
+		return;
 	if (player._pClass == HeroClass::Barbarian) {
 		if (dam >> 6 < player.getCharacterLevel() + player.getCharacterLevel() / 4 && !forcehit) {
 			return;

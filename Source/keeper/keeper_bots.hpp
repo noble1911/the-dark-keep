@@ -30,6 +30,8 @@ namespace keeper {
 constexpr size_t MaxBots = 4;
 constexpr size_t FirstBotId = MAX_PLRS;
 
+/** A bot standing in a floor hazard. Burns don't stagger it: it walks straight out. */
+bool IsHeroInHazard(const Player &player);
 /** Moves a standing bot to `tile` at once (heroes changing places in a corridor). */
 void PlaceBot(Player &bot, Point tile);
 /** Caps a bot's block chance (percent); anyone else's passes through. */

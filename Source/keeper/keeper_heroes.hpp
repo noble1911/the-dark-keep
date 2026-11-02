@@ -110,6 +110,9 @@ bool HuntsEnemy(const Monster &monster);
 bool HoldsPost(const Monster &monster);
 void GuardAi(Monster &monster);
 
+/** A monster hero standing in a floor hazard. Burns don't stagger it: it walks straight out. */
+bool IsHeroInHazard(const Monster &monster);
+
 /** A master's golem: stats for its spell level, set on every client from the host's spawn message. */
 void OnGolemInit(Monster &golem, int spellLevel);
 /** MonsterAIID::Golem in the keep. */
@@ -201,7 +204,7 @@ void OpenDoorsAround(Point tile);
 /** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */
 std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps);
 /** A bot whose way is shut by a hero going the other way changes places with it. @return true if it did. */
-bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut);
+bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut, bool anyone);
 void StrikeLockedDoor(Point doorTile, int blows, std::string_view who);
 /** Damage one swing does to a locked door. */
 int BashBlows(HeroClassKind cls);

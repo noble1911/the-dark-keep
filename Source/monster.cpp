@@ -4048,7 +4048,7 @@ void M_StartHit(Monster &monster, int dam)
 			monster.goalVar1 = 0;
 			monster.goalVar2 = 0;
 		}
-		if (monster.mode != MonsterMode::Petrified) {
+		if (monster.mode != MonsterMode::Petrified && !keeper::IsHeroInHazard(monster)) { // [DARK KEEP]
 			StartMonsterGotHit(monster);
 		}
 	}
