@@ -2,7 +2,8 @@
 # games: any other devilutionx on this PC (a real session of this same build included) must never be
 # stopped or driven. A test game is one whose command line names a profile under build\test-profiles.
 $script:Root = (Resolve-Path "$PSScriptRoot\..\..").Path
-$script:ExeDir = "$script:Root\build\Release"
+# DK_BUILD: another build folder of this checkout, for example build-asan.
+$script:ExeDir = "$script:Root\$(if ($env:DK_BUILD) { $env:DK_BUILD } else { 'build' })\Release"
 $script:Exe = "$script:ExeDir\devilutionx.exe"
 
 function Get-ExeInstances {
@@ -41,7 +42,7 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo", [switch]$NoSync) {
     if (-not $NoSync) {
         Copy-Item -Recurse -Force "$script:Root\build\assets\*" (New-Item -ItemType Directory -Force "$script:ExeDir\assets")
         if (Test-Path "$script:ExeDir\mods") { Remove-Item -Recurse -Force "$script:ExeDir\mods" }
-        Copy-Item -Recurse -Force "$script:Root\build\mods" "$script:ExeDir\mods"
+        Copy-Item -Recurse -Force "$script:ExeDir\..\mods" "$script:ExeDir\mods"
     }
     foreach ($file in Get-ChildItem -Path $DataDir -Filter *.mpq) {
         $dst = Join-Path $script:ExeDir $file.Name

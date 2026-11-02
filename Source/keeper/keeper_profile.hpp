@@ -114,6 +114,8 @@ int ProfileMedalCount();
 int MapXpEarned();
 /** Writes the file, unless a test flag or an editor test run is in play. */
 void SaveProfile();
+/** What the player should know about their progress: it won't last, or it was lost. Empty if all is well. */
+std::string_view ProfileProblem();
 
 } // namespace keeper
 } // namespace devilution

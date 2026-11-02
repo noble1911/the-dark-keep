@@ -478,7 +478,11 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	Fill(out, { bar.position, { inner * std::clamp(ProfileXp() - from, 0, to - from) / std::max(to - from, 1), bar.size.height } }, PAL16_YELLOW + 4);
 	Frame(out, bar, FrameColor);
 	y += 14;
-	DrawString(out, fmt::format("{} / {} XP", ProfileXp(), to), { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+	// A line that doesn't fit would wrap down over the Renown below it.
+	std::string xpLine = fmt::format("{} / {} XP", ProfileXp(), to);
+	if (GetLineWidth(xpLine) > inner)
+		xpLine = Fit(fmt::format("{} XP", ProfileXp()), inner);
+	DrawString(out, xpLine, { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	y += 22;
 
 	DrawString(out, std::to_string(RenownAvailable()), { { x, y }, { inner, 30 } }, { .flags = UiFlags::FontSize30 | UiFlags::AlignCenter | UiFlags::ColorGold });
@@ -507,6 +511,11 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 		Flash(std::string(DifficultyBlurb(ProfileDifficulty())));
 	}
 	const Rectangle respec { { x, area.position.y + area.size.height - ButtonHeight - 8 }, { inner, ButtonHeight } };
+	if (const std::string_view problem = ProfileProblem(); !problem.empty()) {
+		const int bottom = respec.position.y - 2;
+		const int room = std::min(bottom - y, 4 * 14);
+		DrawString(out, WordWrapString(problem, inner), { { x, bottom - room }, { inner, room } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed, .lineHeight = 14 });
+	}
 	padRespec = respec;
 	if (Button(out, respec, confirmRespec ? (IsPadInUse() ? "Press again to respec" : "Click again to respec") : "Respec (free)", true, mouse)) {
 		if (confirmRespec) {
@@ -903,6 +912,13 @@ void KeeperOverlayWheel(int deltaY)
 {
 	wheel += deltaY;
 }
+#ifdef KEEPER_DEVCTL
+void DevHallSelect(int whichTab, size_t index)
+{
+	tab = static_cast<Tab>(whichTab);
+	selected = { tab, index };
+}
+#endif
 
 void UiKeeperScreen()
 {

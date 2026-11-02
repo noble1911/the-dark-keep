@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bitset>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -31,6 +32,8 @@ namespace {
 /** Reaching keeper level L takes XpPerLevelStep * L * (L - 1) / 2 XP in all. */
 constexpr int XpPerLevelStep = 120;
 constexpr int RenownPerLevel = 4;
+/** Far past anything earned in play: the sums for levels beyond it would overflow, and a damaged file can say anything. */
+constexpr int HighestKeeperLevel = 5000;
 
 constexpr int HeroSlainXpBase = 10;
 constexpr int HeroSlainXpPerWave = 2;
@@ -75,6 +78,8 @@ Profile profile;
 bool loaded = false;
 /** A profile from a newer build is never overwritten. */
 bool writable = true;
+bool saveFailed = false;
+bool startedAfresh = false;
 
 /** The host's unlocks, while in someone else's game. */
 bool usingHost = false;
@@ -121,6 +126,19 @@ void DefaultSpellBar(Profile &p)
 	for (size_t spell = 0; spell < NumSpellKinds && slot < NumSpellSlots; spell++) {
 		if (p.spells[spell] > 0)
 			p.spellBar[slot++] = static_cast<int8_t>(spell);
+	}
+}
+
+/** A hand-edited or damaged file can list a spell twice, or one that isn't owned. */
+void TidySpellBar(Profile &p)
+{
+	for (size_t slot = 0; slot < NumSpellSlots; slot++) {
+		const int8_t spell = p.spellBar[slot];
+		if (spell < 0)
+			continue;
+		const auto end = p.spellBar.begin() + slot;
+		if (p.spells[static_cast<size_t>(spell)] == 0 || std::find(p.spellBar.begin(), end, spell) != end)
+			p.spellBar[slot] = -1;
 	}
 }
 
@@ -206,12 +224,15 @@ void Load()
 		result = ReadProfile(path + ".tmp", profile);
 	if (result == ReadResult::Ok) {
 		GrantStarters(profile);
+		TidySpellBar(profile);
 		return;
 	}
 	if (result == ReadResult::Newer)
 		writable = false; // plays with a fresh profile, and leaves that one alone
-	if (result == ReadResult::Damaged)
+	if (result == ReadResult::Damaged) {
 		CopyFileOverwrite(path.c_str(), (path + ".bad").c_str()); // kept for repair: the next save replaces it
+		startedAfresh = true;
+	}
 	// A first run, or progress from before XP: every level already cleared counts.
 	profile = {};
 	GrantStarters(profile);
@@ -286,7 +307,7 @@ bool CanRaise(int level, int unlockRank, int cost, std::string_view *reason)
 void AddXp(int amount)
 {
 	mapXp += amount;
-	profile.xp += amount;
+	profile.xp = amount > INT_MAX - profile.xp ? INT_MAX : profile.xp + amount;
 }
 
 /** Test flags and editor test runs earn nothing. */
@@ -312,7 +333,7 @@ int KeeperLevel()
 {
 	Load();
 	int level = 1;
-	while (profile.xp >= XpForKeeperLevel(level + 1))
+	while (level < HighestKeeperLevel && profile.xp >= XpForKeeperLevel(level + 1))
 		level++;
 	return level;
 }
@@ -689,6 +710,7 @@ void SaveProfile()
 	const std::string path = ProfilePath();
 	const std::string temp = path + ".tmp";
 	FILE *file = OpenFile(temp.c_str(), "wb");
+	saveFailed = true; // until it has all gone through
 	if (file == nullptr) {
 		LogError("Cannot write keeper profile {}", temp);
 		return;
@@ -729,6 +751,22 @@ void SaveProfile()
 	if (FileExists(path))
 		RemoveFile(path.c_str());
 	RenameFile(temp.c_str(), path.c_str());
+	// A read-only file stays as it was, and with it the old progress.
+	saveFailed = FileExists(temp);
+	if (saveFailed)
+		LogError("Cannot replace keeper profile {}", path);
+}
+
+std::string_view ProfileProblem()
+{
+	Load();
+	if (!writable)
+		return "Profile from a newer version: progress here won't be saved.";
+	if (saveFailed)
+		return "Your progress can't be saved: check the save folder.";
+	if (startedAfresh)
+		return "Damaged profile: started anew. Old file kept, ending in .bad.";
+	return {};
 }
 
 } // namespace devilution::keeper

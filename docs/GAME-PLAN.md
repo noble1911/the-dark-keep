@@ -88,3 +88,6 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] A client of a different build is refused
 - [ ] Co-op over a real network: only ever run on localhost
 - [ ] Everything in docs/NEXT-PHASE.md needs a first playtest
+- [x] Automated sweeps (`rosterqa`, `spellqa`, `trapqa` in scripts/dev/ctl.ps1, see keeper_devqa.hpp): all 111 monsters, every spell and trap at every level, map edges, AddressSanitizer
+- [x] Rally, patrol and drag-select driven through the UI, solo and in co-op
+- [x] Damaged, old, newer and read-only `keeper_profile.txt`, respec with everything bought, very large XP

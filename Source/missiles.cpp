@@ -670,7 +670,8 @@ void MoveMissileAndCheckMissileCol(Missile &missile, DamageType damageType, int 
 
 	const bool tileChanged = MoveMissile(missile, checkTile, ifCollidesDontMoveToHitTile);
 
-	const int16_t tileTargetHash = dMonster[missile.position.tile.x][missile.position.tile.y] ^ dPlayer[missile.position.tile.x][missile.position.tile.y];
+	// [DARK KEEP] nothing stops a ray in the void outside a level from flying off the map
+	const int16_t tileTargetHash = InDungeonBounds(missile.position.tile) ? dMonster[missile.position.tile.x][missile.position.tile.y] ^ dPlayer[missile.position.tile.x][missile.position.tile.y] : 0;
 
 	// missile didn't change the tile... check that we perform CheckMissileCol only once for any monster/player to avoid multiple hits for slow missiles
 	if (!tileChanged && missile.lastCollisionTargetHash != tileTargetHash) {
@@ -2569,7 +2570,7 @@ void AddWallControl(Missile &missile, AddMissileParameter &parameter)
 {
 	std::optional<Point> spreadPosition = FindClosestValidPosition(
 	    [start = missile.position.start](Point target) {
-		    return start != target && !TileHasAny(target, TileProperties::BlockMissile) && LineClearMissile(start, target);
+		    return InDungeonBounds(target) && start != target && !TileHasAny(target, TileProperties::BlockMissile) && LineClearMissile(start, target); // [DARK KEEP] the search reaches 5 tiles out
 	    },
 	    parameter.dst, 0, 5);
 

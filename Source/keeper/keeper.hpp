@@ -102,6 +102,8 @@ int UiBarHeight();
 
 /** @brief Dev/test (--keeper-devctl): points the camera at a tile. */
 void DevCenterCamera(Point tile);
+/** @brief Dev/test (--keeper-devctl): where a tile's middle is on the screen. */
+Point DevTileOnScreen(Point tile);
 /** @brief Dev/test (--keeper-devctl): keep ticks since the level loaded. */
 uint32_t DevKeeperTicks();
 

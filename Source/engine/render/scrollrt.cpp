@@ -86,6 +86,9 @@
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
 #include "keeper/keeper_pad.hpp" // [DARK KEEP]
 #include "keeper/keeper_tutorial.hpp" // [DARK KEEP]
+#ifdef KEEPER_DEVCTL
+#include "keeper/keeper_devctl.hpp" // [DARK KEEP]
+#endif
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
@@ -849,7 +852,7 @@ void DrawDungeon(const Surface &out, const Lightmap &lightmap, Point tilePositio
 	Player *player = PlayerAtPosition(tilePosition);
 	if (player != nullptr) {
 		const uint8_t pid = player->getId();
-		assert(pid < MAX_PLRS);
+		assert(pid < Players.size()); // [DARK KEEP] bot heroes come after MAX_PLRS
 		int playerId = static_cast<int>(pid) + 1;
 		// If sprite is moving southwards or east, we want to draw it offset from the tile it's moving to, so we need negative ID
 		// This respests the order that tiles are drawn. By using the negative id, we ensure that the sprite is drawn with priority
@@ -1866,6 +1869,10 @@ void DrawAndBlit()
 	if (!gbRunGame || HeadlessMode) {
 		return;
 	}
+#ifdef KEEPER_DEVCTL
+	if (keeper::DevctlSkipsDraw()) // [DARK KEEP] dev/test: long sweeps draw only now and then
+		return;
+#endif
 
 	int hgt = 0;
 	bool drawHealth = IsRedrawComponent(PanelDrawComponent::Health);

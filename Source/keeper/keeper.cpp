@@ -35,6 +35,9 @@
 #include "init.hpp"
 #include "keeper/keeper_alerts.hpp"
 #include "keeper/keeper_barricade.hpp"
+#ifdef KEEPER_DEVCTL
+#include "keeper/keeper_devqa.hpp"
+#endif
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
@@ -895,12 +898,17 @@ void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
 			kinds[State.lairs[ref.slot].kind]++;
 		canSell = canSell || CanSell(ref);
 	}
-	std::string summary;
+	// The orders first: it is the list of what's selected that can run out of room.
+	std::string summary = "Right-click: rally. Shift: waypoint.\n";
+	bool firstKind = true;
 	for (size_t i = 0; i < kinds.size(); i++) {
-		if (kinds[i] > 0)
-			summary += fmt::format("{}{} {}", summary.empty() ? "" : ", ", kinds[i], BuildKinds[i].name);
+		if (kinds[i] > 0) {
+			summary += fmt::format("{}{} {}", firstKind ? "" : ", ", kinds[i], BuildKinds[i].name);
+			firstKind = false;
+		}
 	}
-	summary += fmt::format("\n{}: rally around a point. {}: add a waypoint.", InputName(PadAction::Order), InputName(PadAction::Waypoint));
+	if (IsPadInUse())
+		summary += fmt::format("\n{}: rally around a point. {}: add a waypoint.", InputName(PadAction::Order), InputName(PadAction::Waypoint));
 	DrawString(out, FitLines(summary, textWidth, 70, 13), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
 }
@@ -1941,6 +1949,9 @@ void Tick()
 	TutorialTick();
 
 	tickCounter++;
+#ifdef KEEPER_DEVCTL
+	DevQaTick();
+#endif
 	if (tickCounter % 4 == 0) {
 		for (size_t i = 0; i < ActiveMonsterCount; i++) {
 			Monster &monster = Monsters[ActiveMonsters[i]];
@@ -1960,6 +1971,11 @@ uint32_t DevKeeperTicks()
 void DevCenterCamera(Point tile)
 {
 	CenterCameraOn(tile);
+}
+
+Point DevTileOnScreen(Point tile)
+{
+	return TileCenter(tile);
 }
 
 void UpdateCamera()
@@ -2565,9 +2581,14 @@ void DrawUi(const Surface &out)
 	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);
 	DrawString(out, fmt::format("{}x", GameSpeedMultiplier()), { speedButton.position + Displacement { 0, 1 }, { speedButton.size.width, 14 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (GameSpeedLevel() > 0 ? UiFlags::ColorGold : UiFlags::ColorWhite) });
-	DrawString(out, fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	const int supply = SupplyUsed();
-	DrawString(out, fmt::format("Pop {}/{}", supply, SupplyCap()), { { left, top + 19 }, { columnWidth, 16 } },
+	// Late levels reach Raid 10/10 and Pop 100/100, which don't fit side by side with their words.
+	std::string raidLine = fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves());
+	std::string popLine = fmt::format("Pop {}/{}", supply, SupplyCap());
+	if (GetLineWidth(raidLine) + GetLineWidth(popLine) + 6 > columnWidth)
+		popLine = fmt::format("{}/{}", supply, SupplyCap());
+	DrawString(out, raidLine, { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, popLine, { { left, top + 19 }, { columnWidth, 16 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite) });
 	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 34 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	const int inFlight = GoldInFlight();

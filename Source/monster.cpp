@@ -4387,7 +4387,7 @@ void ProcessMonsters()
 				monster.position.last = Monsters[monster.enemy].position.future;
 				monster.enemyPosition = monster.position.last;
 			} else {
-				assert(monster.enemy >= 0 && monster.enemy < MAX_PLRS);
+				assert(monster.enemy >= 0 && monster.enemy < Players.size()); // [DARK KEEP] bot heroes come after MAX_PLRS
 				const Player &player = Players[monster.enemy];
 				monster.enemyPosition = player.position.future;
 				if (isMonsterVisible) {

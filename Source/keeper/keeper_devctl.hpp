@@ -54,6 +54,8 @@ private:
 	DevPerfCounter counter_;
 	uint64_t start_;
 };
+/** `drawevery N`: draw one frame in N, so a long sweep or soak runs faster. */
+bool DevctlSkipsDraw();
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }

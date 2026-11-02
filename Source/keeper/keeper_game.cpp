@@ -79,6 +79,8 @@ constexpr int RaidStateBroadcastInterval = TicksPerSecond / 2;
 /** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
 constexpr int PossessDrainPerTick = 10;
 constexpr int ManaCastTolerance = 5 * ManaScale;
+/** Levels fill tiles 16 to 95, so this rules out nothing a hero can reach. */
+constexpr int SpellEdgeMargin = 8;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
 constexpr int BaseSupply = 16;
 constexpr int SupplyPerRaid = 4;
@@ -1593,7 +1595,9 @@ void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
 
 void ApplyCast(Player &caster, size_t spell, Point tile)
 {
-	if (spell >= SpellKinds.size() || !InDungeonBounds(tile))
+	// The engine's spells only ever start where a player can stand: right by the map's edge, far outside any
+	// level, they read past its tables. A spell's own positions also travel as bytes, and would wrap there.
+	if (spell >= SpellKinds.size() || tile.x < SpellEdgeMargin || tile.y < SpellEdgeMargin || tile.x >= MAXDUNX - SpellEdgeMargin || tile.y >= MAXDUNY - SpellEdgeMargin)
 		return;
 	const size_t pid = caster.getId();
 	const SpellKind &kind = SpellKinds[spell];
@@ -1627,8 +1631,28 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 		// These travel, and the master's body is parked out of the way: send them towards the raiders' way in.
 		if (tile != State.entrance)
 			dir = GetDirection(tile, State.entrance);
-		dst = tile + dir;
+		// Both begin a step on from their source: starting a step short of the target is what puts it in the fire.
+		src = tile + Opposite(dir);
+		dst = tile;
 		caster._pdir = dir; // the flame wave rolls the way its caster faces
+		break;
+	case MissileID::ChainLightning:
+		// Its bolts can't strike the tile they leave from: they leave from beside the target, off any other hero if it can.
+		{
+			bool found = false;
+			for (const Direction side : { Direction::NorthWest, Direction::NorthEast, Direction::SouthEast, Direction::SouthWest, Direction::North, Direction::East, Direction::South, Direction::West }) {
+				const Point beside = tile + side;
+				if (TileHasAny(beside, TileProperties::BlockMissile))
+					continue;
+				if (!found)
+					src = beside;
+				found = true;
+				if (!IsHeroAt(beside)) {
+					src = beside;
+					break;
+				}
+			}
+		}
 		break;
 	default:
 		break;
