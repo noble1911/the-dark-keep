@@ -574,10 +574,12 @@ void Execute(const std::string &line)
 		WriteLairs();
 	} else if (command == "spelllevel") {
 		in >> a >> b;
-		State.spellLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(b);
+		if (a >= 0 && static_cast<size_t>(a) < State.spellLevels.size())
+			State.spellLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(std::clamp(b, 0, MaxKeepLevel));
 	} else if (command == "traplevel") {
 		in >> a >> b;
-		State.trapLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(b);
+		if (a >= 0 && static_cast<size_t>(a) < State.trapLevels.size())
+			State.trapLevels[static_cast<size_t>(a)] = static_cast<uint8_t>(std::clamp(b, 0, MaxKeepLevel));
 	} else if (command == "wavenum") {
 		in >> a;
 		State.wave = static_cast<uint8_t>(a);
@@ -683,6 +685,7 @@ void DevctlFrame()
 		WriteState();
 	}
 	WatchRaid();
+	DevQaCheckStillInKeep();
 	ReadNewCommands();
 	// One input a frame, so a screen sees each event as it would from a person.
 	while (!pending.empty() && !DevQaRunning() && !IsWaiting()) {

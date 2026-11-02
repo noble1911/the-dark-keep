@@ -768,22 +768,29 @@ void DevQaStart(std::string_view name, int first, int lastItem, int window, std:
 	stage = 0;
 	stageTicks = 0;
 	current = first;
-	if (!IsActive() || !FindArena())
+	if (!IsActive()) {
+		out("qa error not in the keep");
+		return;
+	}
+	if (!FindArena())
 		return;
 	if (name == "rosterqa") {
 		fightWindow = window > 0 ? window : 500;
-		last = lastItem >= 0 ? lastItem : static_cast<int>(NumLairKinds) - 1;
+		current = std::clamp(first, 0, static_cast<int>(NumLairKinds) - 1);
+		last = lastItem >= 0 ? std::min(lastItem, static_cast<int>(NumLairKinds) - 1) : static_cast<int>(NumLairKinds) - 1;
 		stage = RosterSold;
 		check = {};
 		sweep = Sweep::Roster;
 	} else if (name == "spellqa") {
-		last = lastItem >= 0 ? lastItem : static_cast<int>(NumSpellKinds) - 1;
+		current = std::clamp(first, 0, static_cast<int>(NumSpellKinds) - 1);
+		last = lastItem >= 0 ? std::min(lastItem, static_cast<int>(NumSpellKinds) - 1) : static_cast<int>(NumSpellKinds) - 1;
 		spellLevel = 1;
 		edgePass = false;
 		cast = {};
 		sweep = Sweep::Spells;
 	} else if (name == "trapqa") {
-		last = lastItem >= 0 ? lastItem : static_cast<int>(NumTrapKinds) - 1;
+		current = std::clamp(first, 0, static_cast<int>(NumTrapKinds) - 1);
+		last = lastItem >= 0 ? std::min(lastItem, static_cast<int>(NumTrapKinds) - 1) : static_cast<int>(NumTrapKinds) - 1;
 		trapLevel = 1;
 		trapBotOnly = window > 0;
 		trapOnBot = trapBotOnly;
@@ -797,15 +804,18 @@ bool DevQaRunning()
 	return sweep != Sweep::None;
 }
 
+void DevQaCheckStillInKeep()
+{
+	if (sweep != Sweep::None && !IsActive()) {
+		out("qa error left the keep");
+		sweep = Sweep::None;
+	}
+}
+
 void DevQaTick()
 {
 	if (sweep == Sweep::None)
 		return;
-	if (!IsActive()) {
-		out("qa error left the keep");
-		sweep = Sweep::None;
-		return;
-	}
 	switch (sweep) {
 	case Sweep::Roster:
 		RosterTick();
