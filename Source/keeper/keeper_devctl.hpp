@@ -12,10 +12,16 @@
 
 namespace devilution::keeper {
 
+#ifdef KEEPER_DEVCTL
 /** Starts reading commands from `path`; output goes to `path` + ".out". */
 void DevctlInit(std::string path);
 
 /** Runs due commands. Called once per presented frame, whatever screen is up. */
 void DevctlFrame();
+#else
+// Only built with -DKEEPER_DEVCTL=ON.
+inline void DevctlInit(std::string /*path*/) { }
+inline void DevctlFrame() { }
+#endif
 
 } // namespace devilution::keeper

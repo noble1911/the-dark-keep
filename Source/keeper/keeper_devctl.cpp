@@ -5,8 +5,6 @@
  */
 #include "keeper/keeper_devctl.hpp"
 
-#ifndef USE_SDL3
-
 #include <algorithm>
 #include <cstdio>
 #include <deque>
@@ -281,6 +279,12 @@ void Execute(const std::string &line)
 	} else if (command == "trapfire") {
 		in >> a >> b >> c;
 		DevFireTrap(static_cast<size_t>(a), { b, c });
+	} else if (command == "bait") {
+		in >> a >> b;
+		RequestPlaceBait({ a, b });
+	} else if (command == "lock") {
+		in >> a >> b;
+		RequestLockDoor({ a, b });
 	} else if (command == "sell") {
 		in >> a;
 		RequestSell({ StructureType::Lair, static_cast<size_t>(a) });
@@ -372,19 +376,3 @@ void DevctlFrame()
 }
 
 } // namespace devilution::keeper
-
-#else
-
-namespace devilution::keeper {
-
-void DevctlInit(std::string /*path*/)
-{
-}
-
-void DevctlFrame()
-{
-}
-
-} // namespace devilution::keeper
-
-#endif
