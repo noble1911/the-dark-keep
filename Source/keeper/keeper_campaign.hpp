@@ -74,12 +74,45 @@ int StartingGold();
 int HeroStrengthPercent();
 /** 1-based number of the level being played; custom maps and the editor count as level 1. */
 int CurrentLevelNumber();
-/** Scales a hero stat by HeroStrengthPercent(). */
+/** Scales a number by the level's own strength: prices, tribute, bounties, loot, traps and the Keep Lord. */
 int ScaleByHeroStrength(int value);
-/** Hero armour: takes only part of the level's strength (see HeroArmorStrengthPercent). */
-int ScaleArmorByHeroStrength(int value);
 /** How many heroes raid `wave` brings. */
 int PartySizeForWave(int wave);
+
+// ---- difficulty and how many masters ------------------------------------------------------
+
+/** A light choice on the Keeper screen. The host's counts for everyone, and it holds for a whole game. */
+enum class Difficulty : uint8_t {
+	Easy,
+	Normal,
+	Hard,
+};
+constexpr size_t NumDifficulties = 3;
+std::string_view DifficultyName(Difficulty difficulty);
+/** One line on what a difficulty does, for the Keeper screen. */
+std::string_view DifficultyBlurb(Difficulty difficulty);
+
+/** The difficulty of the game being played. */
+Difficulty GameDifficulty();
+/** A joiner hears the host's from the join data and from every state message. */
+void SetGameDifficulty(Difficulty difficulty);
+/** A keep is starting: the host or a solo player takes the difficulty from their profile, for the whole game. */
+void LatchGameDifficulty();
+
+/** Masters the raid is scaled for. Host: counts them while preparing, so it can't change during a raid. Others: told. */
+int RaidMasters();
+void SetRaidMasters(int masters);
+
+/** The heroes' fighting strength, in percent: the level's, with the difficulty and the masters on top. */
+int HeroCombatPercent();
+/** Scales a hero's life or damage by HeroCombatPercent(). */
+int ScaleHeroCombat(int value);
+/** The same for armour, which takes only part of it (see HeroArmorStrengthPercent). */
+int ScaleHeroArmor(int value);
+/** XP from a fight or a clear, in percent: Easy pays less, so it can't be farmed. */
+int DifficultyXpPercent();
+/** The share of a slain hero's XP that is paid: more heroes come for more masters, and each master gets the XP for them all. */
+int PartyXpPercent();
 
 // ---- choosing a game ---------------------------------------------------------------------
 

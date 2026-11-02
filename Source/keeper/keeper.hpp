@@ -116,6 +116,10 @@ extern int TestStartWave;
 extern int TestCampaignLevel;
 /** From --keeper-map: autostart or host this map file. */
 extern std::string TestCustomMap;
+/** @brief Dev/test flag (--keeper-difficulty <0-2>): Easy, Normal or Hard instead of the profile's (-1). */
+extern int TestDifficulty;
+/** @brief Dev/test flag (--keeper-raid-type <n>): every raid is this RaidType (-1 = the level's plan). Pass it on every client. */
+extern int TestRaidType;
 /** @brief Dev/test flag (--keeper-rank <n>): overrides CampaignRank() for the roster (0 = normal). Pass it on every client. */
 extern int TestRank;
 /** @brief Dev/test flag (--keeper-test-stamp <n>): pretend to be a different build. */

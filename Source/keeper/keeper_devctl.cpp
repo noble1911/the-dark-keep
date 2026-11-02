@@ -32,6 +32,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_tutorial.hpp"
 #include "keeper/keeper_upgrades.hpp"
@@ -639,6 +640,31 @@ void Execute(const std::string &line)
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
+	} else if (command == "raidtypes") {
+		std::string types;
+		for (int raid = 1; raid <= NumWaves(); raid++)
+			types += fmt::format("{}={} ", raid, RaidTypeInfoOf(RaidTypeForWave(static_cast<uint8_t>(raid))).name);
+		Output(types);
+	} else if (command == "routecheck") {
+		// What locking each door would do to the heroes' route.
+		const size_t base = EstimateHeroRoute({}).size();
+		Output(fmt::format("route {} tiles", base));
+		for (int i = 0; i < ActiveObjectCount; i++) {
+			const Object &object = Objects[ActiveObjects[i]];
+			if (object.isDoor())
+				Output(fmt::format("door {},{} locked: route {} tiles", object.position.x, object.position.y, EstimateHeroRoute({ .extraLock = object.position }).size()));
+		}
+	} else if (command == "hurtheroes") {
+		// Every hero down to one hit point, for testing how raids end.
+		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+			Monster &monster = Monsters[ActiveMonsters[i]];
+			if (IsHero(monster) && monster.hitPoints > 0)
+				monster.hitPoints = 1 << 6;
+		}
+		for (size_t i = 0; i < MaxBots; i++) {
+			if (IsLivingBot(Players[FirstBotId + i]))
+				SetPlayerHitPoints(Players[FirstBotId + i], 1 << 6);
+		}
 	} else if (command == "fillmana") {
 		State.mana[MyPlayerId] = MaxMana * ManaScale;
 		State.spellCooldown[MyPlayerId] = 0;

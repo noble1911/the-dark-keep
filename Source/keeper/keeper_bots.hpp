@@ -77,11 +77,18 @@ struct BotSyncState {
 /** Nullopt if there is no living bot in that slot. */
 std::optional<BotSyncState> GetBotSyncState(size_t slot);
 void ApplyBotSyncState(size_t slot, const BotSyncState &state);
+/** A full hero of a fast raid: it moves at the pace the engine lets players run in town. */
+bool RunsThisRaid(const Player &player);
 /** True if this client applies the player's damage/effects itself: the local master, or any bot. */
 bool SimulatesLocally(const Player &player);
 
 /** A free bot slot (host side), if any. */
 std::optional<size_t> FreeBotSlot();
+/**
+ * What a full hero of this class will be in the raid about to start: builds one for real in an unused bot slot
+ * and reads it. Nothing is left on the map. nullopt while every slot is in use (only during a raid).
+ */
+std::optional<ScoutedHero> ScoutBot(HeroClassKind cls);
 /** Every client: brings bot `slot` into the keep as a hero of class `cls` at `tile`. */
 void SpawnBot(size_t slot, HeroClassKind cls, Point tile);
 /** Every client: removes all bots (end of raid, new game). */

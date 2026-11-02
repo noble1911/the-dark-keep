@@ -419,12 +419,13 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	y += 24;
 
 	const ProfileStats &stats = GetProfileStats();
-	const std::array<std::pair<std::string_view, int>, 5> lines { {
+	const std::array<std::pair<std::string_view, int>, 6> lines { {
 	    { "Maps cleared", stats.mapsCleared },
 	    { "Maps lost", stats.mapsLost },
 	    { "Raids survived", stats.raidsSurvived },
 	    { "Heroes slain", stats.heroesSlain },
 	    { "Monsters lost", stats.monstersLost },
+	    { "Medals won", ProfileMedalCount() },
 	} };
 	for (const auto &[label, value] : lines) {
 		DrawString(out, label, { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
@@ -432,6 +433,11 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 		y += 15;
 	}
 
+	const Rectangle difficultyButton { { x, area.position.y + area.size.height - 2 * ButtonHeight - 12 }, { inner, ButtonHeight } };
+	if (Button(out, difficultyButton, fmt::format("Difficulty: {}", DifficultyName(ProfileDifficulty())), true, mouse)) {
+		CycleProfileDifficulty();
+		Flash(std::string(DifficultyBlurb(ProfileDifficulty())));
+	}
 	const Rectangle respec { { x, area.position.y + area.size.height - ButtonHeight - 8 }, { inner, ButtonHeight } };
 	if (Button(out, respec, confirmRespec ? "Click again to respec" : "Respec (free)", true, mouse)) {
 		if (confirmRespec) {

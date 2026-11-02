@@ -148,7 +148,7 @@ void HandleWalkMode(Player &player, Direction dir)
 void StartWalkAnimation(Player &player, Direction dir, bool pmWillBeCalled)
 {
 	int8_t skippedFrames = -2;
-	if (leveltype == DTYPE_TOWN && sgGameInitInfo.bRunInTown != 0)
+	if ((leveltype == DTYPE_TOWN && sgGameInitInfo.bRunInTown != 0) || keeper::RunsThisRaid(player)) // [DARK KEEP] a fast raid
 		skippedFrames = 2;
 	if (pmWillBeCalled)
 		skippedFrames += 1;

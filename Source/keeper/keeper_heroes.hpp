@@ -16,6 +16,7 @@
 
 #include <function_ref.hpp>
 
+#include "engine/clx_sprite.hpp"
 #include "engine/displacement.hpp"
 #include "engine/point.hpp"
 #include "keeper/keeper_campaign.hpp"
@@ -202,8 +203,37 @@ std::optional<HeroSummary> GetHeroSummary(const Monster &monster);
 /** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
 std::string DescribeWave(uint8_t wave);
 
+/** A monster hero's numbers, in whole hit points. */
+struct HeroBody {
+	int life;
+	int minDamage;
+	int maxDamage;
+	int armor;
+};
+
+/** What scouting tells about one hero of a coming raid. */
+struct ScoutedHero {
+	HeroClassKind cls = HeroClassKind::Warrior;
+	/** A full hero with gear and potions (a bot), rather than a lesser one (a monster). */
+	bool full = false;
+	int level = 0;
+	int life = 0;
+	int minDamage = 0;
+	int maxDamage = 0;
+	int armor = 0;
+	int potions = 0;
+};
+/** Every hero of the raid about to start (State.wave), as the code that spawns them would make them. Prep only. */
+std::vector<ScoutedHero> ScoutParty();
+/** Heroes who take the bait from furthest away are the greediest (0: never fooled). */
+int BaitSightOf(HeroClassKind cls);
+/** The class's standing sprite facing south, once the keep has loaded them. */
+std::optional<ClxSprite> HeroPortrait(HeroClassKind cls);
+
 /** Recomputes the vault/entrance distance fields and drops the cached routes (after level load, or when locks change). */
 void RebuildPaths();
+/** Changes every time RebuildPaths runs, for anything that keeps its own route. */
+uint32_t RouteGeneration();
 
 // ---- the Keep Lord and the heroes' way out --------------------------------
 /** The boss guarding the vault. Heroes win by killing it and escaping through a Town Portal. */
@@ -242,6 +272,18 @@ uint16_t GoalDistance(HeroGoal goal, Point tile);
  * (bits of State.traps). The route shuns those traps and locked doors, and stops short of a locked door.
  */
 std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t knownTraps);
+/** What the prep-time route preview assumes about the locks. */
+struct RouteAssumption {
+	/** As if no door were locked. */
+	bool ignoreLocks = false;
+	/** As if this door were locked too. */
+	std::optional<Point> extraLock;
+};
+/**
+ * The way a party that knows no traps would walk from the entrance to the vault, tile by tile. Empty if there
+ * is none. An estimate: it's the route field the heroes use, without bait, fights, or what they learn on the way.
+ */
+std::vector<Point> EstimateHeroRoute(const RouteAssumption &assumption);
 /** Opens the unlocked closed doors next to a hero. */
 void OpenDoorsAround(Point tile);
 /** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */

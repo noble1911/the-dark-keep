@@ -1200,6 +1200,12 @@ void DiabloParseFlags(int argc, char **argv)
 		} else if (arg == "--keeper-map") { // [DARK KEEP] dev/test: autostart or host this map file
 			if (i + 1 < argc)
 				keeper::TestCustomMap = argv[++i];
+		} else if (arg == "--keeper-difficulty") { // [DARK KEEP] dev/test: Easy (0), Normal (1) or Hard (2)
+			if (i + 1 < argc)
+				keeper::TestDifficulty = std::clamp(std::atoi(argv[++i]), 0, 2);
+		} else if (arg == "--keeper-raid-type") { // [DARK KEEP] dev/test: every raid is this type
+			if (i + 1 < argc)
+				keeper::TestRaidType = std::atoi(argv[++i]);
 		} else if (arg == "--keeper-rank") { // [DARK KEEP] dev/test: override the campaign rank (pass the same on every client)
 			if (i + 1 < argc)
 				keeper::TestRank = std::atoi(argv[++i]);

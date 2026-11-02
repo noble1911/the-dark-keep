@@ -61,7 +61,9 @@ void ApplyRaidResultField(size_t field, int value);
 /** Every client, when the phase changes to Raid. */
 void NoteRaidStarted(uint8_t wave);
 /** Every client, when the phase leaves Raid: `outcome` is the new phase. */
-void NoteRaidEnded(Phase outcome, int tribute);
+void NoteRaidEnded(Phase outcome, int tribute, int interest);
+/** The host paid for opening the gates early. */
+void NoteEarlyCallBonus(int amount);
 /** A hero died: the bounty paid and the stolen gold it dropped back into the vault. */
 void NoteHeroSlain(int bounty, int recovered);
 /** A hero left the keep (`fled`: in terror, empty-handed), carrying `gold` out. */

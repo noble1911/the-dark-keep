@@ -20,6 +20,7 @@
 #include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_flow.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_lobby.hpp"
@@ -112,6 +113,12 @@ constexpr int GuardianDamagePerRaise = 3;
 constexpr int PatrolStuckTicks = 3 * TicksPerSecond;
 /** A joiner runs the keep by itself if no host has sent it the keep after this long (the host left). */
 constexpr int JoinSyncTimeoutTicks = 10 * TicksPerSecond;
+/** "Spend it or guard it": gold left in the vault when a raid ends earns this, up to a cap scaled by the level's strength. */
+constexpr int VaultInterestPercent = 5;
+constexpr int VaultInterestMaxGold = 100;
+/** Opening the gates early pays this for each second of preparation given up, up to a cap. */
+constexpr int EarlyCallGoldPerSecond = 1;
+constexpr int EarlyCallMaxGold = 60;
 
 enum class Action : uint8_t {
 	RequestBuild = 1,
@@ -179,6 +186,7 @@ enum class Action : uint8_t {
 	SetSpeed,
 	Ping,
 	RaidResult,
+	EarlyCallPaid,
 };
 
 #pragma pack(push, 1)
@@ -214,6 +222,10 @@ struct TCmdKeeperState {
 	uint8_t speedLevel;
 	uint8_t readyMask;
 	uint16_t readyTicks;
+	int32_t lastTribute;
+	int32_t lastInterest;
+	/** Goals lost so far: only the host's view of a raid decides them. */
+	uint8_t failedGoals;
 };
 #pragma pack(pop)
 
@@ -290,7 +302,7 @@ void BroadcastState()
 	cmd.bCmd = CMD_KEEPER_STATE;
 	cmd.phase = static_cast<uint8_t>(State.phase);
 	cmd.wave = State.wave;
-	cmd.reserved = static_cast<uint8_t>((State.bossDown ? 1 : 0) | (State.portalEscape ? 2 : 0));
+	cmd.reserved = static_cast<uint8_t>((State.bossDown ? 1 : 0) | (State.portalEscape ? 2 : 0) | (std::min(RaidMasters(), 7) << 2) | (static_cast<int>(GameDifficulty()) << 5));
 	cmd.phaseTicks = Swap32LE(static_cast<uint32_t>(std::max(State.phaseTicks, 0)));
 	cmd.vaultGold = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.vaultGold)));
 	cmd.goldLost = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.goldLost)));
@@ -310,6 +322,9 @@ void BroadcastState()
 	cmd.speedLevel = static_cast<uint8_t>(GameSpeedLevel());
 	cmd.readyMask = State.readyMask;
 	cmd.readyTicks = Swap16LE(static_cast<uint16_t>(std::clamp(State.readyTicks, 0, 0xFFFF)));
+	cmd.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastTribute)));
+	cmd.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(State.lastInterest)));
+	cmd.failedGoals = FailedGoals();
 	DevctlNoteSent(sizeof(cmd) + sizeof(TPktHdr));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
 	ticksUntilBroadcast = State.phase == Phase::Raid && DevctlBotSyncOn() ? RaidStateBroadcastInterval : StateBroadcastInterval;
@@ -366,6 +381,16 @@ bool IsPlacementCrowded(Point tile)
 	return false;
 }
 
+int CountMasters()
+{
+	int masters = 0;
+	for (size_t id = 0; id < NetPlayerSlots; id++) {
+		if (Players[id].plractive)
+			masters++;
+	}
+	return masters;
+}
+
 int TributeFor(uint8_t wave)
 {
 	return ScaleByHeroStrength(100 + 25 * wave);
@@ -407,7 +432,7 @@ void AnnouncePhase(Phase from, Phase to)
 		ClearLostRaid();
 	// Raid stats: every client sees the phase change, so each keeps its own tally.
 	if (from == Phase::Raid)
-		NoteRaidEnded(to, to == Phase::Breather ? TributeFor(State.wave - 1) : 0);
+		NoteRaidEnded(to, to == Phase::Breather ? State.lastTribute : 0, to == Phase::Breather ? State.lastInterest : 0);
 	if (to == Phase::Raid)
 		NoteRaidStarted(State.wave);
 	if (from == Phase::Raid) {
@@ -422,13 +447,17 @@ void AnnouncePhase(Phase from, Phase to)
 	case Phase::Breather:
 		if (from == Phase::Defeat)
 			Announce(fmt::format("The keep holds on: raid {} will come again.", State.wave), UiFlags::ColorRed);
-		else if (State.wave > 1)
-			Announce(fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, TributeFor(State.wave - 1)));
+		// Only coming out of a raid: a joiner's snapshot doesn't carry what the last raid paid.
+		else if (from == Phase::Raid)
+			Announce(State.lastInterest > 0 ? fmt::format("Raid {} is over. The dark lands pay {} gold: tribute, and {} interest on your vault.", State.wave - 1, State.lastTribute, State.lastInterest)
+			                                : fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, State.lastTribute));
 		break;
 	case Phase::Victory:
 		// Not for a master who connects after the win: seeing the keep stand isn't defending it.
-		if (from == Phase::Raid)
+		if (from == Phase::Raid) {
 			NoteVictory();
+			AwardLevelGoals();
+		}
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
@@ -645,13 +674,25 @@ void RefillLairs()
 		RefillLair(lair);
 }
 
+/** Host: pays for the time given up. Before the phase changes, which ends the timer. */
+void PayEarlyCall(int bonus)
+{
+	if (!IsHost() || bonus <= 0)
+		return;
+	State.vaultGold += bonus;
+	Send(Action::EarlyCallPaid, 0, 0, {}, static_cast<uint16_t>(bonus));
+	BroadcastState();
+}
+
 void StartRaid()
 {
 	// Leaving mid-raid comes back to this moment, with what the respite built.
 	SaveKeep();
 	State.retryGold = State.vaultGold;
 	retryGoldLost = State.goldLost;
+	const int earlyCallBonus = EarlyCallBonusNow();
 	SetPhase(Phase::Raid);
+	PayEarlyCall(earlyCallBonus);
 	if (IsHost())
 		StartWave(State.wave);
 }
@@ -758,7 +799,6 @@ void HostRetryRaid()
 
 void EndRaid()
 {
-	const int tribute = TributeFor(State.wave);
 	if (State.bossDown) {
 		// The party was wiped out before anyone escaped: the Lord rises again (UpdateBoss respawns it).
 		State.bossDown = false;
@@ -769,7 +809,10 @@ void EndRaid()
 		SetPhase(Phase::Victory);
 		return;
 	}
-	State.vaultGold += tribute;
+	// Worked out here, from the host's own vault: a joiner's copy may be behind, so it is told the result.
+	State.lastInterest = VaultInterestOn(State.vaultGold);
+	State.lastTribute = TributeFor(State.wave) + State.lastInterest;
+	State.vaultGold += State.lastTribute;
 	State.wave++;
 	for (Trap &trap : State.traps)
 		trap.cooldown = 0;
@@ -1224,7 +1267,7 @@ void AddRaidJoinState(DirectCommands &out)
 void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
-	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave);
+	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave, static_cast<uint8_t>(RaidMasters()), static_cast<uint8_t>(GameDifficulty()), FailedGoals());
 	out.Add(Action::SyncHostSlot, LobbyHostSlot());
 	// Before the hit points: raising a tier adds life, and those are the final numbers.
 	for (size_t i = 0; i < NumUpgrades; i++)
@@ -1292,10 +1335,14 @@ bool IsMonsterInPlay(int monsterId)
 	    && !Monsters[monsterId].isInvalid;
 }
 
-void ApplySyncBegin(uint8_t phaseId, uint8_t wave)
+void ApplySyncBegin(uint8_t phaseId, uint8_t wave, uint8_t masters, uint8_t difficulty, uint8_t failedGoals)
 {
 	const Phase phase = static_cast<Phase>(std::min<uint8_t>(phaseId, static_cast<uint8_t>(Phase::Defeat)));
 	State.wave = wave;
+	SetFailedGoals(failedGoals);
+	// Before the heroes in this snapshot are rebuilt: they scale with these.
+	SetRaidMasters(masters);
+	SetGameDifficulty(static_cast<Difficulty>(difficulty));
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
 	for (Lair &lair : State.lairs) {
@@ -1356,7 +1403,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	const int monsterId = static_cast<int>(Swap16LE(message.w)) - 1;
 	switch (message.action) {
 	case Action::SyncBegin:
-		ApplySyncBegin(message.a, message.b);
+		ApplySyncBegin(message.a, message.b, message.x, message.y, static_cast<uint8_t>(Swap16LE(message.w)));
 		break;
 	case Action::SyncHostSlot:
 		LobbySetHostSlot(message.a);
@@ -1722,6 +1769,9 @@ void ResetGame(Point entrance, Point vault)
 	State.wave = static_cast<uint8_t>(std::clamp(TestStartWave, 1, NumWaves()));
 	State.phase = Phase::Setup;
 	State.phaseTicks = SetupTicks;
+	LatchGameDifficulty();
+	SetRaidMasters(CountMasters());
+	SetFailedGoals(0);
 	for (size_t i = 0; i < NumSpellKinds; i++)
 		State.spellLevels[i] = static_cast<uint8_t>(GameSpellLevel(i));
 	for (size_t i = 0; i < NumTrapKinds; i++)
@@ -1833,12 +1883,15 @@ void GameTick()
 	switch (State.phase) {
 	case Phase::Setup:
 	case Phase::Breather:
+		// Only while preparing: the party a raid is scaled for holds until it ends, whoever comes or goes.
+		SetRaidMasters(CountMasters());
 		if (State.phaseTicks == 0)
 			StartRaid();
 		else
 			UpdateReadyVote();
 		break;
 	case Phase::Raid:
+		WatchLordForGoal();
 		if (State.bossDown && State.portalEscape) {
 			SetPhase(Phase::Defeat);
 			break;
@@ -2360,6 +2413,18 @@ void RequestOrder(Point tile, int targetMonster)
 	Send(Action::Order, 0, 0, tile, static_cast<uint16_t>(targetMonster + 1));
 }
 
+int EarlyCallBonusNow()
+{
+	if (State.phase != Phase::Setup && State.phase != Phase::Breather)
+		return 0;
+	return std::min(State.phaseTicks / TicksPerSecond * EarlyCallGoldPerSecond, EarlyCallMaxGold);
+}
+
+int VaultInterestOn(int gold)
+{
+	return std::min(std::max(gold, 0) * VaultInterestPercent / 100, ScaleByHeroStrength(VaultInterestMaxGold));
+}
+
 void AddVaultGold(int amount)
 {
 	State.vaultGold += amount;
@@ -2453,6 +2518,12 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 				}
 			}
 			State.wave = message.wave;
+			// Before the phase: the end of a raid announces these.
+			State.lastTribute = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastTribute)));
+			State.lastInterest = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.lastInterest)));
+			SetFailedGoals(message.failedGoals);
+			SetRaidMasters((message.reserved >> 2) & 7);
+			SetGameDifficulty(static_cast<Difficulty>((message.reserved >> 5) & 3));
 			const bool wasBossDown = State.bossDown;
 			State.bossDown = (message.reserved & 1) != 0;
 			State.portalEscape = (message.reserved & 2) != 0;
@@ -2505,6 +2576,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 		break;
 	case Action::Cast:
 		ApplyCast(player, message.a, tile);
+		break;
+	case Action::EarlyCallPaid:
+		NoteEarlyCallBonus(Swap16LE(message.w));
+		Announce(fmt::format("The gates open early: {} gold for the time you gave up.", Swap16LE(message.w)));
 		break;
 	case Action::RequestStartRaid:
 		if (IsHost())

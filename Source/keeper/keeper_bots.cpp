@@ -19,6 +19,7 @@
 #include "keeper/keeper_botgear.hpp"
 #include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -215,7 +216,7 @@ void ScaleBot(Player &bot, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	bot.setCharacterLevel(static_cast<uint8_t>(std::min(wave * 2 - 1, 30)));
-	const int bonus = ScaleByHeroStrength(BotStatsPerRaid * (wave - 1));
+	const int bonus = ScaleHeroCombat(BotStatsPerRaid * (wave - 1));
 	bot._pBaseStr += bonus;
 	bot._pBaseDex += bonus;
 	// Vitality does not scale: its life is scaled below, and scaling both made bots grow on the square of the level's strength.
@@ -224,7 +225,7 @@ void ScaleBot(Player &bot, bool champion)
 	bot._pMaxHPBase = bot.calculateBaseLife();
 	if (champion)
 		bot._pMaxHPBase = bot._pMaxHPBase * 3 / 2;
-	bot._pMaxHPBase = ScaleByHeroStrength(bot._pMaxHPBase);
+	bot._pMaxHPBase = ScaleHeroCombat(bot._pMaxHPBase);
 	bot._pHPBase = bot._pMaxHPBase;
 	bot._pMaxManaBase = std::max(bot.calculateBaseMana(), 60 << 6);
 	bot._pManaBase = bot._pMaxManaBase;
@@ -239,6 +240,11 @@ void LearnSpell(Player &bot, SpellID spell, uint8_t level)
 {
 	bot._pMemSpells |= GetSpellBitmask(spell);
 	bot._pSplLvl[static_cast<int8_t>(spell)] = std::max(bot._pSplLvl[static_cast<int8_t>(spell)], level);
+}
+
+int BotFireboltLevel()
+{
+	return std::min(1 + State.wave / 2 + BotGearSpellLevels(), 15);
 }
 
 void QueueSpell(Player &bot, SpellID spell)
@@ -506,7 +512,7 @@ void CheckFear(Player &bot, BotState &state)
 		return;
 	state.fearRolled = true;
 	// With no friend near, a hero with no potions left always runs.
-	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= FearChancePercent)
+	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= RaidFearPercent(FearChancePercent))
 		return;
 	NotifyBotFled(SlotOf(bot));
 	BotStartsFleeing(bot, state);
@@ -910,6 +916,11 @@ void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
 	state.thinkCooldown = synced.thinkCooldown;
 }
 
+bool RunsThisRaid(const Player &player)
+{
+	return IsBot(player) && IsActive() && RaidWalkSkippedFrames() > 0;
+}
+
 bool SimulatesLocally(const Player &player)
 {
 	return &player == MyPlayer || IsBot(player);
@@ -922,6 +933,40 @@ std::optional<size_t> FreeBotSlot()
 			PendingSpawn[i] = true;
 			return i;
 		}
+	}
+	return std::nullopt;
+}
+
+std::optional<ScoutedHero> ScoutBot(HeroClassKind cls)
+{
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		Player &bot = Players[FirstBotId + i];
+		if (bot.plractive || PendingSpawn[i])
+			continue;
+		const uint32_t rngState = GetLCGEngineState();
+		CreatePlayer(bot, ToHeroClass(cls));
+		SetRndSeed(rngState);
+		const bool champion = State.wave >= NumWaves();
+		EquipBotGear(bot, cls);
+		ScaleBot(bot, champion);
+		ApplyRaidTypeToBot(bot);
+		ScoutedHero hero;
+		hero.cls = cls;
+		hero.full = true;
+		hero.level = bot.getCharacterLevel();
+		hero.life = bot._pMaxHP >> 6;
+		if (cls == HeroClassKind::Sorcerer) {
+			// Sorcerers fight with Firebolt: this is its damage at the level SpawnBot teaches.
+			hero.minDamage = bot._pMagic / 8 + BotFireboltLevel() + 1;
+			hero.maxDamage = hero.minDamage + 9;
+		} else {
+			hero.minDamage = bot._pIMinDam + bot._pDamageMod;
+			hero.maxDamage = bot._pIMaxDam + bot._pDamageMod;
+		}
+		hero.armor = bot.GetArmor();
+		hero.potions = BotPotionsBase + State.wave / BotRaidsPerPotion;
+		bot = {};
+		return hero;
 	}
 	return std::nullopt;
 }
@@ -953,7 +998,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 	EquipBotGear(bot, cls);
 	ScaleBot(bot, champion);
 	if (cls == HeroClassKind::Sorcerer) {
-		const auto spellLevel = static_cast<uint8_t>(std::min(1 + State.wave / 2 + BotGearSpellLevels(), 15));
+		const auto spellLevel = static_cast<uint8_t>(BotFireboltLevel());
 		LearnSpell(bot, SpellID::Firebolt, spellLevel);
 		LearnSpell(bot, SpellID::Lightning, spellLevel);
 	}
@@ -961,6 +1006,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 
 	InitPlayerGFX(bot);
 	InitPlayer(bot, true);
+	ApplyRaidTypeToBot(bot);
 	SyncInitPlrPos(bot);
 
 	BotState &state = Bots[slot];

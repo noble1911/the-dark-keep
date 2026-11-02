@@ -27,6 +27,7 @@
 #include "engine/render/primitive_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_tutorial.hpp"
@@ -53,6 +54,9 @@ struct RaidStats {
 	int goldRecovered = 0;
 	int bounties = 0;
 	int tribute = 0;
+	/** The part of the tribute that is interest on the vault. */
+	int interest = 0;
+	int earlyCall = 0;
 	int monstersLost = 0;
 	/** What this master earned in the raid (their own: never replaced by the host's). */
 	int xp = 0;
@@ -181,6 +185,7 @@ struct SummaryLine {
 std::vector<SummaryLine> SummaryLines()
 {
 	const RaidStats &s = finished;
+	const int net = s.goldRecovered + s.bounties + s.tribute + s.earlyCall - s.goldLooted;
 	std::vector<SummaryLine> lines {
 		{ "Heroes fled in terror", std::to_string(s.fled), UiFlags::ColorWhite },
 		{ "Gold stolen from the vault", std::to_string(s.goldLooted), s.goldLooted > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
@@ -189,6 +194,20 @@ std::vector<SummaryLine> SummaryLines()
 		{ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold },
 		{ "Your monsters lost", std::to_string(s.monstersLost), s.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 	};
+	if (s.outcome == Phase::Breather)
+		lines.push_back({ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold });
+	if (s.interest > 0)
+		lines.push_back({ "  ...of it vault interest", std::to_string(s.interest), UiFlags::ColorGold });
+	if (s.earlyCall > 0)
+		lines.push_back({ "Early call bonus", std::to_string(s.earlyCall), UiFlags::ColorGold });
+	lines.push_back({ "Keep monsters lost", std::to_string(s.monstersLost), s.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite });
+	lines.push_back({ "Net gold this raid", fmt::format("{:+}", net), net >= 0 ? UiFlags::ColorGold : UiFlags::ColorRed });
+	if (s.outcome == Phase::Victory && GoalsApply()) {
+		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+			const bool earned = (FailedGoals() & (1U << goal)) == 0;
+			lines.push_back({ fmt::format("Goal: {}", GoalInfo(goal).name), earned ? "Medal!" : "Missed", earned ? UiFlags::ColorGold : UiFlags::ColorRed });
+		}
+	}
 	return lines;
 }
 
@@ -380,12 +399,19 @@ void NoteRaidStarted(uint8_t wave)
 	xpAtRaidStart = MapXpEarned();
 }
 
-void NoteRaidEnded(Phase outcome, int tribute)
+void NoteEarlyCallBonus(int amount)
+{
+	if (raidActive)
+		current.earlyCall += amount;
+}
+
+void NoteRaidEnded(Phase outcome, int tribute, int interest)
 {
 	if (!raidActive)
 		return;
 	current.outcome = outcome;
 	current.tribute = tribute;
+	current.interest = interest;
 	if (outcome == Phase::Defeat)
 		ProfileNoteDefeat();
 	else
@@ -417,15 +443,19 @@ void NoteHeroLeft(bool fled, int gold)
 {
 	if (!raidActive)
 		return;
-	if (fled)
+	if (fled) {
 		current.fled++;
-	else
+	} else {
 		current.escaped++;
+		FailGoal(LevelGoal::NoEscapes);
+	}
 	current.goldCarriedOff += gold;
 }
 
 void NoteGoldLooted(int amount)
 {
+	if (amount > 0)
+		FailGoal(LevelGoal::VaultUntouched);
 	if (raidActive)
 		current.goldLooted += amount;
 }

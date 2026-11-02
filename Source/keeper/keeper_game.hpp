@@ -200,6 +200,9 @@ struct KeepState {
 	int readyTicks = 0;
 	/** What the vault goes back to if this raid is lost and retried: its gold at the raid's start, less what the raid's own building cost. */
 	int retryGold = 0;
+	/** What the host paid when the last raid ended: tribute with interest, and the interest alone. */
+	int lastTribute = 0;
+	int lastInterest = 0;
 	std::array<int, 4> mana {};
 	std::array<int, 4> spellCooldown {};
 	/** Levels of every spell and trap type in this game (see GameSpellLevel). 0 = not available. */
@@ -353,6 +356,11 @@ bool IsBurning(Point tile);
 bool IsHazardous(Point tile);
 /** A living hero (monster or bot) stands on `tile`. */
 bool IsHeroAt(Point tile);
+
+/** What the host would pay right now for opening the gates early, from the time left to prepare. */
+int EarlyCallBonusNow();
+/** The interest a vault of this much earns when a raid ends, on top of the tribute. */
+int VaultInterestOn(int gold);
 
 /** Pays the keep (bounties, tribute, dropped loot). */
 void AddVaultGold(int amount);

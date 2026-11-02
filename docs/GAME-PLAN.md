@@ -64,10 +64,19 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 ## Raid flow
 - [x] Retry the lost raid: raid-start gold back, structures stay, that attempt's XP taken back; Restart level (L) stays
 - [x] Game speed 1x, 2x, 3x (N), in co-op on the same turn on every client by way of the host
-- [x] Single player: hold the prep timer (H), and pause (P) to plan with orders still working
+- [x] Single player: hold the prep timer (J), and pause (P) to plan with orders still working
 - [x] Co-op ready vote: all masters, or 30 seconds after the first, or the host pressing again
 - [x] Pings (M), with an arrow when off screen
 - [x] Single-player campaign: autosave between raids, Continue on the Campaign screen
+
+## 6. Planning and variety
+- [x] Route preview while preparing, with what a lock would do (U)
+- [x] Scout card: every hero's numbers against your defence, greed, courage, resistances (O)
+- [x] Easy, Normal and Hard on the Keeper screen; parties scale with the number of masters
+- [x] Raid types by level: thieves, coven, fire-warded, iron column, light raiders
+- [x] Vault interest and an early-call bonus
+- [x] Level goals and medals
+- [ ] Tune all of the above (constants are named; none of it has been played by a person)
 
 ## Known issues
 - [ ] Balance: scaled on paper across the campaign, never playtested

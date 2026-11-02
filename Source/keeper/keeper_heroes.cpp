@@ -25,6 +25,7 @@
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
@@ -311,6 +312,8 @@ struct RouteEntry {
 constexpr size_t RouteCacheSize = 12;
 std::array<RouteEntry, RouteCacheSize> Routes;
 uint32_t routeClock = 0;
+/** Moves on whenever the walls or the locks may have changed. */
+uint32_t routeGeneration = 0;
 
 void InvalidateRoutes()
 {
@@ -341,7 +344,7 @@ Point GoalTile(HeroGoal goal)
 	return Portal.open ? Portal.position : Point { -1, -1 };
 }
 
-void BuildRoute(DistanceField &field, Point target, uint16_t traps)
+void BuildRoute(DistanceField &field, Point target, uint16_t traps, const RouteAssumption &assumption = {})
 {
 #ifdef KEEPER_DEVCTL
 	const DevPerfScope perf(DevPerfCounter::Route);
@@ -351,7 +354,7 @@ void BuildRoute(DistanceField &field, Point target, uint16_t traps)
 		column.fill(1);
 	for (size_t slot = 0; slot < MaxLocks; slot++) {
 		const DoorLock &lock = State.locks[slot];
-		if (!lock.active)
+		if (!lock.active || assumption.ignoreLocks)
 			continue;
 		if (InDungeonBounds(lock.position))
 			tileCost[lock.position.x][lock.position.y] += LockRoutePenalty;
@@ -361,6 +364,8 @@ void BuildRoute(DistanceField &field, Point target, uint16_t traps)
 				tileCost[tile.x][tile.y] += LockRoutePenalty;
 		}
 	}
+	if (assumption.extraLock && InDungeonBounds(*assumption.extraLock))
+		tileCost[assumption.extraLock->x][assumption.extraLock->y] += LockRoutePenalty;
 	for (size_t i = 0; i < MaxTraps; i++) {
 		if ((traps & (1U << i)) == 0)
 			continue;
@@ -431,6 +436,39 @@ const DistanceField &RouteField(HeroGoal goal, uint16_t knownTraps)
 	return slot->field;
 }
 
+} // namespace
+
+std::vector<Point> EstimateHeroRoute(const RouteAssumption &assumption)
+{
+	static DistanceField field;
+	BuildRoute(field, State.vault, 0, assumption);
+	std::vector<Point> route;
+	Point tile = State.entrance;
+	if (FieldAt(field, tile) == Unreachable)
+		return route;
+	route.push_back(tile);
+	// Each step costs at least 1, so this always ends; the cap is only there for a damaged field.
+	for (size_t step = 0; step < MAXDUNX * MAXDUNY && FieldAt(field, tile) != 0; step++) {
+		std::optional<Point> best;
+		uint16_t bestValue = FieldAt(field, tile);
+		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+			const Point next = tile + dir;
+			const uint16_t value = FieldAt(field, next);
+			if (value < bestValue && CanStepDiagonal(tile, Displacement(dir))) {
+				best = next;
+				bestValue = value;
+			}
+		}
+		if (!best)
+			break;
+		tile = *best;
+		route.push_back(tile);
+	}
+	return route;
+}
+
+namespace {
+
 bool IsLockedDoorAt(Point tile)
 {
 	if (IsBarricadeAt(tile))
@@ -479,12 +517,23 @@ bool IsSafeStep(const Monster &monster, Direction dir)
 	return !IsBurning(monster.position.tile + dir) || IsBurning(monster.position.tile);
 }
 
+/** Heroes of a fast raid skip part of each step. Every client does it, and it only depends on the raid. */
+void QuickenStep(Monster &monster)
+{
+	const int skipped = RaidWalkSkippedFrames();
+	if (skipped == 0 || !IsHero(monster)) // keep monsters walk through here too
+		return;
+	const AnimStruct &anim = monster.type().getAnimData(MonsterGraphic::Walk);
+	monster.animInfo.setNewAnimation(anim.spritesForDirection(monster.direction), anim.frames, anim.rate, AnimationDistributionFlags::ProcessAnimationPending, static_cast<int8_t>(skipped));
+}
+
 /** Walk one step in dir, or the nearest turn that is open. */
 bool StepTowards(Monster &monster, Direction dir)
 {
 	for (const Direction tryDir : { dir, Left(dir), Right(dir) }) {
 		if (DirOK(monster, tryDir) && IsSafeStep(monster, tryDir)) {
 			Walk(monster, tryDir);
+			QuickenStep(monster);
 			return true;
 		}
 	}
@@ -531,26 +580,38 @@ bool FollowField(Monster &monster, const DistanceField &field)
 	if (!best)
 		return false;
 	Walk(monster, *best);
+	QuickenStep(monster);
 	return true;
 }
 
-void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
+/** A monster hero of this raid. The scout card shows the same numbers. */
+HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
 	const HeroStatLine &stats = HeroStats[static_cast<size_t>(cls)];
 	int hp = stats.lifeBase + stats.lifePerRaid * wave;
-	monster.minDamage = static_cast<uint8_t>(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10);
-	monster.maxDamage = static_cast<uint8_t>(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10);
-	monster.armorClass = static_cast<uint8_t>(stats.armorBase + stats.armorPerRaid * wave);
 	if (champion)
 		hp = hp * 3 / 2;
-	hp = ScaleByHeroStrength(hp);
-	monster.minDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.minDamage), 255));
-	monster.maxDamage = static_cast<uint8_t>(std::min(ScaleByHeroStrength(monster.maxDamage), 255));
-	monster.armorClass = static_cast<uint8_t>(std::min(ScaleArmorByHeroStrength(monster.armorClass), 255));
-	monster.maxHitPoints = hp << 6;
+	HeroBody body {
+		ScaleHeroCombat(hp),
+		std::min(ScaleHeroCombat(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleHeroCombat(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10), 255),
+		std::min(ScaleHeroArmor(stats.armorBase + stats.armorPerRaid * wave), 255),
+	};
+	ApplyRaidTypeToBody(body);
+	return body;
+}
+
+void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
+{
+	const HeroBody body = MakeHeroBody(cls, champion);
+	monster.minDamage = static_cast<uint8_t>(body.minDamage);
+	monster.maxDamage = static_cast<uint8_t>(body.maxDamage);
+	monster.armorClass = static_cast<uint8_t>(body.armor);
+	monster.maxHitPoints = body.life << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
+	monster.resistance |= CurrentRaidInfo().resistances;
 }
 
 void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
@@ -572,11 +633,15 @@ size_t PlayableHeroClasses()
 
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
-	// How many comes from the level. Classes alternate, so bots and monster heroes both get a mix.
+	// How many comes from the level, and in what mix from the raid's type.
 	std::vector<HeroClassKind> party;
 	const int size = PartySizeForWave(wave);
 	for (int i = 0; i < size; i++)
-		party.push_back(static_cast<HeroClassKind>(i % PlayableHeroClasses()));
+		{
+			const HeroClassKind cls = RaidHeroClass(wave, static_cast<size_t>(i));
+			// Without Hellfire's sprites a Monk's place goes to a Warrior.
+			party.push_back(static_cast<size_t>(cls) < PlayableHeroClasses() ? cls : HeroClassKind::Warrior);
+		}
 	return party;
 }
 
@@ -718,7 +783,7 @@ void CheckFear(const Monster &monster, HeroState &hero)
 	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)
 		return;
 	hero.fearRolled = true;
-	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= FearChancePercent)
+	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= RaidFearPercent(FearChancePercent))
 		return;
 	if (!IsHost()) // the host says when it runs
 		return;
@@ -1386,6 +1451,8 @@ std::string DescribeWave(uint8_t wave)
 	for (const HeroClassKind cls : party)
 		counts[static_cast<size_t>(cls)]++;
 	std::string text = wave >= NumWaves() ? "Champions: " : "Next raid: ";
+	if (const RaidType type = RaidTypeForWave(wave); type != RaidType::Mixed)
+		text += fmt::format("{}, ", RaidTypeInfoOf(type).name);
 	bool first = true;
 	for (size_t i = 0; i < NumHeroClasses; i++) {
 		if (counts[i] == 0)
@@ -1394,6 +1461,46 @@ std::string DescribeWave(uint8_t wave)
 		first = false;
 	}
 	return text;
+}
+
+std::vector<ScoutedHero> ScoutParty()
+{
+	std::vector<ScoutedHero> scouted;
+	const bool champion = State.wave >= NumWaves();
+	size_t fullHeroes = 0;
+	for (const HeroClassKind cls : PartyForWave(State.wave)) {
+		if (fullHeroes < MaxBots) {
+			if (std::optional<ScoutedHero> hero = ScoutBot(cls); hero) {
+				scouted.push_back(*hero);
+				fullHeroes++;
+				continue;
+			}
+		}
+		const HeroBody body = MakeHeroBody(cls, champion);
+		scouted.push_back({ cls, false, MonstersData[HeroMonsterIds[static_cast<size_t>(cls)]].level, body.life, body.minDamage, body.maxDamage, body.armor, 0 });
+	}
+	return scouted;
+}
+
+int BaitSightOf(HeroClassKind cls)
+{
+	switch (cls) {
+	case HeroClassKind::Warrior:
+		return WarriorBaitSight;
+	case HeroClassKind::Rogue:
+		return RogueBaitSight;
+	case HeroClassKind::Sorcerer:
+		break;
+	}
+	return SorcererBaitSight;
+}
+
+std::optional<ClxSprite> HeroPortrait(HeroClassKind cls)
+{
+	const std::optional<OwnedClxSpriteListOrSheet> &stand = HeroSprites[static_cast<size_t>(cls)][0];
+	if (!stand)
+		return std::nullopt;
+	return (*stand).sheet()[static_cast<size_t>(Direction::South)][0];
 }
 
 /** One step back towards the monster's post: a real path when it is far (rally points can be across the keep). */
@@ -1631,8 +1738,14 @@ void ResetHeroes()
 	RebuildPaths();
 }
 
+uint32_t RouteGeneration()
+{
+	return routeGeneration;
+}
+
 void RebuildPaths()
 {
+	routeGeneration++;
 	BuildField(ToVault, State.vault);
 	BuildField(ToEntrance, State.entrance);
 	InvalidateRoutes();
@@ -2042,21 +2155,7 @@ int BashBlows(HeroClassKind cls)
 
 std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t baitsVisited)
 {
-	int sight = 0;
-	switch (cls) {
-	case HeroClassKind::Warrior:
-		sight = WarriorBaitSight;
-		break;
-	case HeroClassKind::Rogue:
-		sight = RogueBaitSight;
-		break;
-	case HeroClassKind::Sorcerer:
-		sight = SorcererBaitSight;
-		break;
-	case HeroClassKind::Monk:
-		sight = MonkBaitSight;
-		break;
-	}
+	const int sight = RaidBaitSight(BaitSightOf(cls));
 	if (sight <= 0)
 		return std::nullopt;
 	std::optional<size_t> best;

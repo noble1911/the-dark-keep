@@ -46,6 +46,7 @@
 #include "keeper/keeper_menu.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_scout.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "keeper/keeper_summary.hpp"
@@ -70,6 +71,8 @@ namespace devilution::keeper {
 bool AutoStart = false;
 int TestLordHitPoints = 0;
 int TestStartWave = 0;
+int TestDifficulty = -1;
+int TestRaidType = -1;
 int TestCampaignLevel = 0;
 std::string TestCustomMap;
 int TestRank = 0;
@@ -1397,6 +1400,54 @@ void DrawHeroArrows(const Surface &out)
 	}
 }
 
+/**
+ * A route along the floor: black edged so it reads on any tileset, with dots marching towards the vault.
+ * `dashed` routes are the what-ifs, so they don't get mistaken for the expected one.
+ */
+void DrawRouteLine(const Surface &out, const std::vector<Point> &route, uint8_t color, bool dashed)
+{
+	if (overlayPass != OverlayPass::Floor)
+		return;
+	const size_t march = SDL_GetTicks() / RouteMarchMilliseconds % RouteMarchSpacing;
+	for (size_t i = 0; i + 1 < route.size(); i++) {
+		if (dashed && i % 2 != 0)
+			continue;
+		const Point from = TileCenter(route[i]);
+		const Point to = TileCenter(route[i + 1]);
+		// Offsets on both axes: routes run in every direction on the screen.
+		for (const Displacement edge : { Displacement { -2, 0 }, Displacement { 2, 0 }, Displacement { 0, -2 }, Displacement { 0, 2 } })
+			DrawLine(out, from + edge, to + edge, 0, out.h());
+		const bool marching = !dashed && (i + RouteMarchSpacing - march) % RouteMarchSpacing == 0;
+		for (const Displacement body : { Displacement { -1, 0 }, Displacement { 1, 0 }, Displacement { 0, -1 }, Displacement { 0, 1 }, Displacement { 0, 0 } })
+			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, out.h());
+	}
+}
+
+/** The prep-time estimate of where the party will walk, and what locking the door under the lock tool would do. */
+void DrawRoutePreview(const Surface &out)
+{
+	if (!IsRoutePreviewVisible())
+		return;
+	std::optional<Point> hoverDoor;
+	if (currentTool.type == ToolType::LockDoor && !IsMouseOverUi() && CanLockDoorAt(cursPosition)) {
+		if (const Object *door = FindDoorAt(cursPosition); door != nullptr)
+			hoverDoor = door->position;
+	}
+	const RoutePreview &preview = GetRoutePreview(hoverDoor);
+	if (preview.route.empty())
+		return;
+	DrawRouteLine(out, preview.withoutLocks, PAL16_BLUE + 4, true);
+	DrawRouteLine(out, preview.withHoverLock, PAL16_RED + 2, true);
+	DrawRouteLine(out, preview.route, PAL16_YELLOW + 2, false);
+	DrawWorldLabel(out, preview.route[preview.route.size() / 2], fmt::format("Route estimate: {} steps", preview.route.size() - 1), UiFlags::ColorGold);
+	if (!preview.withoutLocks.empty())
+		DrawWorldLabel(out, preview.withoutLocks[preview.withoutLocks.size() / 2], "Their way with no locks", UiFlags::ColorBlue);
+	for (const Point door : preview.bashedLocks)
+		DrawWorldLabel(out, door, "They'd bash this", UiFlags::ColorRed, 16);
+	if (hoverDoor)
+		DrawWorldLabel(out, *hoverDoor, preview.hoverVerdict, preview.hoverTurnsThem ? UiFlags::ColorGold : UiFlags::ColorWhite, 16);
+}
+
 void DrawOverlays(const Surface &out)
 {
 	const uint32_t pingNow = SDL_GetTicks();
@@ -1448,6 +1499,7 @@ void DrawOverlays(const Surface &out)
 	}
 
 	DrawSelectionOverlay(out);
+	DrawRoutePreview(out);
 	DrawHeroArrows(out);
 
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
@@ -1702,7 +1754,8 @@ bool IsMouseOverUi()
 		return true;
 	const std::optional<Rectangle> roster = RaidRosterRect(ui);
 	const std::optional<Rectangle> summary = RaidSummaryRect(ui, HudRect().position.y);
-	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
+	const std::optional<Rectangle> scoutCard = ScoutCardRect(ui, HudRect().position.y);
+	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse())) || (scoutCard && Contains(*scoutCard, UiMouse()));
 }
 
 /** Single player opens the gates. In co-op this says where the vote stands and what a press would do. */
@@ -2062,6 +2115,12 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::Help:
 		ToggleHelp();
 		return;
+	case KeeperAction::RoutePreview:
+		ToggleRoutePreview();
+		return;
+	case KeeperAction::ScoutCard:
+		ToggleScoutCard();
+		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
 	case KeeperAction::CameraRight:
@@ -2255,6 +2314,8 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			DismissRaidSummary();
 			return true;
 		}
+		if (OnScoutCardClick(ui, HudRect().position.y, UiMouse()))
+			return true;
 		if (const std::optional<Point> heroTile = OnRaidRosterClick(ui, UiMouse()); heroTile) {
 			CenterCameraOn(*heroTile);
 			return true;
@@ -2517,6 +2578,7 @@ void DrawUi(const Surface &out)
 		DrawString(out, "?", { help.position, { help.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
+	DrawScoutCard(out, top, UiMouse()); // under the spell bar, which has to stay usable on a small screen
 	DrawCardBar(out);
 	DrawSpellBar(out);
 	DrawInfoPanel(out);
@@ -2550,6 +2612,8 @@ void DrawUi(const Surface &out)
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();
 	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {}", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	if (State.phase != Phase::Raid && !IsGameOver() && !IsScoutCardOn())
+		scout += fmt::format("  -  {}: scout card", KeyLabel(KeeperAction::ScoutCard));
 	UiFlags scoutColor = UiFlags::ColorGold;
 	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
 		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;

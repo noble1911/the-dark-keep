@@ -48,7 +48,7 @@ struct ActionInfo {
 };
 
 /** One-key actions. Card slots and spells are added in loops, as they have an index. */
-const std::array<ActionInfo, 18> SimpleActions { {
+const std::array<ActionInfo, 20> SimpleActions { {
 	{ KeeperAction::LockDoor, "KeeperLockDoor", N_("Keep: lock a door"), N_("Picks the door lock."), 'G' },
 	{ KeeperAction::Bait, "KeeperBait", N_("Keep: bait"), N_("Picks the pile of fool's gold."), 'T' },
 	{ KeeperAction::NextTab, "KeeperNextTab", N_("Keep: next tab"), N_("Switches between the tabs of the card bar."), static_cast<uint32_t>(SDLK_TAB) },
@@ -67,6 +67,8 @@ const std::array<ActionInfo, 18> SimpleActions { {
 	{ KeeperAction::Ping, "KeeperPing", N_("Keep: mark the map"), N_("Shows every master the spot under the cursor, with a sound."), 'M' },
 	{ KeeperAction::HoldTimer, "KeeperHoldTimer", N_("Keep: hold the timer"), N_("Single player: stops the clock on preparation, so the raid waits for you."), 'J' },
 	{ KeeperAction::Help, "KeeperHelp", N_("Keep: help"), N_("Shows the controls and how to play."), 'H' },
+	{ KeeperAction::RoutePreview, "KeeperRoutePreview", N_("Keep: route preview"), N_("Shows or hides the heroes' expected route while you prepare."), 'U' },
+	{ KeeperAction::ScoutCard, "KeeperScoutCard", N_("Keep: scout card"), N_("Shows or hides the card about the next raid."), 'O' },
 } };
 
 /** Spell bar hotkeys, by slot. */

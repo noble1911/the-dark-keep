@@ -61,6 +61,11 @@ bool RaiseTrap(size_t trap);
 /** Gives back every point of Renown; starting items stay. Free. */
 void RespecProfile();
 
+/** The difficulty this player's games start at (the host's counts in co-op). */
+Difficulty ProfileDifficulty();
+/** Moves on to the next difficulty and saves. */
+void CycleProfileDifficulty();
+
 /** The spell bar, by slot: a spell, or -1. */
 const std::array<int8_t, NumSpellSlots> &ProfileSpellBar();
 /** Puts the spell on the bar or takes it off. @return false if the bar is full. */
@@ -101,6 +106,10 @@ void ProfileNoteVictory(int campaignLevel, bool firstClear);
 void ProfileNoteDefeat();
 /** A saved keep came back: what it had earned so far (the XP itself never left the profile). */
 void ProfileSetMapXp(int xp);
+/** Medals won on a campaign level are bits of LevelGoal. Each pays its XP the first time only, then saves. */
+void ProfileAwardMedals(int campaignLevel, uint8_t medals);
+uint8_t ProfileMedals(int campaignLevel);
+int ProfileMedalCount();
 /** XP earned on the current map. */
 int MapXpEarned();
 /** Writes the file, unless a test flag or an editor test run is in play. */

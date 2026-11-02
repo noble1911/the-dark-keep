@@ -41,6 +41,8 @@ constexpr int ClearXpPerLevel = 25;
 /** Replays still pay, but less, in percent. First clears of a campaign level pay in full. */
 constexpr int ReplayFightPercent = 50;
 constexpr int ReplayClearPercent = 25;
+/** Each medal, the first time it's won on a level. Difficulty's XP share applies. */
+constexpr int MedalXp = 40;
 /** A profile made from older progress: how many times a level's clear bonus each cleared level is worth. */
 constexpr int MigratedClearMultiple = 3;
 
@@ -65,6 +67,8 @@ struct Profile {
 	std::array<uint8_t, NumTrapKinds> traps {};
 	std::array<int8_t, NumSpellSlots> spellBar {};
 	unsigned tipsSeen = 0;
+	Difficulty difficulty = Difficulty::Normal;
+	std::array<uint8_t, NumCampaignLevels> medals {};
 };
 
 Profile profile;
@@ -174,6 +178,12 @@ ReadResult ReadProfile(const std::string &path, Profile &p)
 			// Two halves: fscanf's %d stops short of a full 32 bits.
 			p.tipsSeen = static_cast<unsigned>(a & 0xFFFF) | (static_cast<unsigned>(b & 0xFFFF) << 16);
 			hasTips = true;
+		} else if (name == "medal") {
+			if (a >= 1 && a <= NumCampaignLevels)
+				p.medals[static_cast<size_t>(a) - 1] = static_cast<uint8_t>(b);
+		} else if (name == "difficulty") {
+			if (a >= 0 && static_cast<size_t>(a) < NumDifficulties)
+				p.difficulty = static_cast<Difficulty>(a);
 		}
 	}
 	std::fclose(file);
@@ -421,6 +431,19 @@ void RespecProfile()
 	SaveProfile();
 }
 
+Difficulty ProfileDifficulty()
+{
+	Load();
+	return profile.difficulty;
+}
+
+void CycleProfileDifficulty()
+{
+	Load();
+	profile.difficulty = static_cast<Difficulty>((static_cast<size_t>(profile.difficulty) + 1) % NumDifficulties);
+	SaveProfile();
+}
+
 const std::array<int8_t, NumSpellSlots> &ProfileSpellBar()
 {
 	Load();
@@ -572,7 +595,7 @@ void ProfileNoteHeroSlain(int wave)
 		return;
 	Load();
 	profile.stats.heroesSlain++;
-	const int xp = HeroSlainXpBase + HeroSlainXpPerWave * wave;
+	const int xp = (HeroSlainXpBase + HeroSlainXpPerWave * wave) * DifficultyXpPercent() / 100 * PartyXpPercent() / 100;
 	AddXp(mapIsReplay ? xp * ReplayFightPercent / 100 : xp);
 }
 
@@ -590,7 +613,7 @@ void ProfileNoteRaidSurvived(int wave)
 		return;
 	Load();
 	profile.stats.raidsSurvived++;
-	const int xp = RaidXpBase + RaidXpPerWave * wave;
+	const int xp = (RaidXpBase + RaidXpPerWave * wave) * DifficultyXpPercent() / 100;
 	AddXp(mapIsReplay ? xp * ReplayFightPercent / 100 : xp);
 	SaveProfile();
 }
@@ -601,7 +624,7 @@ void ProfileNoteVictory(int campaignLevel, bool firstClear)
 		return;
 	Load();
 	profile.stats.mapsCleared++;
-	const int xp = ClearXpBase + ClearXpPerLevel * campaignLevel;
+	const int xp = (ClearXpBase + ClearXpPerLevel * campaignLevel) * DifficultyXpPercent() / 100;
 	AddXp(firstClear ? xp : xp * ReplayClearPercent / 100);
 	SaveProfile();
 }
@@ -618,6 +641,40 @@ void ProfileNoteDefeat()
 void ProfileSetMapXp(int xp)
 {
 	mapXp = xp;
+}
+
+void ProfileAwardMedals(int campaignLevel, uint8_t medals)
+{
+	if (!EarnsXp() || campaignLevel < 1 || campaignLevel > NumCampaignLevels)
+		return;
+	Load();
+	uint8_t &held = profile.medals[static_cast<size_t>(campaignLevel) - 1];
+	const auto fresh = static_cast<uint8_t>(medals & ~held);
+	if (fresh == 0)
+		return;
+	held |= fresh;
+	int count = 0;
+	for (uint8_t bits = fresh; bits != 0; bits >>= 1)
+		count += bits & 1;
+	AddXp(count * MedalXp * DifficultyXpPercent() / 100);
+	SaveProfile();
+}
+
+uint8_t ProfileMedals(int campaignLevel)
+{
+	Load();
+	return campaignLevel >= 1 && campaignLevel <= NumCampaignLevels ? profile.medals[static_cast<size_t>(campaignLevel) - 1] : 0;
+}
+
+int ProfileMedalCount()
+{
+	Load();
+	int count = 0;
+	for (uint8_t bits : profile.medals) {
+		for (; bits != 0; bits >>= 1)
+			count += bits & 1;
+	}
+	return count;
 }
 
 int MapXpEarned()
@@ -657,6 +714,11 @@ void SaveProfile()
 			text += fmt::format("bar {} 1\n", slot);
 	}
 	text += fmt::format("tips {} {}\n", profile.tipsSeen & 0xFFFF, profile.tipsSeen >> 16);
+	text += fmt::format("difficulty {} 0\n", static_cast<int>(profile.difficulty));
+	for (size_t level = 0; level < profile.medals.size(); level++) {
+		if (profile.medals[level] != 0)
+			text += fmt::format("medal {} {}\n", level + 1, profile.medals[level]);
+	}
 	const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
 	const bool closed = std::fclose(file) == 0;
 	if (!written || !closed) {

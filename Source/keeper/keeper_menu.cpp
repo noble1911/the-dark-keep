@@ -32,6 +32,7 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_resume.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -173,7 +174,12 @@ void DescribeCampaignLevel(int level)
 	}
 	SetLabel(fmt::format("Level {}", level));
 	const std::string status = level > NextOpenLevel() ? fmt::format("Locked: clear level {} first", level - 1) : (level <= LevelsCleared() ? "Cleared *" : "Not yet cleared");
-	SetDescription(fmt::format("{}\n\nRaids to survive: {}\nStarting gold: {}\nHero strength: {}%\n{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, status));
+	std::string medals;
+	for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+		if ((ProfileMedals(level) & (1U << goal)) != 0)
+			medals += fmt::format("\n* {}", GoalInfo(goal).name);
+	}
+	SetDescription(fmt::format("{}\n\nRaids to survive: {}\nStarting gold: {}\nHero strength: {}%\nDifficulty: {}\n{}{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, DifficultyName(ProfileDifficulty()), status, medals));
 }
 
 /** The files on the Custom Map screen. */
