@@ -1697,6 +1697,11 @@ void Tick()
 		LeashMonsters();
 }
 
+void DevCenterCamera(Point tile)
+{
+	CenterCameraOn(tile);
+}
+
 void UpdateCamera()
 {
 	if (!IsActive())

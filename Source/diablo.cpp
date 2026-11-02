@@ -63,6 +63,7 @@
 #include "inv.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_input.hpp" // [DARK KEEP]
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_campaign.hpp" // [DARK KEEP]
 #include "keeper/keeper_editor.hpp" // [DARK KEEP]
 #include "keeper/keeper_map.hpp" // [DARK KEEP]
@@ -1173,6 +1174,9 @@ void DiabloParseFlags(int argc, char **argv)
 			keeper::KeepSetup setup = keeper::CurrentSetup();
 			setup.mode = keeper::GameMode::MapEditor;
 			keeper::SetCurrentSetup(setup);
+		} else if (arg == "--keeper-devctl") { // [DARK KEEP] dev/test: drive the game from a command file
+			if (i + 1 < argc)
+				keeper::DevctlInit(argv[++i]);
 		} else if (arg == "--keeper-start-wave") { // [DARK KEEP] dev/test: begin at a later raid
 			if (i + 1 < argc)
 				keeper::TestStartWave = std::atoi(argv[++i]);

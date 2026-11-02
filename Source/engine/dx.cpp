@@ -5,6 +5,8 @@
  */
 #include "engine/dx.h"
 
+#include "keeper/keeper_devctl.hpp" // [DARK KEEP]
+
 #include <cstdint>
 
 #ifdef USE_SDL3
@@ -234,6 +236,8 @@ void Blit(SDL_Surface *src, SDL_Rect *srcRect, SDL_Rect *dstRect)
 
 void RenderPresent()
 {
+	keeper::DevctlFrame(); // [DARK KEEP]
+
 	if (HeadlessMode)
 		return;
 

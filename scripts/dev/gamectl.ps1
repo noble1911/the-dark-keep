@@ -26,7 +26,11 @@ public class W {
 "@
 [void][W]::SetProcessDPIAware()
 $idx = 0; if ($env:GAMEIDX) { $idx = [int]$env:GAMEIDX }
-$p = @(Get-Process devilutionx -ErrorAction Stop | Sort-Object StartTime)[$idx]
+. "$PSScriptRoot\common.ps1"
+# Only games started from this checkout: never send input to anyone else's window.
+$own = Get-OwnGames
+if ($idx -ge $own.Count) { throw "No game $idx started from this checkout" }
+$p = Get-Process -Id $own[$idx].ProcessId
 $h = $p.MainWindowHandle
 $r = New-Object W+RECT; [void][W]::GetClientRect($h, [ref]$r)
 $o = New-Object W+POINT; [void][W]::ClientToScreen($h, [ref]$o)
