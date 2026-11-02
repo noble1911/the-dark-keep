@@ -777,7 +777,7 @@ void SendKeepSnapshot(size_t playerId)
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned id = ActiveMonsters[i];
 		const Monster &monster = Monsters[id];
-		if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell || monster.type().type == MT_GOLEM)
+		if (monster.isInvalid || monster.hitPoints <= 0 || monster.mode == MonsterMode::Death || monster.position.tile == GolemHoldingCell)
 			continue;
 		const auto w = static_cast<uint16_t>(id + 1);
 		out.Add(Action::SyncMonsterPosition, 0, 0, monster.position.tile, w);
@@ -874,7 +874,8 @@ void ApplySyncEnd()
 	for (size_t i = 0; i < ActiveMonsterCount; i++) {
 		const unsigned id = ActiveMonsters[i];
 		Monster &monster = Monsters[id];
-		if (snapshotMonsters.test(id) || monster.isInvalid || monster.type().type == MT_GOLEM)
+		// A golem that crumbled at the end of a raid is still in the delta too. An unused golem slot stays as it is.
+		if (snapshotMonsters.test(id) || monster.isInvalid || monster.position.tile == GolemHoldingCell)
 			continue;
 		M_ClearSquares(monster);
 		monster.hitPoints = 0;

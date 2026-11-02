@@ -482,7 +482,7 @@ void WriteHostUnlocks(GameData &gameData)
 	}
 	for (size_t spell = 0; spell < sizeof(gameData.keeperSpells); spell++)
 		gameData.keeperSpells[spell] = static_cast<uint8_t>(GameSpellLevel(spell));
-	gameData.keeperLastSpell = static_cast<uint8_t>(GameSpellLevel(NumSpellKinds - 1));
+	gameData.keeperLastSpell = static_cast<uint8_t>(GameSpellLevel(GolemSpellKind));
 	for (size_t trap = 0; trap < NumTrapKinds; trap++)
 		gameData.keeperTraps[trap] = static_cast<uint8_t>(GameTrapLevel(trap));
 }
@@ -497,7 +497,7 @@ void ReadHostUnlocks(const GameData &gameData)
 	}
 	for (size_t spell = 0; spell < sizeof(gameData.keeperSpells); spell++)
 		hostSpells[spell] = std::min<uint8_t>(gameData.keeperSpells[spell], MaxKeepLevel);
-	hostSpells[NumSpellKinds - 1] = std::min<uint8_t>(gameData.keeperLastSpell, MaxKeepLevel);
+	hostSpells[GolemSpellKind] = std::min<uint8_t>(gameData.keeperLastSpell, MaxKeepLevel);
 	for (size_t trap = 0; trap < NumTrapKinds; trap++)
 		hostTraps[trap] = std::min<uint8_t>(gameData.keeperTraps[trap], MaxKeepLevel);
 }

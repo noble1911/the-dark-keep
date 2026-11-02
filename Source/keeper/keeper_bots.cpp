@@ -45,17 +45,10 @@ constexpr int FearChancePercent = 50;
 constexpr int FallBackMaxThinks = 12;
 /** Near a known trap, walk the route tile by tile: the engine's path to a far waypoint would cut through it. */
 constexpr int CarefulTrapRange = 9;
-/** Ticks between a shooter's steps back from a monster at its elbow, so it shoots more than it walks. */
-constexpr int KiteCooldownTicks = 40;
-/** Ticks between a Monk's prayers. */
-constexpr int MonkHealCooldownTicks = 100;
 /** The most of a blow a bot's shield can ever turn: dexterity and level took a Warrior to 100%, immune to melee. */
 constexpr int MaxBotBlockPercent = 75;
 /** A Warrior prefers a monster on a softer friend over a nearer one on itself, by this many tiles. */
 constexpr int WarriorProtectBonus = 3;
-/** Ticks without getting closer to its goal before a bot shoves past a hero coming the other way, then past anyone. */
-constexpr int StuckTicksBeforeSqueeze = 30;
-constexpr int StuckTicksBeforeShove = 100;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -83,10 +76,11 @@ struct BotState {
 	int healCooldown = 0;
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
-	/** How close it has come to its goal, and the ticks since it last came closer. */
-	HeroGoal progressGoal = HeroGoal::Vault;
-	uint16_t bestDistance = 0xFFFF;
-	int stuckTicks = 0;
+	HeroProgress progress;
+	/** Reached the vault and came for the Lord: it goes where he is, not back to the vault. */
+	bool huntingLord = false;
+	/** HeroClock time until which it keeps clear of every floor hazard. */
+	uint32_t hazardWaryUntil = 0;
 };
 
 constexpr uint8_t SaidDash = 1;
@@ -265,12 +259,16 @@ Direction WalkDirection(int8_t step)
 	}
 }
 
-/** Heroes aren't stupid: stop before walking into a wall of fire (unless already in one). */
-void AvoidFire(Player &bot)
+/**
+ * Heroes aren't stupid: stop before walking into a wall of fire (unless already in one). Lightning takes them
+ * by surprise, once: having just been caught in a hazard, a bot keeps clear of them all and doesn't pace back in.
+ */
+void AvoidFire(Player &bot, const BotState &state)
 {
-	if (bot.walkpath[0] == WALK_NONE || IsBurning(bot.position.future))
+	const auto avoided = state.hazardWaryUntil > HeroClock() ? IsHazardous : IsBurning;
+	if (bot.walkpath[0] == WALK_NONE || avoided(bot.position.future))
 		return;
-	if (IsBurning(bot.position.future + WalkDirection(bot.walkpath[0]))) {
+	if (avoided(bot.position.future + WalkDirection(bot.walkpath[0]))) {
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_NONE;
 	}
@@ -283,13 +281,16 @@ bool StepOutOfHazard(Player &bot, BotState &state)
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const Point tile = bot.position.tile + dir;
-		if (!IsHazardous(tile) && PosOkPlayer(bot, tile)) {
-			ClrPlrPath(bot);
-			MakePlrPath(bot, tile, true); // true: all the way onto it, and without it a next-door tile is no steps at all
-			bot.destAction = ACTION_NONE;
-			SayOnce(bot, state, SaidHazard, "It burns! Get clear!");
-			return true;
-		}
+		if (IsHazardous(tile) || !CanStepDiagonal(bot.position.tile, Displacement(dir)) || !PosOkPlayer(bot, tile))
+			continue;
+		ClrPlrPath(bot);
+		MakePlrPath(bot, tile, true); // true: all the way onto it, and without it a next-door tile is no steps at all
+		if (bot.walkpath[0] == WALK_NONE)
+			continue;
+		bot.destAction = ACTION_NONE;
+		state.hazardWaryUntil = HeroClock() + HazardWaryTicks;
+		SayOnce(bot, state, SaidHazard, "It burns! Get clear!");
+		return true;
 	}
 	return false;
 }
@@ -343,7 +344,7 @@ bool StepBack(Player &bot, BotState &state, const Monster &threat)
 	const Direction away = GetDirection(threat.position.tile, position);
 	for (const Direction dir : { away, Left(away), Right(away) }) {
 		const Point tile = position + dir;
-		if (tile.WalkingDistance(threat.position.tile) < 2 || IsBurning(tile) || !CanStepDiagonal(position, Displacement(dir)) || !PosOkPlayer(bot, tile))
+		if (tile.WalkingDistance(threat.position.tile) < 2 || IsHazardous(tile) || !CanStepDiagonal(position, Displacement(dir)) || !PosOkPlayer(bot, tile))
 			continue;
 		ClrPlrPath(bot);
 		MakePlrPath(bot, tile, true);
@@ -368,9 +369,9 @@ std::optional<SpellID> SpellAgainst(const Monster &target)
 	return std::nullopt;
 }
 
-void Attack(Player &bot, BotState &state, Monster &target)
+void Attack(Player &bot, BotState &state, const Monster &target)
 {
-	state.stuckTicks = 0;
+	HoldHeroProgress(state.progress);
 	const size_t monsterId = target.getId();
 	const int distance = bot.position.tile.WalkingDistance(target.position.tile);
 	const bool clearShot = HasLineOfSight(bot.position.tile, target.position.tile);
@@ -590,27 +591,6 @@ bool TryFallBack(Player &bot, BotState &state)
 	return true;
 }
 
-/**
- * Heading for a goal: if the bot hasn't come any closer for a while, its way is shut by another hero. A path
- * round may exist on paper and still not move it, so this goes by progress, not by whether a path was found.
- */
-bool TrySqueezePast(Player &bot, BotState &state, HeroGoal goal, bool headsOut)
-{
-	const uint16_t distance = GoalDistance(goal, bot.position.tile);
-	if (goal != state.progressGoal) {
-		state.progressGoal = goal;
-		state.bestDistance = distance;
-		state.stuckTicks = 0;
-	} else if (distance < state.bestDistance) {
-		state.bestDistance = distance;
-		state.stuckTicks = 0;
-	}
-	if (state.stuckTicks < StuckTicksBeforeSqueeze || !BotSqueezePast(bot, goal, state.trapsKnown, headsOut, state.stuckTicks >= StuckTicksBeforeShove))
-		return false;
-	state.stuckTicks = 0;
-	return true;
-}
-
 /** On the run with the way shut by a monster: fight it rather than stand there. */
 bool FightIfBlocked(Player &bot, BotState &state)
 {
@@ -673,9 +653,17 @@ void Think(Player &bot, BotState &state)
 	}
 
 	if (state.carried != 0 || state.fleeing) {
-		if (!TrySqueezePast(bot, state, HeroGoal::Entrance, true) && !Travel(bot, state, HeroGoal::Entrance))
+		if (!BotSqueezeIfStuck(bot, state.progress, HeroGoal::Entrance, state.trapsKnown, true) && !Travel(bot, state, HeroGoal::Entrance))
 			FightIfBlocked(bot, state);
 		return;
+	}
+
+	if (state.huntingLord) {
+		if (const Monster *lord = FindBoss(); lord != nullptr) {
+			Attack(bot, state, *lord);
+			return;
+		}
+		state.huntingLord = false; // he hasn't risen yet: back to the vault
 	}
 
 	if (TryGoForBait(bot, state))
@@ -692,18 +680,20 @@ void Think(Player &bot, BotState &state)
 				state.carried = -1;
 			}
 		} else if (const Monster *lord = FindBoss(); lord != nullptr) {
-			Attack(bot, state, *const_cast<Monster *>(lord));
+			state.huntingLord = true;
+			Attack(bot, state, *lord);
 		}
 		return;
 	}
 	if (!thieving && state.regroupBudget > 0 && IsAheadOfParty(position)) {
 		// Called every tick while the bot stands idle.
 		state.regroupBudget--;
+		HoldHeroProgress(state.progress);
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_NONE;
 		return;
 	}
-	if (!TrySqueezePast(bot, state, HeroGoal::Vault, false) && !Travel(bot, state, HeroGoal::Vault))
+	if (!BotSqueezeIfStuck(bot, state.progress, HeroGoal::Vault, state.trapsKnown, false) && !Travel(bot, state, HeroGoal::Vault))
 		FightIfBlocked(bot, state);
 }
 
@@ -866,7 +856,7 @@ void UpdateBots()
 {
 	if (Players.size() < FirstBotId + MaxBots)
 		return;
-	TickHeroSpeech();
+	TickHeroClock();
 	for (size_t i = 0; i < MaxBots; i++) {
 		Player &bot = Players[FirstBotId + i];
 		if (!bot.plractive || !bot.isOnActiveLevel())
@@ -882,14 +872,13 @@ void UpdateBots()
 			bot.destAction = ACTION_NONE;
 			continue;
 		}
-		AvoidFire(bot);
+		AvoidFire(bot, state);
 
 		OpenDoorsAround(bot.position.tile);
 		RogueCheckTraps(bot, state);
 		DrinkIfHurt(bot, state);
 		CheckFear(bot, state);
 
-		state.stuckTicks++;
 		if (state.kiteCooldown > 0)
 			state.kiteCooldown--;
 		if (state.healCooldown > 0)
@@ -912,7 +901,7 @@ void UpdateBots()
 		}
 		state.thinkCooldown = ThinkInterval;
 		Think(bot, state);
-		AvoidFire(bot);
+		AvoidFire(bot, state);
 	}
 }
 

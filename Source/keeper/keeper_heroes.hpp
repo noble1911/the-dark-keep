@@ -124,8 +124,15 @@ void DismissGolems();
 
 /** A Monk's prayer: mends the most hurt hero within reach. @return false if nobody needs it. */
 bool HealWoundedAlly(Point from);
-/** Called every tick of a raid: heroes speak in turn, not all at once. */
-void TickHeroSpeech();
+/** Every client, every tick of a raid: the clock that hero cooldowns run on. */
+void TickHeroClock();
+uint32_t HeroClock();
+/** Ticks between a shooter's steps back from a monster at its elbow, so it shoots more than it walks. */
+constexpr int KiteCooldownTicks = 40;
+/** Ticks between a Monk's prayers. */
+constexpr int MonkHealCooldownTicks = 100;
+/** Ticks a hero who has just been caught in a floor hazard keeps clear of all of them, not only the fire it can see coming. */
+constexpr int HazardWaryTicks = 100;
 /** One short line in the event log, if nobody spoke a moment ago. @return true if it was said. */
 bool HeroSay(std::string_view who, std::string_view line);
 /** A Rogue close to the vault stops fighting and goes for the gold. */
@@ -203,8 +210,17 @@ std::optional<Point> GoalWaypoint(HeroGoal goal, Point from, int steps, uint16_t
 void OpenDoorsAround(Point tile);
 /** A locked, closed door next to `from` that is this hero's cheapest way on: time to bash it. */
 std::optional<Point> LockedDoorOnPath(HeroGoal goal, Point from, uint16_t knownTraps);
-/** A bot whose way is shut by a hero going the other way changes places with it. @return true if it did. */
-bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut, bool anyone);
+/** How close a hero has come to its goal along its own route, and since when. */
+struct HeroProgress {
+	HeroGoal goal = HeroGoal::Vault;
+	uint16_t traps = 0;
+	uint16_t best = Unreachable;
+	uint32_t since = 0;
+};
+/** Waiting or fighting isn't being stuck. */
+void HoldHeroProgress(HeroProgress &progress);
+/** A bot that has stopped getting closer changes places with the hero in its way. @return true if it did. */
+bool BotSqueezeIfStuck(Player &bot, HeroProgress &progress, HeroGoal goal, uint16_t knownTraps, bool headsOut);
 void StrikeLockedDoor(Point doorTile, int blows, std::string_view who);
 /** Damage one swing does to a locked door. */
 int BashBlows(HeroClassKind cls);

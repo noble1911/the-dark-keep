@@ -499,7 +499,7 @@ void CheckMissileCol(Missile &missile, DamageType damageType, int minDamage, int
 				// [DARK KEEP] the keep's traps pass by the keep's monsters
 			} else if (missile.IsTrap()
 			    || (missile._micaster == TARGET_PLAYERS && keeper::IsActive() && keeper::AreHostile(monster, Monsters[missile._misource])) // [DARK KEEP]
-			    || (missile._micaster == TARGET_PLAYERS && (                                     // or was fired by a monster and
+			    || (missile._micaster == TARGET_PLAYERS && !keeper::IsActive() && (              // or was fired by a monster and
 			            monster.isPlayerMinion() != Monsters[missile._misource].isPlayerMinion() //  the monsters are on opposing factions
 			            || (Monsters[missile._misource].flags & MFLAG_BERSERK) != 0              //  or the attacker is berserked
 			            || (monster.flags & MFLAG_BERSERK) != 0                                  //  or the target is berserked

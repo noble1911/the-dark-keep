@@ -110,6 +110,8 @@ struct SpellKind {
 	std::string_view flavor;
 };
 constexpr size_t NumSpellKinds = 12;
+/** Golem is last in SpellKinds. */
+constexpr size_t GolemSpellKind = NumSpellKinds - 1;
 /** The spell bar: what a master has equipped from the Spellbook. */
 constexpr size_t NumSpellSlots = 6;
 extern const std::array<SpellKind, NumSpellKinds> SpellKinds;

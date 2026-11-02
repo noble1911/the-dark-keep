@@ -18,6 +18,7 @@
 #include "engine/load_cl2.hpp"
 #include "engine/path.h"
 #include "effects.h"
+#include "game_mode.hpp"
 #include "engine/random.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
@@ -161,16 +162,13 @@ constexpr int RegroupLeadTiles = 10;
 constexpr int RegroupWaitTicks = 10;
 /** A Rogue this many steps from the vault stops fighting and goes for the gold. */
 constexpr int ThiefDashRange = 10;
-/** AI turns between a shooter's steps back from a monster at its elbow, so it shoots more than it walks. */
-constexpr int KiteCooldownTurns = 40;
-/** A Monk's prayer: this often, this far, on a hero below this share of its life, for this share of it. */
-constexpr int MonkHealCooldownTurns = 100;
+/** A Monk's prayer: this far, on a hero below this share of its life, for this share of it. */
 constexpr int MonkHealRange = 6;
 constexpr int MonkHealBelowPercent = 70;
 constexpr int MonkHealPercent = 15;
-/** AI turns without getting closer to its goal before a hero shoves past one coming the other way, then past anyone. */
-constexpr int StuckTurnsBeforeSqueeze = 12;
-constexpr int StuckTurnsBeforeShove = 40;
+/** Ticks without getting closer to its goal before a hero shoves past one coming the other way, then past anyone. */
+constexpr int StuckTicksBeforeSqueeze = 30;
+constexpr int StuckTicksBeforeShove = 100;
 /** Ticks of quiet between heroes' lines in the event log. */
 constexpr int HeroSpeechQuietTicks = 5 * 20;
 /**
@@ -202,18 +200,18 @@ struct HeroState {
 	bool fellBack = false;
 	int fallBackSteps = 0;
 	int regroupBudget = RegroupBudgetTicks;
-	int kiteCooldown = 0;
-	int healCooldown = 0;
+	/** HeroClock times. */
+	uint32_t kiteReady = 0;
+	uint32_t healReady = 0;
+	uint32_t hazardWaryUntil = 0;
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
-	/** How close it has come to its goal, and the AI turns since it last came closer. */
-	HeroGoal progressGoal = HeroGoal::Vault;
-	uint16_t bestDistance = 0xFFFF;
-	int stuckTurns = 0;
+	HeroProgress progress;
 };
 
 std::array<HeroState, MaxMonsters> Heroes;
 int heroSpeechQuiet = 0;
+uint32_t heroClock = 0;
 std::array<Point, MaxMonsters> Homes;
 std::array<bool, MaxMonsters> Roaming {};
 
@@ -451,9 +449,15 @@ bool IsAliveMonster(const Monster &monster)
 	return monster.hitPoints > 0 && monster.mode != MonsterMode::Death && !monster.isInvalid && monster.position.tile != GolemHoldingCell;
 }
 
-/** Heroes aren't stupid: they won't step into a wall of fire (unless they're already in one). */
+/**
+ * Heroes aren't stupid: they won't step into a wall of fire (unless they're already in one). Lightning takes them
+ * by surprise, once: having just been caught in a hazard, a hero keeps clear of them all and doesn't pace back in.
+ */
 bool IsSafeStep(const Monster &monster, Direction dir)
 {
+	const size_t id = monster.getId();
+	if (id < MaxMonsters && Heroes[id].active && Heroes[id].hazardWaryUntil > heroClock)
+		return !IsHazardous(monster.position.tile + dir) || IsHazardous(monster.position.tile);
 	return !IsBurning(monster.position.tile + dir) || IsBurning(monster.position.tile);
 }
 
@@ -476,6 +480,7 @@ bool StepOutOfHazard(Monster &monster)
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		if (!IsHazardous(monster.position.tile + dir) && DirOK(monster, dir)) {
+			Heroes[monster.getId()].hazardWaryUntil = heroClock + HazardWaryTicks;
 			Walk(monster, dir);
 			return true;
 		}
@@ -537,13 +542,23 @@ void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 
 } // namespace
 
+namespace {
+
+/** The Monk is last in HeroClassKind: its sprites are Hellfire's, and --diablo or a Diablo-only install has none. */
+size_t PlayableHeroClasses()
+{
+	return gbIsHellfire ? NumHeroClasses : NumHeroClasses - 1;
+}
+
+} // namespace
+
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
 	// How many comes from the level. Classes alternate, so bots and monster heroes both get a mix.
 	std::vector<HeroClassKind> party;
 	const int size = PartySizeForWave(wave);
 	for (int i = 0; i < size; i++)
-		party.push_back(static_cast<HeroClassKind>(i % NumHeroClasses));
+		party.push_back(static_cast<HeroClassKind>(i % PlayableHeroClasses()));
 	return party;
 }
 
@@ -767,24 +782,33 @@ bool SqueezePast(Point from, const DistanceField &route, bool headsOut, bool any
 	return false;
 }
 
-/** Heading for a goal: if the hero hasn't come any closer for a while, it may have to change places to get on. */
-bool TrySqueezePast(Monster &monster, HeroState &hero, HeroGoal goal, const DistanceField &route, bool headsOut)
+/**
+ * Heading for a goal: if the hero hasn't come any closer for a while, it changes places with whoever is in its
+ * way. This goes by progress along its own route, traps included: a path round may exist on paper and still not
+ * move it, and a detour round a trap is progress even though it leads away from the goal for a while.
+ */
+template <typename Place>
+bool SqueezeIfStuck(Point from, HeroProgress &progress, HeroGoal goal, uint16_t knownTraps, bool headsOut, Place place)
 {
-	const uint16_t distance = FieldAt(route, monster.position.tile);
-	if (goal != hero.progressGoal) {
-		hero.progressGoal = goal;
-		hero.bestDistance = distance;
-		hero.stuckTurns = 0;
-	} else if (distance < hero.bestDistance) {
-		hero.bestDistance = distance;
-		hero.stuckTurns = 0;
-	} else {
-		hero.stuckTurns++;
-	}
-	if (hero.stuckTurns < StuckTurnsBeforeSqueeze || !SqueezePast(monster.position.tile, route, headsOut, hero.stuckTurns >= StuckTurnsBeforeShove, [&monster](Point tile) { PlaceMonsterHero(monster, tile); }))
+	const DistanceField &route = RouteField(goal, knownTraps);
+	const uint16_t distance = FieldAt(route, from);
+	if (goal != progress.goal || knownTraps != progress.traps || distance < progress.best) {
+		progress.goal = goal;
+		progress.traps = knownTraps;
+		progress.best = distance;
+		progress.since = heroClock;
 		return false;
-	hero.stuckTurns = 0;
+	}
+	const uint32_t stuck = heroClock - progress.since;
+	if (stuck < StuckTicksBeforeSqueeze || !SqueezePast(from, route, headsOut, stuck >= StuckTicksBeforeShove, place))
+		return false;
+	progress.since = heroClock;
 	return true;
+}
+
+bool MonsterSqueezeIfStuck(Monster &monster, HeroState &hero, HeroGoal goal, bool headsOut)
+{
+	return SqueezeIfStuck(monster.position.tile, hero.progress, goal, hero.trapsKnown, headsOut, [&monster](Point tile) { PlaceMonsterHero(monster, tile); });
 }
 
 /** A wounded hero in a fight breaks off, once, and runs to a healthy friend. @return true if it moved. */
@@ -910,8 +934,8 @@ size_t firstDeferredType = SIZE_MAX;
 void AddHeroMonsterTypes()
 {
 	// The raid can't run without these, so they go first and are always loaded.
-	for (const _monster_id type : HeroMonsterIds)
-		(void)AddMonsterType(type, PLACE_SPECIAL);
+	for (size_t i = 0; i < PlayableHeroClasses(); i++)
+		(void)AddMonsterType(HeroMonsterIds[i], PLACE_SPECIAL);
 	(void)AddMonsterType(BossMonsterId, PLACE_SPECIAL);
 	ChooseMuster();
 	firstDeferredType = LevelMonsterTypeCount;
@@ -1102,12 +1126,8 @@ void HeroAi(Monster &monster)
 	RogueCheckTraps(monster, hero);
 	if (StepOutOfHazard(monster))
 		return;
-	if (hero.kiteCooldown > 0)
-		hero.kiteCooldown--;
-	if (hero.healCooldown > 0)
-		hero.healCooldown--;
-	if (hero.cls == HeroClassKind::Monk && hero.healCooldown == 0 && HealWoundedAlly(monster.position.tile)) {
-		hero.healCooldown = MonkHealCooldownTurns;
+	if (hero.cls == HeroClassKind::Monk && heroClock >= hero.healReady && HealWoundedAlly(monster.position.tile)) {
+		hero.healReady = heroClock + MonkHealCooldownTicks;
 		if ((hero.said & 2) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "Hold fast! I have you."))
 			hero.said |= 2;
 	}
@@ -1146,6 +1166,7 @@ void HeroAi(Monster &monster)
 		const Monster &enemy = Monsters[monster.enemy];
 		if (IsAliveMonster(enemy)) {
 			monster.enemyPosition = enemy.position.tile;
+			HoldHeroProgress(hero.progress);
 			const int distance = monster.position.tile.WalkingDistance(enemy.position.tile);
 			switch (hero.cls) {
 			case HeroClassKind::Warrior:
@@ -1160,8 +1181,8 @@ void HeroAi(Monster &monster)
 			case HeroClassKind::Rogue:
 			case HeroClassKind::Sorcerer:
 				// Shooters keep their distance: one step back from a monster at their elbow, then fire again.
-				if (distance < 2 && hero.kiteCooldown == 0 && StepTowards(monster, GetDirection(enemy.position.tile, monster.position.tile))) {
-					hero.kiteCooldown = KiteCooldownTurns;
+				if (distance < 2 && heroClock >= hero.kiteReady && StepTowards(monster, GetDirection(enemy.position.tile, monster.position.tile))) {
+					hero.kiteReady = heroClock + KiteCooldownTicks;
 					return;
 				}
 				if (distance <= HeroSight && LineClearMissile(monster.position.tile, enemy.position.tile)) {
@@ -1200,13 +1221,14 @@ void HeroAi(Monster &monster)
 		}
 		if (!thieving && hero.regroupBudget > 0 && IsAheadOfParty(monster.position.tile)) {
 			hero.regroupBudget -= RegroupWaitTicks;
+			HoldHeroProgress(hero.progress);
 			KeeperAiDelay(monster, RegroupWaitTicks);
 			return;
 		}
 		const DistanceField &route = RouteField(HeroGoal::Vault, hero.trapsKnown);
 		if (TryBashLockedDoor(monster, hero, route))
 			return;
-		if (TrySqueezePast(monster, hero, HeroGoal::Vault, route, false) || FollowField(monster, route) || FightIfBlocked(monster))
+		if (MonsterSqueezeIfStuck(monster, hero, HeroGoal::Vault, false) || FollowField(monster, RouteField(HeroGoal::Vault, hero.trapsKnown)) || FightIfBlocked(monster))
 			return;
 		KeeperAiDelay(monster, 5);
 		return;
@@ -1219,7 +1241,7 @@ void HeroAi(Monster &monster)
 	const DistanceField &route = RouteField(HeroGoal::Entrance, hero.trapsKnown);
 	if (TryBashLockedDoor(monster, hero, route))
 		return;
-	if (TrySqueezePast(monster, hero, HeroGoal::Entrance, route, true) || FollowField(monster, route) || FightIfBlocked(monster))
+	if (MonsterSqueezeIfStuck(monster, hero, HeroGoal::Entrance, true) || FollowField(monster, RouteField(HeroGoal::Entrance, hero.trapsKnown)) || FightIfBlocked(monster))
 		return;
 	KeeperAiDelay(monster, 5);
 }
@@ -1392,10 +1414,14 @@ void RefreshMonsterAfterSync(Monster &monster)
 {
 	// ResetGame forgot the heroes loaded with the level, and the wave they scale with wasn't known yet.
 	// Everyone else keeps their stats: running their init again would upgrade them twice.
-	if (HeroClassOf(monster.type().type))
+	if (HeroClassOf(monster.type().type)) {
 		OnMonsterInit(monster);
-	else
-		SetMonsterHome(monster.getId(), monster.position.tile);
+		return;
+	}
+	// A golem from the level delta was made before the keep was up, with the engine's numbers. Its life comes next.
+	if (monster.type().type == MT_GOLEM)
+		OnGolemInit(monster, SpellEngineLevel(GolemSpellKind));
+	SetMonsterHome(monster.getId(), monster.position.tile);
 }
 
 void SetMonsterRoaming(size_t monsterId, bool roaming)
@@ -1450,9 +1476,7 @@ void GolemAi(Monster &golem)
 	if ((golem.flags & MFLAG_NO_ENEMY) != 0) {
 		const Point home = Homes[golem.getId()];
 		if (golem.position.tile.WalkingDistance(home) > 1)
-			StepHome(golem, home);
-		else
-			KeeperAiDelay(golem, 5);
+			StepHome(golem, home); // no AI delay when idle: that plays the Stand animation, and a golem has none
 		return;
 	}
 	const bool isMonster = (golem.flags & MFLAG_TARGETS_MONSTER) != 0;
@@ -1488,8 +1512,14 @@ bool IsThiefDashing(HeroClassKind cls, int carried, bool fleeing, Point tile)
 	return cls == HeroClassKind::Rogue && carried == 0 && !fleeing && !State.bossDown && State.vaultGold > 0 && GoalDistance(HeroGoal::Vault, tile) <= ThiefDashRange;
 }
 
-void TickHeroSpeech()
+uint32_t HeroClock()
 {
+	return heroClock;
+}
+
+void TickHeroClock()
+{
+	heroClock++;
 	if (heroSpeechQuiet > 0)
 		heroSpeechQuiet--;
 }
@@ -1547,6 +1577,7 @@ void ResetHeroes()
 {
 	Heroes.fill({});
 	heroSpeechQuiet = 0;
+	heroClock = 0;
 	Portal = {};
 	RemoveAllBots();
 	pendingParty.clear();
@@ -1835,9 +1866,14 @@ void OpenDoorsAround(Point tile)
 	}
 }
 
-bool BotSqueezePast(Player &bot, HeroGoal goal, uint16_t knownTraps, bool headsOut, bool anyone)
+void HoldHeroProgress(HeroProgress &progress)
 {
-	return SqueezePast(bot.position.tile, RouteField(goal, knownTraps), headsOut, anyone, [&bot](Point tile) { PlaceBot(bot, tile); });
+	progress.since = heroClock;
+}
+
+bool BotSqueezeIfStuck(Player &bot, HeroProgress &progress, HeroGoal goal, uint16_t knownTraps, bool headsOut)
+{
+	return SqueezeIfStuck(bot.position.tile, progress, goal, knownTraps, headsOut, [&bot](Point tile) { PlaceBot(bot, tile); });
 }
 
 bool IsHeroInHazard(const Monster &monster)
