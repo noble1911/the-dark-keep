@@ -50,7 +50,6 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo") {
 
 function New-TestProfile([string]$Name, [int]$Width = 1280, [int]$Height = 720) {
     # A windowed profile with its own saves. Bound to localhost, so hosting raises no firewall prompt.
-    # Set DK_TEST_PORT when other checkouts may be testing co-op here: on the default port their joiners join your host.
     $profileDir = "$script:Root\build\test-profiles\$Name"
     New-Item -ItemType Directory -Force $profileDir | Out-Null
     Set-Content -Encoding ascii "$profileDir\diablo.ini" @"
@@ -68,7 +67,6 @@ Hellfire Intro=0
 Splash=0
 [Network]
 Bind Address=127.0.0.1
-Port=$(if ($env:DK_TEST_PORT) { $env:DK_TEST_PORT } else { 6112 })
 "@
     $profileDir
 }

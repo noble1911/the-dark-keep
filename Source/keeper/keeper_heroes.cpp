@@ -32,6 +32,7 @@
 #include "player.h"
 #include "plrmsg.h"
 #include "tables/playerdat.hpp"
+#include "utils/is_of.hpp"
 #include "utils/str_cat.hpp"
 
 namespace devilution {
