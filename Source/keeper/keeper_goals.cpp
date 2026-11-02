@@ -18,7 +18,7 @@ namespace {
 constexpr std::array<LevelGoalInfo, NumLevelGoals> Goals { {
 	{ "No escapes", "No hero gets out of the keep alive, other than in terror." },
 	{ "Lord unharmed", "The Keep Lord takes no wound in any raid." },
-	{ "Vault untouched", "No hero takes a coin from the vault." },
+	{ "Vault safe", "No hero takes a coin from the vault." },
 } };
 
 uint8_t failedGoals = 0;

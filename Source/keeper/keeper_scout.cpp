@@ -74,7 +74,7 @@ void BuildPreview(std::optional<Point> hoverDoor)
 	if (locked != preview.route) {
 		const int extra = static_cast<int>(locked.size()) - static_cast<int>(preview.route.size());
 		preview.withHoverLock = std::move(locked);
-		preview.hoverVerdict = fmt::format("Turns them away: {:+} steps", extra);
+		preview.hoverVerdict = fmt::format("Detour: {:+} steps", extra);
 		preview.hoverTurnsThem = true;
 	} else if (RouteHas(preview.route, *hoverDoor)) {
 		preview.hoverVerdict = "They'd just bash it down";
@@ -110,7 +110,7 @@ struct CardLayout {
 	std::array<int, 5> columns;
 };
 
-constexpr CardLayout SmallCard { false, 312, 6, UiFlags::FontSize12, 16, 14, 14, 21, 30, { { 0, 122, 154, 200, 268 } } };
+constexpr CardLayout SmallCard { false, 312, 6, UiFlags::FontSize12, 16, 14, 14, 17, 22, { { 0, 122, 154, 200, 268 } } };
 constexpr CardLayout BigCard { true, 560, 8, UiFlags::FontSize24, 30, 25, 15, 34, 48, { { 0, 262, 318, 394, 490 } } };
 
 const CardLayout &LayoutFor(const Surface &out)
@@ -235,8 +235,8 @@ std::string ResistWords()
 /** The card's height for what it holds: the heroes are the only part that varies. */
 int CardHeight(const CardLayout &layout, const ScoutInfo &info)
 {
-	return layout.margin * 2 + layout.titleHeight + (GoalsApply() ? 6 : 5) * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
-	    + layout.textHeight + 2 * layout.textHeight + 8 + 6 + layout.textHeight;
+	return layout.margin * 2 + layout.titleHeight + (GoalsApply() ? 5 : 4) * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
+	    + layout.textHeight + (layout.big ? 2 : 1) * layout.textHeight + 8 + 6 + layout.textHeight;
 }
 
 /** The two small buttons in the card's last line. */
@@ -340,10 +340,15 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	y += layout.titleHeight;
 	DrawString(out, FitLines(type.blurb, inner, 2 * layout.textHeight, layout.textHeight), { { x, y }, { inner, 2 * layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorOrange, .lineHeight = layout.textHeight });
 	y += 2 * layout.textHeight;
-	DrawString(out, fmt::format("{} {}.  Greed: {}.  Courage: {}.", info.party.size(), info.party.size() == 1 ? "hero" : "heroes", GreedWord(info.party), CourageWord()),
-	    { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	y += layout.textHeight;
-	DrawString(out, fmt::format("Resists: {}.", ResistWords()), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	if (layout.big) {
+		DrawString(out, fmt::format("Greed {}.  Courage {}.  Resists {}.", GreedWord(info.party), CourageWord(), ResistWords()),
+		    { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	} else {
+		// No room for the whole sentence: a ward is what matters, and no ward needs no saying.
+		DrawString(out, fmt::format("Greed {}, courage {}", GreedWord(info.party), CourageWord()), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+		if (const std::string resists = ResistWords(); resists != "nothing")
+			DrawString(out, fmt::format("{} ward", resists), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorOrange });
+	}
 	y += layout.textHeight;
 
 	// A picture for every hero, gold framed for the full ones. They shrink together if a big party wouldn't fit.
@@ -385,9 +390,14 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	// The party against what stands in the keep right now.
 	const KeepStrength keep = MeasureKeep();
 	const int odds = info.partyLife * info.partyDamage > 0 ? static_cast<int>(100LL * keep.life * keep.damage / (static_cast<int64_t>(info.partyLife) * info.partyDamage)) : 0;
-	DrawString(out, fmt::format("Party: life {}, damage {}", info.partyLife, info.partyDamage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	y += layout.textHeight;
-	DrawString(out, fmt::format("Keep: {} {}, life {}, damage {}", keep.monsters, keep.monsters == 1 ? "monster" : "monsters", keep.life, keep.damage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	if (layout.big) {
+		DrawString(out, fmt::format("Party: life {}, damage {}", info.partyLife, info.partyDamage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+		y += layout.textHeight;
+		DrawString(out, fmt::format("Keep: {} {}, life {}, damage {}", keep.monsters, keep.monsters == 1 ? "monster" : "monsters", keep.life, keep.damage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	} else {
+		DrawString(out, fmt::format("Life/damage: party {}/{}", info.partyLife, info.partyDamage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
+		DrawString(out, fmt::format("keep {}/{}", keep.life, keep.damage), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorGold });
+	}
 	y += layout.textHeight;
 	const std::string_view verdict = keep.monsters == 0 ? "No defenders yet!"
 	    : odds < OddsOutmatchedPercent                  ? "Outmatched"
@@ -406,7 +416,7 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	y += layout.textHeight;
 
 	// Spend it or guard it.
-	DrawString(out, fmt::format("Call now: +{} gold.  Vault interest: +{} gold.", EarlyCallBonusNow(), VaultInterestOn(State.vaultGold)), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	DrawString(out, fmt::format("Call now: +{}g.  Interest: +{}g.", EarlyCallBonusNow(), VaultInterestOn(State.vaultGold)), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 	y += layout.textHeight;
 
 	if (GoalsApply()) {

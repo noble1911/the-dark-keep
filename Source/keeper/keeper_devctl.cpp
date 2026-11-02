@@ -423,6 +423,15 @@ void Execute(const std::string &line)
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
+	} else if (command == "routecheck") {
+		// What locking each door would do to the heroes' route.
+		const size_t base = EstimateHeroRoute({}).size();
+		Output(fmt::format("route {} tiles", base));
+		for (int i = 0; i < ActiveObjectCount; i++) {
+			const Object &object = Objects[ActiveObjects[i]];
+			if (object.isDoor())
+				Output(fmt::format("door {},{} locked: route {} tiles", object.position.x, object.position.y, EstimateHeroRoute({ .extraLock = object.position }).size()));
+		}
 	} else if (command == "hurtheroes") {
 		// Every hero down to one hit point, for testing how raids end.
 		for (size_t i = 0; i < ActiveMonsterCount; i++) {

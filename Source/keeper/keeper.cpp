@@ -2246,13 +2246,13 @@ void DrawUi(const Surface &out)
 		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
+	DrawScoutCard(out, top, UiMouse()); // under the spell bar, which has to stay usable on a small screen
 	DrawCardBar(out);
 	DrawSpellBar(out);
 	DrawInfoPanel(out);
 	DrawInspectPanel(out, hud.position.x + 6, top);
 	DrawRaidRoster(out, UiMouse());
 	DrawRaidSummary(out, top);
-	DrawScoutCard(out, top, UiMouse());
 	DrawMasters(out);
 	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 

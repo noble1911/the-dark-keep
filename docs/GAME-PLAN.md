@@ -50,6 +50,15 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [ ] Co-op: joiners pick their spell bar in a lobby step (for now: their own choice, filtered by the host's unlocks)
 - [ ] Tune XP, Renown prices and difficulty
 
+## 6. Planning and variety
+- [x] Route preview while preparing, with what a lock would do (M)
+- [x] Scout card: every hero's numbers against your defence, greed, courage, resistances (N)
+- [x] Easy, Normal and Hard on the Keeper screen; parties scale with the number of masters
+- [x] Raid types by level: thieves, coven, fire-warded, iron column, light raiders
+- [x] Vault interest and an early-call bonus
+- [x] Level goals and medals
+- [ ] Tune all of the above (constants are named; none of it has been played by a person)
+
 ## Known issues
 - [ ] Balance: scaled on paper across the campaign, never playtested
 - [x] Mid-game joiners see structures built before they joined
