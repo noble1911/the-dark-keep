@@ -32,7 +32,11 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
+<<<<<<< HEAD
 #include "keeper/keeper_resume.hpp"
+=======
+#include "keeper/keeper_tutorial.hpp"
+>>>>>>> b396891f9
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "missiles.h"
@@ -641,6 +645,10 @@ void Execute(const std::string &line)
 	} else if (command == "fillmana") {
 		State.mana[MyPlayerId] = MaxMana * ManaScale;
 		State.spellCooldown[MyPlayerId] = 0;
+	} else if (command == "textcheck") {
+		for (const std::string &problem : CheckTextFits())
+			Output(fmt::format("textcheck {}", problem));
+		Output("textcheck done");
 	} else if (command == "echo") {
 		std::string rest;
 		std::getline(in, rest);

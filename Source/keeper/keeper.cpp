@@ -32,7 +32,11 @@
 #include "gamemenu.h"
 #include "gmenu.h"
 #include "init.hpp"
+<<<<<<< HEAD
 #include "keeper/keeper_barricade.hpp"
+=======
+#include "keeper/keeper_alerts.hpp"
+>>>>>>> b396891f9
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_coop.hpp"
 #include "keeper/keeper_editor.hpp"
@@ -47,6 +51,8 @@
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_ui.hpp"
+#include "keeper/keeper_summary.hpp"
+#include "keeper/keeper_tutorial.hpp"
 #include "keeper/keeper_units.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/dun_tile.hpp"
@@ -203,7 +209,11 @@ void CenterCameraOn(Point tile)
 
 bool CanUseKeyboardCamera()
 {
+<<<<<<< HEAD
 	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsKeeperOverlayOpen();
+=======
+	return gbActive && !ChatFlag && !gmenu_is_active() && !EditorCapturesKeys() && !IsHelpOpen();
+>>>>>>> b396891f9
 }
 
 /** The engine's zoom renders a half-size view and doubles it. */
@@ -457,6 +467,50 @@ Rectangle PhaseLineRect()
 bool Contains(const Rectangle &rect, Point p)
 {
 	return p.x >= rect.position.x && p.y >= rect.position.y && p.x < rect.position.x + rect.size.width && p.y < rect.position.y + rect.size.height;
+}
+
+/** The "?" in the corner of the status column. */
+Rectangle HelpButtonRect()
+{
+	const Rectangle status = StatusRect();
+	return { { status.position.x + status.size.width - 20, status.position.y + 3 }, { 18, 15 } };
+}
+
+bool IsBuildingPhase()
+{
+	return State.phase == Phase::Setup || State.phase == Phase::Breather;
+}
+
+/** What the bar's status column, tabs and scout line do, for the info panel. */
+std::optional<HudArea> HudAreaAt(Point p)
+{
+	if (Contains(HelpButtonRect(), p))
+		return HudArea::HelpButton;
+	if (IsBuildingPhase() && Contains(ReadyButtonRect(), p))
+		return HudArea::OpenGates;
+	for (size_t i = 0; i < NumBarTabs; i++) {
+		if (Contains(TabRect(i), p))
+			return static_cast<HudArea>(static_cast<size_t>(HudArea::TabLairs) + i);
+	}
+	const Rectangle bar = BarRect();
+	const int scoutY = CardRowRect().position.y + CardHeight + 3;
+	if (Contains({ { bar.position.x, scoutY }, { bar.size.width, 14 } }, p))
+		return HudArea::Scout;
+	const Rectangle status = StatusRect();
+	if (!Contains(status, p))
+		return std::nullopt;
+	const int row = p.y - status.position.y;
+	if (row < 19)
+		return HudArea::Phase;
+	if (row < 34)
+		return p.x < status.position.x + status.size.width * 3 / 5 ? HudArea::Raids : HudArea::Pop;
+	if (row < 49)
+		return HudArea::Vault;
+	if (row < 64)
+		return HudArea::Heroes;
+	if (row < 94)
+		return HudArea::Mana;
+	return std::nullopt;
 }
 
 // Spell bar: the masters' spells sit in their own action bar above the info panel. Their
@@ -720,7 +774,9 @@ void DrawCardBar(const Surface &out)
 		const bool selected = static_cast<size_t>(currentTab) == i;
 		FillRect(out, tab.position.x, tab.position.y, tab.size.width, tab.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		DrawFrame(out, tab, selected ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
-		DrawString(out, FitText(BarTabNames[i], tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
+		// The longest name loses its second half before it would be cut.
+		const std::string_view tabName = GetLineWidth(BarTabNames[i]) > tab.size.width - 2 ? BarTabNames[i].substr(0, BarTabNames[i].find(' ')) : BarTabNames[i];
+		DrawString(out, FitText(tabName, tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (selected ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 
@@ -911,6 +967,14 @@ void DrawInfoPanel(const Surface &out)
 		if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot && equippedSpells[*slot])
 			shown = Tool { ToolType::Spell, *equippedSpells[*slot] };
 	}
+	if (!shown) {
+		if (const std::optional<HudArea> area = HudAreaAt(UiMouse()); area) {
+			const HudHint hint = DescribeHudArea(*area);
+			DrawString(out, FitText(hint.title, textWidth), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+			DrawString(out, FitLines(hint.text, textWidth, info.size.height - 28, 13), { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+			return;
+		}
+	}
 	if (!shown && currentTool.type != ToolType::None)
 		shown = currentTool;
 	if (!shown) {
@@ -923,9 +987,9 @@ void DrawInfoPanel(const Surface &out)
 			return;
 		}
 		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
+		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess  {}: help",
 		    KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
-		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
+		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess), KeyLabel(KeeperAction::Help));
 		DrawString(out, WordWrapString(controls, textWidth),
 		    { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 		return;
@@ -1260,6 +1324,7 @@ void SelectInBox(const Rectangle &box)
 	SetSelection(std::move(found));
 }
 
+<<<<<<< HEAD
 /** A ping in view: rings closing in on the tile. Out of view: an arrow at the edge of the screen pointing to it. */
 void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
 {
@@ -1296,6 +1361,38 @@ void DrawPing(const Surface &out, const Ping &ping, uint32_t now)
 	}
 	const Rectangle label { { std::clamp(tip.x - 60, 0, out.w() - 120), std::clamp(tip.y + (uy > 0 ? -38 : 22), 0, maxY - 14) }, { 120, 14 } };
 	DrawString(out, name, label, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold | UiFlags::Outlined });
+=======
+/** Raiders out of view: an arrow at the screen's edge, gold for one carrying your gold. */
+void DrawHeroArrows(const Surface &out)
+{
+	if (overlayPass != OverlayPass::Text || State.phase != Phase::Raid)
+		return;
+	const int maxY = ScreenHudTop();
+	const int size = 7 * UiScale();
+	const int margin = 3 * size;
+	const float centreX = static_cast<float>(out.w()) / 2.F;
+	const float centreY = static_cast<float>(maxY) / 2.F;
+	for (const HeroMark &hero : LivingHeroMarks()) {
+		const Point at = TileCenter(hero.tile);
+		if (at.x >= 0 && at.y >= 0 && at.x < out.w() && at.y < maxY)
+			continue;
+		const float dx = static_cast<float>(at.x) - centreX;
+		const float dy = static_cast<float>(at.y) - centreY;
+		const float length = std::max(std::sqrt(dx * dx + dy * dy), 1.F);
+		const float reach = std::min(dx != 0.F ? (centreX - margin) / std::abs(dx) : 1e6F, dy != 0.F ? (centreY - margin) / std::abs(dy) : 1e6F);
+		const float x = centreX + dx * reach;
+		const float y = centreY + dy * reach;
+		const float ux = dx / length;
+		const float uy = dy / length;
+		const Point tip { static_cast<int>(x + ux * size * 1.5F), static_cast<int>(y + uy * size * 1.5F) };
+		const uint8_t color = hero.carried > 0 ? PAL16_YELLOW + 2 : PAL16_RED + 4;
+		// Long and thin, or it wouldn't be clear which way it points. Filled by fanning lines from the tip across the base.
+		for (float step = -size * 0.6F; step <= size * 0.6F; step += 0.5F) {
+			const Point base { static_cast<int>(x - ux * size * 1.5F - uy * step), static_cast<int>(y - uy * size * 1.5F + ux * step) };
+			DrawLine(out, tip, base, color, maxY);
+		}
+	}
+>>>>>>> b396891f9
 }
 
 void DrawOverlays(const Surface &out)
@@ -1349,6 +1446,7 @@ void DrawOverlays(const Surface &out)
 	}
 
 	DrawSelectionOverlay(out);
+	DrawHeroArrows(out);
 
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
 		DrawTileDiamond(out, possessed->position.tile, PAL16_ORANGE + 4);
@@ -1465,11 +1563,6 @@ bool IsGameOver()
 
 // ---- the choice after the siege -----------------------------------------------
 
-constexpr int GameOverBannerHeight = 100;
-constexpr int GameOverButtonWidth = 240;
-constexpr int GameOverButtonHeight = 20;
-constexpr int GameOverButtonGap = 12;
-
 /** The next setup, worked out once when the game ends: the banner asks every frame, and it reads a map. */
 std::optional<std::pair<bool, std::optional<KeepSetup>>> setupAfterGame;
 
@@ -1514,6 +1607,7 @@ std::string GameOverContinueLabel(const KeepSetup &next)
 	return fmt::format("Next: {} (Enter)", CampaignLevelRules(next.campaignLevel).name);
 }
 
+<<<<<<< HEAD
 Rectangle GameOverBanner(int width, int hudTop)
 {
 	return { { 0, hudTop / 2 - GameOverBannerHeight * 3 / 5 }, { width, GameOverBannerHeight } };
@@ -1550,6 +1644,8 @@ Rectangle GameOverButton(int width, int hudTop, int index, int count)
 		{ buttonWidth, GameOverButtonHeight } };
 }
 
+=======
+>>>>>>> b396891f9
 void ChooseGameOverContinue()
 {
 	if (IsEditorTestRun()) {
@@ -1605,6 +1701,7 @@ bool TryCastSpell(size_t index, Point tile)
 		return false;
 	}
 	RequestCastSpell(index, tile);
+	AlertsNoteSpellCast();
 	return true;
 }
 
@@ -1617,6 +1714,8 @@ bool IsMouseOverUi()
 	if (inspect && Contains(*inspect, UiMouse()))
 		return true;
 	const Surface ui = UiHitSurface();
+	if (IsHelpOpen() || (IsGameOver() && Contains(MapSummaryRect(ui), UiMouse())) || TutorialIsMouseOver(UiMouse()) || AlertsIsMouseOver(UiMouse()))
+		return true;
 	const std::optional<Rectangle> roster = RaidRosterRect(ui);
 	const std::optional<Rectangle> summary = RaidSummaryRect(ui, HudRect().position.y);
 	return (roster && Contains(*roster, UiMouse())) || (summary && Contains(*summary, UiMouse()));
@@ -1695,6 +1794,8 @@ bool IsActive()
 
 void OnLevelLoaded()
 {
+	// Leaving an editor test run comes through here without ending the game: the help mustn't stay open, or paused.
+	CloseHelp();
 	active = currlevel == KeepLevel && !setlevel;
 	if (!active)
 		return;
@@ -1714,7 +1815,13 @@ void OnLevelLoaded()
 	ResetUnits();
 	LoadSpellBar();
 	LobbyOnLevelLoaded(equippedSpells);
+<<<<<<< HEAD
 	CoopOnLevelLoaded();
+=======
+	AlertsOnLevelLoaded();
+	TutorialOnLevelLoaded();
+	ForgetMapSummary();
+>>>>>>> b396891f9
 	CenterCameraOn(entrance);
 	currentTool = {};
 	ClearSelection();
@@ -1735,6 +1842,7 @@ void OnLevelLoaded()
 
 void OnGameEnded()
 {
+	CloseHelp();
 	EditorOnGameEnded();
 	ForgetMapCache();
 	if (active)
@@ -1784,6 +1892,8 @@ void Tick()
 	LobbyTick();
 	CoopTick();
 	UpdateUnitMarkers();
+	AlertsTick();
+	TutorialTick();
 
 	tickCounter++;
 	if (tickCounter % 4 == 0) {
@@ -1953,6 +2063,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 	case KeeperAction::Sell:
 		SellSelected();
 		return;
+<<<<<<< HEAD
 	case KeeperAction::CycleSpeed:
 		CycleGameSpeed();
 		return;
@@ -1964,6 +2075,10 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::HoldTimer:
 		ToggleHeldTimer();
+=======
+	case KeeperAction::Help:
+		ToggleHelp();
+>>>>>>> b396891f9
 		return;
 	// Polled every frame (see UpdateCamera).
 	case KeeperAction::CameraLeft:
@@ -1983,6 +2098,7 @@ bool OnKeyDown(SDL_Keycode key)
 	if (EditorOnTestKey(key))
 		return true;
 
+<<<<<<< HEAD
 	if (IsKeeperOverlayOpen()) {
 		if (key == SDLK_ESCAPE)
 			CloseKeeperOverlay();
@@ -2004,6 +2120,20 @@ bool OnKeyDown(SDL_Keycode key)
 		}
 	}
 	if (IsGameOver() && key == SDLK_L && CanRetryRaid() && GameOverContinue()) {
+=======
+	// F1 always opens the help: the engine's own is for a hero's game.
+	if (key == SDLK_F1) {
+		ToggleHelp();
+		return true;
+	}
+	if (IsHelpOpen()) {
+		if (key == SDLK_ESCAPE || IsKeyBoundTo(KeeperAction::Help, static_cast<uint32_t>(key)))
+			CloseHelp();
+		return true; // nothing else happens behind the help
+	}
+
+	if (IsGameOver() && (key == SDLK_RETURN || key == SDLK_KP_ENTER) && GameOverContinue()) {
+>>>>>>> b396891f9
 		ChooseGameOverContinue();
 		return true;
 	}
@@ -2071,6 +2201,8 @@ bool OnKeyDown(SDL_Keycode key)
 			gamemenu_exit_game(false);
 			return true;
 		}
+		if (TutorialOnEscape())
+			return true;
 		return false;
 	default:
 		return false;
@@ -2084,10 +2216,25 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/false);
 
+<<<<<<< HEAD
 	if (CoopHasHostLeft())
 		return true; // nothing left to order about
 	if (IsKeeperOverlayOpen()) {
 		KeeperOverlayClick();
+=======
+	if (IsHelpOpen()) {
+		HelpOnClick(UiMouse());
+		return true;
+	}
+	if (Contains(HelpButtonRect(), UiMouse())) {
+		ToggleHelp();
+		return true;
+	}
+	if (TutorialOnClick(UiMouse()))
+		return true;
+	if (const std::optional<Point> tile = AlertsOnClick(UiMouse()); tile) {
+		CenterCameraOn(*tile);
+>>>>>>> b396891f9
 		return true;
 	}
 	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
@@ -2096,6 +2243,7 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		return true;
 	}
 	if (IsGameOver()) {
+<<<<<<< HEAD
 		const int width = UiHitSurface().w();
 		const int top = HudRect().position.y;
 		const std::vector<GameOverChoice> choices = GameOverChoices();
@@ -2116,8 +2264,21 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 				gamemenu_exit_game(false);
 				break;
 			}
+=======
+		const Surface ui = UiHitSurface();
+		const std::optional<KeepSetup> next = GameOverContinue();
+		const int count = next ? 2 : 1;
+		if (next && Contains(MapSummaryButton(ui, 0, count), UiMouse())) {
+			ChooseGameOverContinue();
 			return true;
 		}
+		if (Contains(MapSummaryButton(ui, count - 1, count), UiMouse())) {
+			gamemenu_exit_game(false);
+>>>>>>> b396891f9
+			return true;
+		}
+		if (Contains(MapSummaryRect(ui), UiMouse()))
+			return true;
 	}
 	if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot) {
 		if (equippedSpells[*slot])
@@ -2200,8 +2361,13 @@ bool OnRightMouseDown()
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseDown(/*right=*/true);
+<<<<<<< HEAD
 	if (CoopHasHostLeft() || IsKeeperOverlayOpen())
 		return true;
+=======
+	if (IsHelpOpen())
+		return true; // nothing happens behind the help
+>>>>>>> b396891f9
 	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
 		return true;
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
@@ -2223,8 +2389,13 @@ bool OnMouseWheel(int deltaY)
 		return false;
 	if (IsEditorActive())
 		return EditorOnMouseWheel(deltaY);
+<<<<<<< HEAD
 	if (IsKeeperOverlayOpen()) {
 		KeeperOverlayWheel(deltaY);
+=======
+	if (IsHelpOpen()) {
+		HelpOnWheel(deltaY);
+>>>>>>> b396891f9
 		return true;
 	}
 	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
@@ -2379,6 +2550,13 @@ void DrawUi(const Surface &out)
 		DrawString(out, raidKey.empty() ? ReadyButtonLabel() : fmt::format("{}: {}", raidKey, ReadyButtonLabel()), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
+	{
+		const Rectangle help = HelpButtonRect();
+		FillRect(out, help.position.x, help.position.y, help.size.width, help.size.height, PAL16_RED + 12);
+		DrawFrame(out, help, Contains(help, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_YELLOW + 4);
+		DrawString(out, "?", { help.position, { help.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+	}
+
 	DrawCardBar(out);
 	DrawSpellBar(out);
 	DrawInfoPanel(out);
@@ -2388,9 +2566,30 @@ void DrawUi(const Surface &out)
 	DrawMasters(out);
 	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 
+	// News along the top, between the masters list and the raid roster.
+	if (!IsGameOver()) {
+		const std::optional<Rectangle> roster = RaidRosterRect(out);
+		const int newsLeft = gbIsMultiplayer ? 198 : 6;
+		const int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
+		const int newsWidth = newsRight - newsLeft;
+		int newsY = DrawBanner(out, newsLeft, newsWidth, 6);
+		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
+		const Rectangle firstTab = TabRect(0);
+		const Rectangle lastTab = TabRect(NumBarTabs - 1);
+		const TipTargets targets {
+			CardRowRect(),
+			{ firstTab.position, { lastTab.position.x + lastTab.size.width - firstTab.position.x, firstTab.size.height } },
+			ReadyButtonRect(),
+			SpellBarRect(),
+			roster,
+		};
+		const int tipWidth = std::min(newsWidth, 380);
+		DrawTutorialTip(out, newsLeft + (newsWidth - tipWidth) / 2, tipWidth, newsY, UiMouse(), targets);
+	}
+
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();
-	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {} in progress", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
+	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {}", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
 	UiFlags scoutColor = UiFlags::ColorGold;
 	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
 		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;
@@ -2406,7 +2605,7 @@ void DrawUi(const Surface &out)
 		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
 		scout = fmt::format("Possessing {} ({}%)  click: move/attack  {}: release", possessed->name(), hp, KeyLabel(KeeperAction::Possess));
 	}
-	DrawString(out, scout, { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
+	DrawString(out, FitText(scout, bar.size.width), { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
 
 	// Feedback floats just above the bar, like an RTS's "insufficient funds".
 	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {
@@ -2416,6 +2615,7 @@ void DrawUi(const Surface &out)
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
 	}
 
+<<<<<<< HEAD
 	if (PauseMode != 0 && !gmenu_is_active()) {
 		const std::string line = "Paused: orders still work";
 		const int width = GetLineWidth(line) + 16;
@@ -2454,9 +2654,15 @@ void DrawUi(const Surface &out)
 				break;
 			}
 		}
+=======
+	if (IsGameOver()) {
+		const std::optional<KeepSetup> next = GameOverContinue();
+		DrawMapSummary(out, UiMouse(), next ? GameOverContinueLabel(*next) : std::string(), IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+>>>>>>> b396891f9
 	}
 	DrawCoopHostLeft(out, top);
 	EditorDrawTestBanner(out);
+	DrawHelp(out, UiMouse());
 }
 
 } // namespace

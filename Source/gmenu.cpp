@@ -63,11 +63,8 @@ constexpr int GMenuItemHeight = 45;
 OptionalOwnedClxSpriteList optbar_cel;
 OptionalOwnedClxSpriteList PentSpin_cel;
 OptionalOwnedClxSpriteList option_cel;
-OptionalOwnedClxSpriteList sgpLogo;
 bool isDraggingSlider;
 TMenuItem *sgpCurrItem;
-int LogoAnim_tick;
-uint8_t LogoAnim_frame;
 void (*gmenu_current_option)();
 int sgCurrentMenuIdx;
 
@@ -194,7 +191,6 @@ void gmenu_draw_pause(const Surface &out)
 
 void FreeGMenu()
 {
-	sgpLogo = std::nullopt;
 	PentSpin_cel = std::nullopt;
 	option_cel = std::nullopt;
 	optbar_cel = std::nullopt;
@@ -202,7 +198,6 @@ void FreeGMenu()
 
 void gmenu_init_menu()
 {
-	LogoAnim_frame = 0;
 	sgpCurrentMenu = nullptr;
 	sgpCurrItem = nullptr;
 	gmenu_current_option = nullptr;
@@ -212,9 +207,6 @@ void gmenu_init_menu()
 	if (HeadlessMode)
 		return;
 
-	sgpLogo = LoadOptionalCel("data\\hf_logo3", 430);
-	if (!sgpLogo.has_value())
-		sgpLogo = LoadCel("data\\diabsmal", 296);
 	PentSpin_cel = LoadCel("data\\pentspin", 48);
 	option_cel = LoadCel("data\\option", SliderMarkerWidth);
 	optbar_cel = LoadCel("data\\optbar", SliderValueBoxWidth);
@@ -254,17 +246,9 @@ void gmenu_draw(const Surface &out)
 		GameMenuMove();
 		if (gmenu_current_option != nullptr)
 			gmenu_current_option();
-		if (sgpLogo->numSprites() > 1) {
-			const uint32_t ticks = SDL_GetTicks();
-			if ((int)(ticks - LogoAnim_tick) > 25) {
-				++LogoAnim_frame;
-				LogoAnim_frame = LogoAnim_frame % sgpLogo->numSprites();
-				LogoAnim_tick = ticks;
-			}
-		}
 		const int uiPositionY = GetUIRectangle().position.y;
-		const ClxSprite sprite = (*sgpLogo)[LogoAnim_frame];
-		ClxDraw(out, { (gnScreenWidth - sprite.width()) / 2, 102 + uiPositionY }, sprite);
+		// [DARK KEEP] The game's own name, where the Hellfire logo was.
+		DrawString(out, "The Dark Keep", { { 0, 48 + uiPositionY }, { gnScreenWidth, 54 } }, { .flags = UiFlags::FontSize46 | UiFlags::ColorGold | UiFlags::AlignCenter, .spacing = 4 });
 		int y = 110 + uiPositionY;
 		TMenuItem *i = sgpCurrentMenu;
 		if (sgpCurrentMenu->fnMenu != nullptr) {

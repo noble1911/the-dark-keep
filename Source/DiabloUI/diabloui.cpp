@@ -38,6 +38,7 @@
 #include "effects.h"
 #include "engine/clx_sprite.hpp"
 #include "engine/dx.h"
+#include "engine/load_clx.hpp"
 #include "engine/load_pcx.hpp"
 #include "engine/palette.h"
 #include "engine/render/clx_render.hpp"
@@ -78,7 +79,6 @@
 
 namespace devilution {
 
-OptionalOwnedClxSpriteList ArtLogo;
 OptionalOwnedClxSpriteList DifficultyIndicator;
 
 std::array<OptionalOwnedClxSpriteList, 3> ArtFocus;
@@ -644,10 +644,6 @@ void LoadHeros()
 
 void LoadUiGFX()
 {
-	ArtLogo = LoadPcxSpriteList("ui_art\\hf_logo2", /*numFrames=*/16, /*transparentColor=*/0, nullptr, false);
-	if (!ArtLogo.has_value()) {
-		ArtLogo = LoadPcxSpriteList("ui_art\\smlogo", /*numFrames=*/15, /*transparentColor=*/250);
-	}
 	DifficultyIndicator = LoadPcx("ui_art\\r1_gry", /*transparentColor=*/0);
 	ArtFocus[FOCUS_SMALL] = LoadPcxSpriteList("ui_art\\focus16", /*numFrames=*/8, /*transparentColor=*/250);
 	ArtFocus[FOCUS_MED] = LoadPcxSpriteList("ui_art\\focus", /*numFrames=*/8, /*transparentColor=*/250);
@@ -675,7 +671,6 @@ void UnloadUiGFX()
 	ArtCursor = std::nullopt;
 	for (auto &art : ArtFocus)
 		art = std::nullopt;
-	ArtLogo = std::nullopt;
 	DifficultyIndicator = std::nullopt;
 }
 
@@ -786,10 +781,20 @@ void UiAddBackground(std::vector<std::unique_ptr<UiItemBase>> *vecDialog)
 	}
 }
 
+void UiLoadMainMenuBackground()
+{
+	if (!gbIsSpawn || gbIsHellfire) {
+		ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\mainmenuw.clx");
+		LoadBackgroundArt("ui_art\\mainmenu");
+	} else {
+		LoadBackgroundArt("ui_art\\swmmenu");
+	}
+}
+
 void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int y)
 {
-	vecDialog->push_back(std::make_unique<UiImageAnimatedClx>(
-	    *ArtLogo, MakeSdlRect(0, y, 0, 0), UiFlags::AlignCenter));
+	// [DARK KEEP] The game's own name in the game's own font, where the Hellfire logo was.
+	vecDialog->push_back(std::make_unique<UiArtText>("The Dark Keep", MakeSdlRect(GetUIRectangle().position.x, y + 66, 640, 56), UiFlags::AlignCenter | UiFlags::FontSize46 | UiFlags::ColorUiGold, 4));
 }
 
 void UiFadeIn()

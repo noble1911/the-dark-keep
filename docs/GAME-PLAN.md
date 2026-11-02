@@ -15,6 +15,12 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] Raid roster: every hero in the raid at a glance (top right; click one to inspect and jump to it)
 - [x] Rebindable keys
 - [x] Raid summary (slain / escaped / fled, gold stolen / recovered, bounties, tribute, monsters lost)
+- [x] First-map tips (levels 1 and 2), remembered in the profile; text and input names live in keeper_tutorial.cpp
+- [x] Help overlay (H / F1 / the ? button), and hover hints for the status column, tabs and scout line
+- [x] Raid alerts: banners, what is attacking the Lord, heroes near the vault, thieves, the portal, off-screen arrows, sounds
+- [x] End-of-map screen: totals, XP, level-up, newly affordable unlocks, next step; a defeat says why and what to try
+- [x] Co-op: joiners' raid summaries use the host's numbers
+- [x] The game's own name instead of the Hellfire logo; no other game's movies; hero options hidden from Settings
 
 ## 2. Unit placement
 - [x] Single monsters instead of groups, priced per monster; up to 96, can stand side by side
@@ -42,7 +48,11 @@ add sections as new ideas come up. Done items move to [MOD-PLAN.md](MOD-PLAN.md)
 - [x] 20-level campaign with saved rank, random layouts for now
 - [x] Menus without class, difficulty or the Hellfire prompt
 - [x] Monsters from the whole game, unlocked with Renown
+<<<<<<< HEAD
 - [x] Replace the campaign's random layouts with editor maps (assets/keeper/campaign/level_NN.dkmap, docs/CAMPAIGN-MAPS.md)
+=======
+- [x] Replace the campaign's random layouts with editor maps (assets/keeper/campaign/level_NN.dkmap): all 20 levels are baked
+>>>>>>> b396891f9
 
 ## 5. Upgrade paths
 - [x] Temporary monster upgrades with gold; spells and trap types level up permanently with Renown (1-15)

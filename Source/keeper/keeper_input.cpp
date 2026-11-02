@@ -32,6 +32,8 @@ namespace {
 
 /** Every keeper action's ini key starts with this. */
 constexpr std::string_view ActionPrefix = "Keeper";
+/** Every keeper action's display name starts with this, in the settings list. */
+constexpr std::string_view KeepActionPrefix = "Keep:";
 /** How far the mouse has to travel, in screen pixels, before a click becomes a drag. */
 constexpr int BoxDragThreshold = 8;
 /** How far from the point a group order looks for floor to spread over. */
@@ -46,7 +48,11 @@ struct ActionInfo {
 };
 
 /** One-key actions. Card slots and spells are added in loops, as they have an index. */
+<<<<<<< HEAD
 const std::array<ActionInfo, 17> SimpleActions { {
+=======
+const std::array<ActionInfo, 15> SimpleActions { {
+>>>>>>> b396891f9
 	{ KeeperAction::LockDoor, "KeeperLockDoor", N_("Keep: lock a door"), N_("Picks the door lock."), 'G' },
 	{ KeeperAction::Bait, "KeeperBait", N_("Keep: bait"), N_("Picks the pile of fool's gold."), 'T' },
 	{ KeeperAction::NextTab, "KeeperNextTab", N_("Keep: next tab"), N_("Switches between the tabs of the card bar."), static_cast<uint32_t>(SDLK_TAB) },
@@ -61,13 +67,20 @@ const std::array<ActionInfo, 17> SimpleActions { {
 	{ KeeperAction::CameraRight, "KeeperCameraRight", N_("Keep: camera right"), N_("Moves the view right."), 'D' },
 	{ KeeperAction::CameraUp, "KeeperCameraUp", N_("Keep: camera up"), N_("Moves the view up."), 'W' },
 	{ KeeperAction::CameraDown, "KeeperCameraDown", N_("Keep: camera down"), N_("Moves the view down."), 'S' },
+<<<<<<< HEAD
 	{ KeeperAction::CycleSpeed, "KeeperCycleSpeed", N_("Keep: game speed"), N_("Switches between normal, double and triple speed."), 'N' },
 	{ KeeperAction::Ping, "KeeperPing", N_("Keep: mark the map"), N_("Shows every master the spot under the cursor, with a sound."), 'M' },
 	{ KeeperAction::HoldTimer, "KeeperHoldTimer", N_("Keep: hold the timer"), N_("Single player: stops the clock on preparation, so the raid waits for you."), 'H' },
+=======
+	{ KeeperAction::Help, "KeeperHelp", N_("Keep: help"), N_("Shows the controls and how to play."), 'H' },
+>>>>>>> b396891f9
 } };
 
 /** Spell bar hotkeys, by slot. */
 constexpr std::array<uint32_t, NumSpellSlots> SpellDefaults { 'Z', 'X', 'C', 'F', 'Q', 'B' };
+
+/** Keys that aren't the keeper's own but still do something in the keep. */
+const std::array<const char *, 6> SharedKeyActions { N_("Pause Game"), N_("Decrease Brightness"), N_("Increase Brightness"), N_("Screenshot"), N_("Game info"), N_("Chat Log") };
 
 bool CanUseKeeperKeys()
 {
@@ -136,6 +149,23 @@ BoxDrag boxDrag;
 
 } // namespace
 
+bool IsSettingShown(const OptionCategoryBase &category, const OptionEntryBase &entry)
+{
+	Options &options = GetOptions();
+	if (&category == &options.Mods || &category == &options.GameMode || &category == &options.StartUp)
+		return false;
+	// All that is left of Gameplay once the hero's pickups, quests, belts and equipment are gone.
+	if (&category == &options.Gameplay)
+		return &entry == &options.Gameplay.grabInput || &entry == &options.Gameplay.pauseOnFocusLoss;
+	if (&category == &options.Keymapper || &category == &options.Padmapper) {
+		const std::string_view name = entry.GetName();
+		if (name.substr(0, KeepActionPrefix.size()) == KeepActionPrefix)
+			return true;
+		return std::any_of(SharedKeyActions.begin(), SharedKeyActions.end(), [&](const char *action) { return name == _(action); });
+	}
+	return true;
+}
+
 void AddKeymapActions()
 {
 	Options &options = GetOptions();
@@ -190,6 +220,11 @@ bool DispatchBoundKey(uint32_t key)
 		return false;
 	action->actionPressed();
 	return true;
+}
+
+bool IsKeyBoundTo(KeeperAction action, uint32_t key)
+{
+	return GetOptions().Keymapper.KeyForAction(ActionKey(action, 0)) == NormalizeKey(key);
 }
 
 std::string KeyLabel(KeeperAction action, size_t index)

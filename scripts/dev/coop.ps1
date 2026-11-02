@@ -10,10 +10,16 @@ $hostProfile = New-TestProfile 'host'
 $h = Start-TestGame $hostProfile (@('--keeper-host') + $HostArgs) -Windowed:$Windowed
 "host pid $($h.Id)"
 if (-not $HostOnly) {
+<<<<<<< HEAD
     foreach ($name in ($clientNames | Select-Object -First $Clients)) {
         Start-Sleep $JoinDelay
         $profileDir = New-TestProfile $name
         $c = Start-TestGame $profileDir (@('--keeper-join', "127.0.0.1:$(Get-CheckoutPort)") + $ClientArgs) -Windowed:$Windowed
         "$name pid $($c.Id)"
     }
+=======
+    Start-Sleep $JoinDelay
+    $c = Start-TestGame $clientProfile (@('--keeper-join', "127.0.0.1:$(Get-CheckoutPort)") + $ClientArgs) -Windowed:$Windowed
+    "client pid $($c.Id)"
+>>>>>>> b396891f9
 }

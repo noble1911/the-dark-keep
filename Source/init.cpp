@@ -128,7 +128,7 @@ void init_cleanup()
 
 void init_create_window()
 {
-	if (!SpawnWindow(PROJECT_NAME))
+	if (!SpawnWindow("The Dark Keep")) // [DARK KEEP]
 		app_fatal(_("Unable to create main window"));
 	dx_init();
 	gbActive = true;

@@ -29,26 +29,18 @@
 namespace devilution {
 namespace {
 
-OptionalOwnedClxSpriteList DiabloTitleLogo;
-
 std::vector<std::unique_ptr<UiItemBase>> vecTitleScreen;
 
 void TitleLoad()
 {
-	ArtBackgroundWidescreen = LoadOptionalClx("ui_art\\hf_titlew.clx");
-	if (ArtBackgroundWidescreen.has_value()) {
-		LoadBackgroundArt("ui_art\\hf_logo1", 16);
-	} else {
-		LoadBackgroundArt("ui_art\\title");
-		DiabloTitleLogo = LoadPcxSpriteList("ui_art\\logo", /*numFrames=*/15, /*transparentColor=*/250);
-	}
+	// [DARK KEEP] Our own title over the menu's background, where Hellfire's title art and logo were.
+	UiLoadMainMenuBackground();
 }
 
 void TitleFree()
 {
 	ArtBackground = std::nullopt;
 	ArtBackgroundWidescreen = std::nullopt;
-	DiabloTitleLogo = std::nullopt;
 
 	vecTitleScreen.clear();
 }
@@ -59,20 +51,10 @@ void UiTitleDialog()
 {
 	TitleLoad();
 	const Point uiPosition = GetUIRectangle().position;
-	if (ArtBackgroundWidescreen.has_value()) {
-		const SDL_Rect rect = MakeSdlRect(0, uiPosition.y, 0, 0);
-		if (ArtBackgroundWidescreen)
-			vecTitleScreen.push_back(std::make_unique<UiImageClx>((*ArtBackgroundWidescreen)[0], rect, UiFlags::AlignCenter));
-		vecTitleScreen.push_back(std::make_unique<UiImageAnimatedClx>(*ArtBackground, rect, UiFlags::AlignCenter));
-	} else {
-		UiAddBackground(&vecTitleScreen);
-
-		vecTitleScreen.push_back(std::make_unique<UiImageAnimatedClx>(
-		    *DiabloTitleLogo, MakeSdlRect(0, uiPosition.y + 182, 0, 0), UiFlags::AlignCenter));
-
-		const SDL_Rect rect = MakeSdlRect(uiPosition.x, uiPosition.y + 410, 640, 26);
-		vecTitleScreen.push_back(std::make_unique<UiArtText>(_("Copyright © 1996-2001 Blizzard Entertainment").data(), rect, UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiSilver));
-	}
+	UiAddBackground(&vecTitleScreen);
+	vecTitleScreen.push_back(std::make_unique<UiArtText>("The Dark Keep", MakeSdlRect(uiPosition.x, uiPosition.y + 170, 640, 56), UiFlags::AlignCenter | UiFlags::FontSize46 | UiFlags::ColorUiGold, 4));
+	vecTitleScreen.push_back(std::make_unique<UiArtText>("You are the dungeon. Keep your gold.", MakeSdlRect(uiPosition.x, uiPosition.y + 240, 640, 30), UiFlags::AlignCenter | UiFlags::FontSize24 | UiFlags::ColorUiSilver));
+	vecTitleScreen.push_back(std::make_unique<UiArtText>("Built on DevilutionX. Plays with your own game data.", MakeSdlRect(uiPosition.x, uiPosition.y + 420, 640, 20), UiFlags::AlignCenter | UiFlags::FontSize12 | UiFlags::ColorUiSilverDark));
 
 	bool endMenu = false;
 	const Uint32 timeOut = SDL_GetTicks() + 7000;

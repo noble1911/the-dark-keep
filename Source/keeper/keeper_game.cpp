@@ -155,6 +155,7 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+<<<<<<< HEAD
 	TrapDisarmed,
 	BotLooted,
 	BotFled,
@@ -178,6 +179,9 @@ enum class Action : uint8_t {
 	RequestSpeed,
 	SetSpeed,
 	Ping,
+=======
+	RaidResult,
+>>>>>>> b396891f9
 };
 
 #pragma pack(push, 1)
@@ -498,10 +502,14 @@ void AnnounceReadyChanges(uint8_t before, uint8_t after)
 
 void SetPhase(Phase phase)
 {
+<<<<<<< HEAD
 	State.readyMask = 0;
 	State.readyTicks = 0;
+=======
+	const bool leavingRaid = State.phase == Phase::Raid && phase != Phase::Raid;
+>>>>>>> b396891f9
 	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
-	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
+	if (IsHost() && leavingRaid)
 		BroadcastState();
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
@@ -518,10 +526,20 @@ void SetPhase(Phase phase)
 	}
 	if (IsHost())
 		BroadcastState();
+<<<<<<< HEAD
 	if (phase == Phase::Breather)
 		SaveKeep();
 	else if ((phase == Phase::Defeat || phase == Phase::Victory) && CanSaveKeep())
 		DeleteResumeFile(); // what's decided stays decided; a retry writes it again from its respite
+=======
+	// Joiners take the host's numbers for the raid's summary: after the phase, as that is what ends their tally.
+	if (leavingRaid && IsHost() && gbIsMultiplayer) {
+		for (size_t field = 0; field < NumRaidResultFields; field++) {
+			const auto value = static_cast<uint32_t>(RaidResultField(field));
+			Send(Action::RaidResult, static_cast<uint8_t>(field), 0, { static_cast<int>((value >> 16) & 0xFF), static_cast<int>((value >> 24) & 0xFF) }, static_cast<uint16_t>(value & 0xFFFF));
+		}
+	}
+>>>>>>> b396891f9
 }
 
 bool IsMemberAlive(int16_t monsterId, _monster_id type)
@@ -2619,12 +2637,18 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncEnd:
 		ApplySnapshotEntry(message);
 		break;
+<<<<<<< HEAD
 	case Action::InKeeper:
 		CoopNoteInKeeper(player.getId(), message.a != 0);
 		break;
 	case Action::NextMapSoon:
 		if (&player != MyPlayer)
 			CoopNoteStarting(Swap16LE(message.w));
+=======
+	case Action::RaidResult:
+		if (&player != MyPlayer && !IsHost())
+			ApplyRaidResultField(message.a, static_cast<int>(static_cast<uint32_t>(Swap16LE(message.w)) | (static_cast<uint32_t>(message.x) << 16) | (static_cast<uint32_t>(message.y) << 24)));
+>>>>>>> b396891f9
 		break;
 	case Action::Restart:
 		// Only the game's creator picks what comes next; everyone else comes back to its new game.

@@ -1290,7 +1290,7 @@ void DiabloInitScreen()
 
 void SetApplicationVersions()
 {
-	*BufCopy(gszProductName, PROJECT_NAME, " v", PROJECT_VERSION) = '\0';
+	*BufCopy(gszProductName, "The Dark Keep (" PROJECT_NAME " v", PROJECT_VERSION, ")") = '\0'; // [DARK KEEP]
 	*BufCopy(gszVersionNumber, "version ", PROJECT_VERSION) = '\0';
 }
 
@@ -1395,21 +1395,7 @@ void DiabloSplash()
 	if (!gbShowIntro)
 		return;
 
-	if (*GetOptions().StartUp.splash == StartUpSplash::LogoAndTitleDialog)
-		play_movie("gendata\\logo.smk", true);
-
-	auto &intro = gbIsHellfire ? GetOptions().StartUp.hellfireIntro : GetOptions().StartUp.diabloIntro;
-
-	if (*intro != StartUpIntro::Off) {
-		if (gbIsHellfire)
-			play_movie("gendata\\Hellfire.smk", true);
-		else
-			play_movie("gendata\\diablo1.smk", true);
-		if (*intro == StartUpIntro::Once) {
-			intro.SetValue(StartUpIntro::Off);
-			if (!demo::IsRunning()) SaveOptions();
-		}
-	}
+	// [DARK KEEP] The other games' company logo and intro movies are not this game's: straight to its own title.
 
 	if (IsAnyOf(*GetOptions().StartUp.splash, StartUpSplash::TitleDialog, StartUpSplash::LogoAndTitleDialog))
 		UiTitleDialog();

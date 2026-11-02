@@ -21,6 +21,7 @@
 #include "DiabloUI/scrollbar.h"
 #include "DiabloUI/ui_flags.hpp"
 #include "DiabloUI/ui_item.h"
+#include "keeper/keeper_input.hpp" // [DARK KEEP]
 #include "controls/controller.h"
 #include "controls/controller_buttons.h"
 #include "controls/controller_motion.h"
@@ -408,7 +409,7 @@ void UiSettingsMenu()
 			size_t catIndex = 0;
 			for (OptionCategoryBase *pCategory : GetOptions().GetCategories()) {
 				for (OptionEntryBase *pEntry : pCategory->GetEntries()) {
-					if (!IsValidEntry(pEntry))
+					if (!IsValidEntry(pEntry) || !keeper::IsSettingShown(*pCategory, *pEntry)) // [DARK KEEP]
 						continue;
 					if (selectedCategory == pCategory)
 						itemToSelect = vecDialogItems.size();
@@ -420,7 +421,7 @@ void UiSettingsMenu()
 		} break;
 		case ShownMenuType::Settings: {
 			for (OptionEntryBase *pEntry : selectedCategory->GetEntries()) {
-				if (!IsValidEntry(pEntry))
+				if (!IsValidEntry(pEntry) || !keeper::IsSettingShown(*selectedCategory, *pEntry)) // [DARK KEEP]
 					continue;
 				if (selectedOption == pEntry)
 					itemToSelect = vecDialogItems.size();
