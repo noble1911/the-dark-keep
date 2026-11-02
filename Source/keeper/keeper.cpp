@@ -735,7 +735,14 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 	}
 
 	DrawString(out, FitText(text.hotkey, portrait.size.width - 6), { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	DrawString(out, FitText(text.name, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
+	// A two-word name too wide for the card takes two lines, the first over the portrait: cut short, "Fallen Blade" and "Fallen" read the same.
+	std::string_view nameLine = text.name;
+	if (const size_t space = nameLine.find(' '); space != std::string_view::npos && GetLineWidth(nameLine) > rect.size.width - 2) {
+		DrawString(out, FitText(nameLine.substr(0, space), rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight - 9 }, { rect.size.width, 12 } },
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite | UiFlags::Outlined });
+		nameLine.remove_prefix(space + 1);
+	}
+	DrawString(out, FitText(nameLine, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorWhite : UiFlags::ColorBlack) });
 	DrawString(out, FitText(text.cost, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
@@ -1080,6 +1087,9 @@ void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius =
 	DrawLine(out, bottom, left, color, maxY);
 }
 
+/** Wide enough for the longest refusal: narrower cut "Not enough gold" and "Vault: 615 gold" short. */
+constexpr int WorldLabelWidth = 260;
+
 void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
 {
 	if (overlayPass != OverlayPass::Text)
@@ -1087,10 +1097,10 @@ void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFla
 	const int zoom = ZoomFactor();
 	const Point base = GetScreenPosition(tile);
 	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
-	const Point at { anchor.x * zoom - 60, anchor.y * zoom - 4 - raise * zoom };
+	const Point at { anchor.x * zoom - WorldLabelWidth / 2, anchor.y * zoom - 4 - raise * zoom };
 	if (at.y < 0 || at.y + 14 >= ScreenHudTop())
 		return;
-	DrawString(out, text, { at, { 120, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
+	DrawString(out, text, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
 }
 
 /** The hero a Stone Curse cast at `tile` would take (it petrifies the nearest one within 5 tiles). */
@@ -1801,6 +1811,9 @@ void OnLevelLoaded()
 	lastCameraTicks = SDL_GetTicks();
 	NoteMapLevelLoaded();
 	ClearTabCards();
+	// A new game starts on the monsters, wherever the last one left the bar.
+	currentTab = BarTab::Lairs;
+	tabScroll.fill(0);
 	// Built during the load rather than as cards scroll into view, which would stutter.
 	if (!IsEditorActive()) {
 		for (const size_t kind : MusterKinds()) {
