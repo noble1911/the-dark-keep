@@ -28,6 +28,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "monster.h"
@@ -423,6 +424,11 @@ void Execute(const std::string &line)
 	} else if (command == "gold") {
 		in >> a;
 		State.vaultGold = a;
+	} else if (command == "raidtypes") {
+		std::string types;
+		for (int raid = 1; raid <= NumWaves(); raid++)
+			types += fmt::format("{}={} ", raid, RaidTypeInfoOf(RaidTypeForWave(static_cast<uint8_t>(raid))).name);
+		Output(types);
 	} else if (command == "routecheck") {
 		// What locking each door would do to the heroes' route.
 		const size_t base = EstimateHeroRoute({}).size();

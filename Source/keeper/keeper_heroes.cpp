@@ -265,6 +265,8 @@ struct RouteEntry {
 constexpr size_t RouteCacheSize = 12;
 std::array<RouteEntry, RouteCacheSize> Routes;
 uint32_t routeClock = 0;
+/** Moves on whenever the walls or the locks may have changed. */
+uint32_t routeGeneration = 0;
 
 void InvalidateRoutes()
 {
@@ -453,7 +455,7 @@ bool IsSafeStep(const Monster &monster, Direction dir)
 void QuickenStep(Monster &monster)
 {
 	const int skipped = RaidWalkSkippedFrames();
-	if (skipped == 0)
+	if (skipped == 0 || !IsHero(monster)) // keep monsters walk through here too
 		return;
 	const AnimStruct &anim = monster.type().getAnimData(MonsterGraphic::Walk);
 	monster.animInfo.setNewAnimation(anim.spritesForDirection(monster.direction), anim.frames, anim.rate, AnimationDistributionFlags::ProcessAnimationPending, static_cast<int8_t>(skipped));
@@ -1260,7 +1262,7 @@ std::vector<ScoutedHero> ScoutParty()
 			}
 		}
 		const HeroBody body = MakeHeroBody(cls, champion);
-		scouted.push_back({ cls, false, champion, MonstersData[HeroMonsterIds[static_cast<size_t>(cls)]].level, body.life, body.minDamage, body.maxDamage, body.armor, 0 });
+		scouted.push_back({ cls, false, MonstersData[HeroMonsterIds[static_cast<size_t>(cls)]].level, body.life, body.minDamage, body.maxDamage, body.armor, 0 });
 	}
 	return scouted;
 }
@@ -1384,8 +1386,14 @@ void ResetHeroes()
 	RebuildPaths();
 }
 
+uint32_t RouteGeneration()
+{
+	return routeGeneration;
+}
+
 void RebuildPaths()
 {
+	routeGeneration++;
 	BuildField(ToVault, State.vault);
 	BuildField(ToEntrance, State.entrance);
 	InvalidateRoutes();
@@ -1694,19 +1702,7 @@ int BashBlows(HeroClassKind cls)
 
 std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t baitsVisited)
 {
-	int sight = 0;
-	switch (cls) {
-	case HeroClassKind::Warrior:
-		sight = WarriorBaitSight;
-		break;
-	case HeroClassKind::Rogue:
-		sight = RogueBaitSight;
-		break;
-	case HeroClassKind::Sorcerer:
-		sight = SorcererBaitSight;
-		break;
-	}
-	sight = RaidBaitSight(sight);
+	const int sight = RaidBaitSight(BaitSightOf(cls));
 	if (sight <= 0)
 		return std::nullopt;
 	std::optional<size_t> best;

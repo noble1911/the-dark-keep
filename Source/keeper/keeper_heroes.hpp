@@ -154,7 +154,6 @@ struct ScoutedHero {
 	HeroClassKind cls = HeroClassKind::Warrior;
 	/** A full hero with gear and potions (a bot), rather than a lesser one (a monster). */
 	bool full = false;
-	bool champion = false;
 	int level = 0;
 	int life = 0;
 	int minDamage = 0;
@@ -171,6 +170,8 @@ std::optional<ClxSprite> HeroPortrait(HeroClassKind cls);
 
 /** Recomputes the vault/entrance distance fields and drops the cached routes (after level load, or when locks change). */
 void RebuildPaths();
+/** Changes every time RebuildPaths runs, for anything that keeps its own route. */
+uint32_t RouteGeneration();
 
 // ---- the Keep Lord and the heroes' way out --------------------------------
 /** The boss guarding the vault. Heroes win by killing it and escaping through a Town Portal. */

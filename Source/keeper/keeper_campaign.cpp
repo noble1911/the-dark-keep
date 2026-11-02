@@ -359,11 +359,6 @@ int PartyXpPercent()
 	return 10000 / CurrentMasterScale().partyPercent;
 }
 
-int ScaleArmorByHeroStrength(int value)
-{
-	return value * (100 + (HeroStrengthPercent() - 100) * HeroArmorStrengthPercent / 100) / 100;
-}
-
 int PartySizeForWave(int wave)
 {
 	const LevelRules &rules = CurrentRules();

@@ -28,7 +28,7 @@ constexpr std::array<RaidTypeInfo, NumRaidTypes> RaidTypes { {
 		{ W, R, S, W, R, S }, 100, 100, 100, 0, 0, 0, 0, 100, 100, false },
 	{ "Thieves' Band", "Rogues spot traps and go for the gold. Greedy: bait works. Guard the vault.",
 		{ R, R, W, R, S, R }, 90, 90, 90, 0, 0, 0, 0, 100, 130, false },
-	{ "Coven", "Sorcerers hit hard from afar and fall up close. Bait fools none, and locks hold them.",
+	{ "Coven", "Sorcerers hit hard from afar and fall up close. They ignore bait, and locks hold them.",
 		{ S, S, W, S, R, S }, 90, 110, 100, 0, 0, 0, 0, 100, 100, false },
 	{ "Fire-Warded Host", "Warded against fire: Fire Traps, fire walls and fire spells do little.",
 		{ W, R, S, W, R, S }, 100, 100, 100, RESIST_FIRE, 75, 0, 0, 100, 100, false },
@@ -111,16 +111,21 @@ RaidType RaidTypeForWave(uint8_t wave)
 	const LevelPlan &plan = CurrentPlan();
 	if (wave >= NumWaves())
 		return plan.types[0];
-	if (wave <= 1 && CurrentLevelNumber() <= PlainFirstRaidLevels && CurrentSetup().mode == GameMode::Campaign)
-		return RaidType::Mixed;
 	// Never the same kind twice running when the plan has another, worked out from raid 1 so it stays deterministic.
 	const uint32_t seed = CurrentSetup().seed;
-	size_t pick = MixHash(seed, 1) % plan.count;
-	for (uint32_t raid = 2; raid <= wave; raid++) {
-		const size_t next = MixHash(seed, raid) % plan.count;
-		pick = next != pick || plan.count == 1 ? next : (next + 1) % plan.count;
+	const bool plainFirst = CurrentSetup().mode == GameMode::Campaign && CurrentLevelNumber() <= PlainFirstRaidLevels;
+	RaidType type = RaidType::Mixed;
+	for (uint32_t raid = 1; raid <= wave; raid++) {
+		if (raid == 1 && plainFirst)
+			continue; // it stays Mixed, and the next raid has to differ from that
+		// The raid before the champions also keeps clear of their type, where the plan has a third to use.
+		const bool beforeChampions = raid + 1 == static_cast<uint32_t>(NumWaves()) && plan.count > 2;
+		size_t next = MixHash(seed, raid) % plan.count;
+		while (plan.count > 1 && ((raid > 1 && plan.types[next] == type) || (beforeChampions && next == 0)))
+			next = (next + 1) % plan.count;
+		type = plan.types[next];
 	}
-	return plan.types[pick];
+	return type;
 }
 
 const RaidTypeInfo &CurrentRaidInfo()

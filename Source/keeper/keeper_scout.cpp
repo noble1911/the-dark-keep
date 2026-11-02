@@ -42,7 +42,7 @@ uint32_t RouteKey(std::optional<Point> hoverDoor)
 	const auto mix = [](uint32_t hash, Point tile) {
 		return (hash ^ static_cast<uint32_t>(tile.x * 256 + tile.y + 1)) * 16777619U;
 	};
-	uint32_t key = 2166136261U ^ CurrentSetup().seed;
+	uint32_t key = (2166136261U ^ CurrentSetup().seed) + RouteGeneration() * 2654435761U;
 	key = mix(key, State.entrance);
 	key = mix(key, State.vault);
 	for (const DoorLock &lock : State.locks) {
@@ -170,7 +170,6 @@ struct KeepStrength {
 	int monsters = 0;
 	int life = 0;
 	int damage = 0;
-	int lordLife = 0;
 };
 
 KeepStrength MeasureKeep()
@@ -180,10 +179,8 @@ KeepStrength MeasureKeep()
 		const Monster &monster = Monsters[ActiveMonsters[i]];
 		if (!IsKeepTarget(monster))
 			continue;
-		if (IsBoss(monster)) {
-			keep.lordLife = monster.hitPoints >> 6;
+		if (IsBoss(monster))
 			continue;
-		}
 		keep.monsters++;
 		keep.life += monster.hitPoints >> 6;
 		keep.damage += (monster.minDamage + monster.maxDamage) / 2;
@@ -351,33 +348,22 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	}
 	y += layout.textHeight;
 
-	// A picture for every hero, gold framed for the full ones. They shrink together if a big party wouldn't fit.
+	// A picture for every hero, gold framed for the full ones. MaxPartySize of them fit on either card.
 	const int count = static_cast<int>(info.party.size());
-	const int cellWidth = count > 0 ? std::min(layout.portraitWidth, inner / count) : layout.portraitWidth;
+	const int cellWidth = layout.portraitWidth;
 	for (int i = 0; i < count; i++) {
 		const ScoutedHero &hero = info.party[i];
 		const Rectangle cell { { x + i * cellWidth, y }, { cellWidth - 1, layout.portraitHeight } };
 		FillRect(out, cell.position.x, cell.position.y, cell.size.width, cell.size.height, 0);
-		if (cellWidth == layout.portraitWidth) {
-			DrawKindImage(out.subregion(cell.position.x + 1, cell.position.y + 1, layout.portraitWidth - 2, layout.portraitHeight - 2), PortraitOf(hero.cls, layout));
-		} else {
-			// Too narrow for the whole figure: it stands cut off at the cell's edges, centred.
-			const KindImage &image = PortraitOf(hero.cls, layout);
-			const int inset = std::max(image.width - (cell.size.width - 2), 0) / 2;
-			const int drawn = std::min(image.width, cell.size.width - 2);
-			for (int row = 0; row < image.height && row < cell.size.height - 2; row++) {
-				for (int column = 0; column < drawn; column++) {
-					const uint8_t pixel = image.pixels[static_cast<size_t>(row) * image.width + column + inset];
-					if (pixel != 0)
-						out.SetPixel({ cell.position.x + 1 + column, cell.position.y + 1 + row }, pixel);
-				}
-			}
-		}
+		DrawKindImage(out.subregion(cell.position.x + 1, cell.position.y + 1, layout.portraitWidth - 2, layout.portraitHeight - 2), PortraitOf(hero.cls, layout));
 		DrawFrame(out, cell, hero.full ? PanelFrameColor : PAL16_GRAY + 8);
 	}
 	y += layout.portraitHeight + 4;
 
-	const std::array<std::string_view, 5> headers { "Hero", "Lvl", "Life", "Damage", "AC" };
+	// A hero still queued comes as a full one if a full one has already fallen by then.
+	const bool anyMinor = std::any_of(info.party.begin(), info.party.end(), [](const ScoutedHero &hero) { return !hero.full; });
+	const std::string_view heroHeader = !anyMinor ? "Hero" : (layout.big ? "Minor may arrive as full" : "Mix may vary");
+	const std::array<std::string_view, 5> headers { heroHeader, "Lvl", "Life", "Damage", "AC" };
 	for (size_t i = 0; i < headers.size(); i++)
 		DrawString(out, headers[i], { { x + layout.columns[i], y }, { layout.width, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorUiSilverDark });
 	y += layout.textHeight;

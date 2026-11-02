@@ -654,7 +654,6 @@ std::optional<ScoutedHero> ScoutBot(HeroClassKind cls)
 		ScoutedHero hero;
 		hero.cls = cls;
 		hero.full = true;
-		hero.champion = champion;
 		hero.level = bot.getCharacterLevel();
 		hero.life = bot._pMaxHP >> 6;
 		if (cls == HeroClassKind::Sorcerer) {

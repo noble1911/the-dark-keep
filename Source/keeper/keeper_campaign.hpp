@@ -76,8 +76,6 @@ int HeroStrengthPercent();
 int CurrentLevelNumber();
 /** Scales a number by the level's own strength: prices, tribute, bounties, loot, traps and the Keep Lord. */
 int ScaleByHeroStrength(int value);
-/** Hero armour: takes only part of the level's strength (see HeroArmorStrengthPercent). */
-int ScaleArmorByHeroStrength(int value);
 /** How many heroes raid `wave` brings. */
 int PartySizeForWave(int wave);
 

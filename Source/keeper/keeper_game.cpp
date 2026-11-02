@@ -331,13 +331,16 @@ void AnnouncePhase(Phase from, Phase to)
 		Announce(State.wave >= NumWaves() ? std::string("The champions have come for your gold!") : fmt::format("Raid {}: heroes approach the keep!", State.wave), UiFlags::ColorRed);
 		break;
 	case Phase::Breather:
-		if (State.wave > 1)
+		// Only coming out of a raid: a joiner's snapshot doesn't carry what the last raid paid.
+		if (from == Phase::Raid)
 			Announce(State.lastInterest > 0 ? fmt::format("Raid {} is over. The dark lands pay {} gold: tribute, and {} interest on your vault.", State.wave - 1, State.lastTribute, State.lastInterest)
 			                                : fmt::format("Raid {} is over. The dark lands pay {} gold in tribute.", State.wave - 1, State.lastTribute));
 		break;
 	case Phase::Victory:
 		NoteVictory();
-		AwardLevelGoals();
+		// Not for a master who connects after the win: seeing the keep stand isn't defending it.
+		if (from == Phase::Raid)
+			AwardLevelGoals();
 		Announce("The keep stands! Every raid has been repelled.");
 		break;
 	case Phase::Defeat:
@@ -807,7 +810,7 @@ private:
 void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
-	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave, static_cast<uint8_t>(RaidMasters()), static_cast<uint8_t>(GameDifficulty()));
+	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave, static_cast<uint8_t>(RaidMasters()), static_cast<uint8_t>(GameDifficulty()), FailedGoals());
 	out.Add(Action::SyncHostSlot, LobbyHostSlot());
 	// Before the hit points: raising a tier adds life, and those are the final numbers.
 	for (size_t i = 0; i < NumUpgrades; i++)
@@ -874,10 +877,11 @@ bool IsMonsterInPlay(int monsterId)
 	    && !Monsters[monsterId].isInvalid;
 }
 
-void ApplySyncBegin(uint8_t phaseId, uint8_t wave, uint8_t masters, uint8_t difficulty)
+void ApplySyncBegin(uint8_t phaseId, uint8_t wave, uint8_t masters, uint8_t difficulty, uint8_t failedGoals)
 {
 	const Phase phase = static_cast<Phase>(std::min<uint8_t>(phaseId, static_cast<uint8_t>(Phase::Defeat)));
 	State.wave = wave;
+	SetFailedGoals(failedGoals);
 	// Before the heroes in this snapshot are rebuilt: they scale with these.
 	SetRaidMasters(masters);
 	SetGameDifficulty(static_cast<Difficulty>(difficulty));
@@ -938,7 +942,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	const int monsterId = static_cast<int>(Swap16LE(message.w)) - 1;
 	switch (message.action) {
 	case Action::SyncBegin:
-		ApplySyncBegin(message.a, message.b, message.x, message.y);
+		ApplySyncBegin(message.a, message.b, message.x, message.y, static_cast<uint8_t>(Swap16LE(message.w)));
 		break;
 	case Action::SyncHostSlot:
 		LobbySetHostSlot(message.a);
