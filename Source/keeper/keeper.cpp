@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include "control/control.hpp"
+#include "controls/controller.h"
 #include "cursor.h"
 #include "diablo.h"
 #include "engine/dx.h"
@@ -39,6 +40,7 @@
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_map.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -521,13 +523,13 @@ std::string CardHotkey(const Tool &tool)
 		const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
 		const int slot = static_cast<int>(it - cards.begin()) - ScrollOf(currentTab);
 		if (it != cards.end() && slot >= 0 && slot < VisibleCardCount() && slot < static_cast<int>(NumCardSlotKeys))
-			hotkey = KeyLabel(KeeperAction::CardSlot, static_cast<size_t>(slot));
+			hotkey = InputName(KeeperAction::CardSlot, static_cast<size_t>(slot));
 	}
 	std::string direct;
 	if (tool.type == ToolType::LockDoor)
-		direct = KeyLabel(KeeperAction::LockDoor);
+		direct = InputName(KeeperAction::LockDoor);
 	else if (tool.type == ToolType::Bait)
-		direct = KeyLabel(KeeperAction::Bait);
+		direct = InputName(KeeperAction::Bait);
 	if (!hotkey.empty() && !direct.empty())
 		hotkey += "/";
 	return hotkey + direct;
@@ -558,7 +560,7 @@ CardText DescribeCard(const Tool &tool)
 		text.name = std::string(spell.name);
 		for (size_t slot = 0; slot < NumSpellSlots; slot++) {
 			if (equippedSpells[slot] == tool.index)
-				text.hotkey = KeyLabel(KeeperAction::Spell, slot);
+				text.hotkey = InputName(KeeperAction::Spell, slot);
 		}
 		text.cost = fmt::format("{} mana", SpellManaCost(tool.index));
 		text.ready = State.mana[me] >= SpellManaCostScaled(tool.index) && State.spellCooldown[me] == 0;
@@ -744,7 +746,7 @@ void DrawSpellBar(const Surface &out)
 			DrawString(out, std::to_string(SpellManaCost(*spell)), { icon.position + Displacement { 0, icon.size.height - 14 }, { icon.size.width - 2, 14 } },
 			    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (text.ready ? UiFlags::ColorBlue : UiFlags::ColorRed) });
 		}
-		DrawString(out, KeyLabel(KeeperAction::Spell, i), { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
+		DrawString(out, InputName(KeeperAction::Spell, i), { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
 
 		uint8_t frame = PAL16_GRAY + 8;
 		if (armed)
@@ -800,7 +802,7 @@ void DrawSellButton(const Surface &out, const std::string &label, bool canSell)
 /** "Del: " in front of a label, or nothing if selling has no key bound. */
 std::string SellKeyPrefix()
 {
-	const std::string key = KeyLabel(KeeperAction::Sell);
+	const std::string key = InputName(KeeperAction::Sell);
 	return key.empty() ? std::string() : key + ": ";
 }
 
@@ -822,7 +824,7 @@ void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
 		if (kinds[i] > 0)
 			summary += fmt::format("{}{} {}", summary.empty() ? "" : ", ", kinds[i], BuildKinds[i].name);
 	}
-	summary += "\nRight-click: rally around a point. Shift+right-click: add a waypoint.";
+	summary += fmt::format("\n{}: rally around a point. {}: add a waypoint.", InputName(PadAction::Order), InputName(PadAction::Waypoint));
 	DrawString(out, FitLines(summary, textWidth, 70, 13), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
 }
@@ -844,7 +846,7 @@ void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int
 		} else {
 			state = "Slain: returns after the raid";
 		}
-		help = fmt::format("Pop {}. Right-click: rally point. Shift: waypoint.{}", BuildKinds[lair.kind].supply, lair.hasRally || lair.routeCount > 0 ? " On lair: clear." : "");
+		help = fmt::format("Pop {}. {}: rally point. {}: waypoint.{}", BuildKinds[lair.kind].supply, InputName(PadAction::Order), IsPadInUse() ? InputName(PadAction::Waypoint) : InputName(PadAction::Modifier), lair.hasRally || lair.routeCount > 0 ? " On lair: clear." : "");
 		break;
 	}
 	case StructureType::Trap:
@@ -906,9 +908,12 @@ void DrawInfoPanel(const Surface &out)
 			return;
 		}
 		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		const std::string controls = fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
-		    KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
-		    KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
+		const std::string controls = IsPadInUse()
+		    ? fmt::format("{}: the cards. {}: pick one, then place it.\n{}: aim  {}: move\n{}: gate or vault  {}: zoom\n{}: possess  {}: menu",
+		          InputName(PadAction::Navigate), InputName(PadAction::Confirm), InputName(PadAction::MoveCursor), InputName(PadAction::MoveCamera), InputName(PadAction::Jump), InputName(PadAction::Zoom), InputName(PadAction::Possess), InputName(PadAction::Menu))
+		    : fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess",
+		          KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
+		          KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess));
 		DrawString(out, WordWrapString(controls, textWidth),
 		    { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 		return;
@@ -1436,13 +1441,14 @@ void LoadSpellBar()
 
 std::string GameOverContinueLabel(const KeepSetup &next)
 {
+	const std::string key = IsPadInUse() ? InputName(PadAction::Confirm) : std::string("Enter");
 	if (IsEditorTestRun())
-		return "Back to editor (Enter)";
+		return fmt::format("Back to editor ({})", key);
 	if (State.phase != Phase::Victory)
-		return "Retry (Enter)";
+		return fmt::format("Retry ({})", key);
 	if (CurrentSetup().mode != GameMode::Campaign)
-		return "Play again (Enter)";
-	return fmt::format("Next: {} (Enter)", CampaignLevelRules(next.campaignLevel).name);
+		return fmt::format("Play again ({})", key);
+	return fmt::format("Next: {} ({})", CampaignLevelRules(next.campaignLevel).name, key);
 }
 
 Rectangle GameOverBanner(int width, int hudTop)
@@ -1715,10 +1721,13 @@ void UpdateCamera()
 		if (IsKeyHeld(KeeperAction::CameraUp) || keys[SDL_SCANCODE_UP]) sy -= 1;
 		if (IsKeyHeld(KeeperAction::CameraDown) || keys[SDL_SCANCODE_DOWN]) sy += 1;
 
-		if (MousePosition.x <= EdgeScrollMargin) sx = -1;
-		if (MousePosition.x >= gnScreenWidth - 1 - EdgeScrollMargin) sx = 1;
-		if (MousePosition.y <= EdgeScrollMargin) sy = -1;
-		if (MousePosition.y >= gnScreenHeight - 1 - EdgeScrollMargin) sy = 1;
+		if (!IsPadInUse()) {
+			if (MousePosition.x <= EdgeScrollMargin) sx = -1;
+			if (MousePosition.x >= gnScreenWidth - 1 - EdgeScrollMargin) sx = 1;
+			if (MousePosition.y <= EdgeScrollMargin) sy = -1;
+			if (MousePosition.y >= gnScreenHeight - 1 - EdgeScrollMargin) sy = 1;
+		}
+		PadCameraPull(sx, sy);
 	}
 	if (sx == 0 && sy == 0)
 		return;
@@ -2130,6 +2139,7 @@ void DrawHud(const Surface &out)
 			DrawScaledUi(out, EditorDrawUi);
 		else
 			EditorDrawUi(out);
+		PadDrawCursor(out);
 		return;
 	}
 	DrawOverlays(out);
@@ -2139,6 +2149,7 @@ void DrawHud(const Surface &out)
 		DrawScaledUi(out);
 	else
 		DrawUi(out);
+	PadDrawCursor(out);
 }
 
 namespace {
@@ -2181,7 +2192,7 @@ void DrawUi(const Surface &out)
 		const Rectangle ready = ReadyButtonRect();
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
-		const std::string raidKey = KeyLabel(KeeperAction::StartRaid);
+		const std::string raidKey = InputName(KeeperAction::StartRaid);
 		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
@@ -2210,7 +2221,7 @@ void DrawUi(const Surface &out)
 	}
 	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
 		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
-		scout = fmt::format("Possessing {} ({}%)  click: move/attack  {}: release", possessed->name(), hp, KeyLabel(KeeperAction::Possess));
+		scout = fmt::format("Possessing {} ({}%)  {}: move/attack  {}: release", possessed->name(), hp, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("click"), InputName(KeeperAction::Possess));
 	}
 	DrawString(out, scout, { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
 
@@ -2240,12 +2251,119 @@ void DrawUi(const Surface &out)
 		};
 		if (next)
 			drawButton(0, GameOverContinueLabel(*next));
-		drawButton(count - 1, IsJoinedGame() ? "Leave (Esc)" : "Menu (Esc)");
+		drawButton(count - 1, fmt::format("{} ({})", IsJoinedGame() ? "Leave" : "Menu", InputName(PadAction::Cancel)));
 	}
 	EditorDrawTestBanner(out);
+	PadDrawOverlay(out);
 }
 
 } // namespace
+
+// ---- controller -----------------------------------------------------------------
+
+void PadHudTargets(std::vector<Rectangle> &targets)
+{
+	const Surface ui = UiHitSurface();
+	const int top = HudRect().position.y;
+	if (IsGameOver()) {
+		const int count = GameOverContinue() ? 2 : 1;
+		for (int i = 0; i < count; i++)
+			targets.push_back(GameOverButton(ui.w(), top, i, count));
+		return;
+	}
+	if (LobbyPadTargets(SpellBarRect(), targets))
+		return; // the panel takes the clicks
+	for (size_t i = 0; i < NumBarTabs; i++)
+		targets.push_back(TabRect(i));
+	const int first = ScrollOf(currentTab);
+	const int cards = static_cast<int>(TabCards(currentTab).size());
+	for (int slot = 0; slot < VisibleCardCount() && first + slot < cards; slot++)
+		targets.push_back(CardRect(slot));
+	for (size_t i = 0; i < NumSpellSlots; i++) {
+		if (equippedSpells[i])
+			targets.push_back(SpellSlotRect(i));
+	}
+	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
+		targets.push_back(ReadyButtonRect());
+	if (currentTool.type == ToolType::None && !Selection().empty())
+		targets.push_back(SellButtonRect());
+	RaidRosterTargets(ui, targets);
+	if (const std::optional<Rectangle> summary = RaidSummaryRect(ui, top); summary)
+		targets.push_back(*summary);
+}
+
+bool PadHudNeedsFocus()
+{
+	return IsGameOver() || LobbyPanelOpen();
+}
+
+bool PadHudScroll(const Rectangle &focused, AxisDirection dir)
+{
+	if (dir.y != AxisDirectionY_NONE || focused.position.y != CardRowRect().position.y || focused.size.height != CardHeight)
+		return false;
+	int &scroll = ScrollOf(currentTab);
+	const int before = scroll;
+	if (dir.x == AxisDirectionX_RIGHT && focused.position.x == CardRect(VisibleCardCount() - 1).position.x)
+		scroll = std::min(scroll + 1, MaxScroll(currentTab));
+	else if (dir.x == AxisDirectionX_LEFT && focused.position.x == CardRect(0).position.x)
+		scroll = std::max(scroll - 1, 0);
+	return scroll != before;
+}
+
+Rectangle PadSwitchTab(int delta)
+{
+	currentTab = static_cast<BarTab>((static_cast<int>(currentTab) + delta + static_cast<int>(NumBarTabs)) % static_cast<int>(NumBarTabs));
+	return CardRect(0);
+}
+
+void PadToggleZoom()
+{
+	SetZoom(ZoomFactor() == 1);
+}
+
+uint32_t PadToolStamp()
+{
+	return currentTool.type == ToolType::None ? 0 : (static_cast<uint32_t>(currentTool.type) << 16) + static_cast<uint32_t>(currentTool.index) + 1;
+}
+
+int PadViewBottom()
+{
+	return ScreenHudTop();
+}
+
+std::string PadHudPrompt(bool focused)
+{
+	const std::string confirm = InputName(PadAction::Confirm);
+	const std::string cancel = InputName(PadAction::Cancel);
+	if (IsControllerButtonPressed(ControllerButton_AXIS_TRIGGERRIGHT)) {
+		std::string spells;
+		for (size_t i = 0; i < NumSpellSlots; i++) {
+			if (equippedSpells[i])
+				spells += fmt::format("{}: {}   ", InputName(KeeperAction::Spell, i), SpellKinds[*equippedSpells[i]].name);
+		}
+		return spells.empty() ? std::string("No spells on the bar") : spells;
+	}
+	if (IsGameOver())
+		return fmt::format("{}: move   {}: press   {}: back", InputName(PadAction::Navigate), confirm, cancel);
+	if (focused)
+		return fmt::format("{}: move   {}: press   {}: back to the map   {} {}: tabs", InputName(PadAction::Navigate), confirm, cancel, InputName(PadAction::PrevTab), InputName(PadAction::NextTab));
+	if (MyPossessed() != nullptr)
+		return fmt::format("{}: aim   {}: move or attack   {}: release", InputName(PadAction::MoveCursor), confirm, InputName(PadAction::Possess));
+	switch (currentTool.type) {
+	case ToolType::Build:
+	case ToolType::Bait:
+	case ToolType::LockDoor:
+		return fmt::format("{}: aim   {}: place   {}: cancel", InputName(PadAction::MoveCursor), confirm, cancel);
+	case ToolType::Spell:
+		return fmt::format("{}: aim   {}: cast   {}: cancel", InputName(PadAction::MoveCursor), confirm, cancel);
+	default:
+		break;
+	}
+	if (!SelectedLairs().empty())
+		return fmt::format("{}: rally   {}: waypoint   {}: sell   {}: deselect", InputName(PadAction::Order), InputName(PadAction::Waypoint), InputName(PadAction::Sell), cancel);
+	return fmt::format("{}: select (hold and aim: box)   {}: possess   {}: cards   {}: spells   {}: open the gates   {}: menu",
+	    confirm, InputName(PadAction::Possess), InputName(PadAction::Navigate), InputName(PadAction::SpellModifier), InputName(PadAction::StartRaid), InputName(PadAction::Menu));
+}
 
 void CenterCamera(Point tile)
 {

@@ -264,6 +264,16 @@ std::optional<Point> OnRaidRosterClick(const Surface &out, Point mouse)
 	return std::nullopt;
 }
 
+void RaidRosterTargets(const Surface &out, std::vector<Rectangle> &targets)
+{
+	if (State.phase != Phase::Raid)
+		return;
+	const std::vector<RosterRow> rows = RosterRows();
+	const Rectangle rect = RosterRect(out, rows.size());
+	for (size_t i = 0; i < rows.size(); i++)
+		targets.push_back(RowRect(rect, i));
+}
+
 // ---- summary API -------------------------------------------------------------------
 
 bool IsRaidSummaryVisible()

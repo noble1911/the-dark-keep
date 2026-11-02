@@ -23,7 +23,12 @@
 #include <fmt/format.h>
 
 #include "DiabloUI/diabloui.h"
+#include "controls/control_mode.hpp"
+#include "controls/controller.h"
+#include "controls/controller_motion.h"
+#include "controls/game_controls.h"
 #include "controls/input.h"
+#include "controls/plrctrls.h"
 #include "engine/dx.h"
 #include "engine/palette.h"
 #include "engine/point.hpp"
@@ -34,8 +39,10 @@
 #include "engine/surface.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_menu.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_roster.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "panels/spell_icons.hpp"
 #include "utils/display.h"
 #include "utils/sdl_compat.h"
@@ -89,6 +96,44 @@ uint32_t messageUntil = 0;
 std::array<KindImage, NumLairKinds> cardImages;
 KindImage keeperImage;
 
+// ---- controller ------------------------------------------------------------------------------
+//
+// Each frame lists what can be pressed. The focus is the mouse position, snapped to one of them, and
+// pressing is a click there: the screen can't tell the difference.
+
+/** Height of the line of prompts under the list. */
+constexpr int PadPromptHeight = 18;
+/** Room for a family's title when a card scrolls into view. */
+constexpr int PadScrollMargin = FamilyTitleHeight + 2;
+
+enum class PadPress : uint8_t {
+	None,
+	Confirm,
+	Equip,
+	Respec,
+	PrevTab,
+	NextTab,
+};
+
+std::vector<Rectangle> padTargets;
+/** The cards among them, which show their details as soon as the focus lands on them. */
+std::vector<bool> padIsCard;
+std::array<Rectangle, TabNames.size()> padTabs {};
+std::optional<Rectangle> padPrimary;
+std::optional<Rectangle> padEquip;
+Rectangle padRespec {};
+Rectangle padList {};
+Rectangle padFocus {};
+PadPress padPress = PadPress::None;
+bool padFocusFirstCard = false;
+AxisDirectionRepeater padRepeater;
+
+void PadAddTarget(const Rectangle &rect, bool isCard = false)
+{
+	padTargets.push_back(rect);
+	padIsCard.push_back(isCard);
+}
+
 // ---- drawing helpers -------------------------------------------------------------------------
 
 void Fill(const Surface &out, const Rectangle &rect, uint8_t color)
@@ -135,6 +180,8 @@ void Panel(const Surface &out, const Rectangle &rect)
 bool Button(const Surface &out, const Rectangle &rect, std::string_view label, bool enabled, Point mouse)
 {
 	const bool hover = Inside(rect, mouse);
+	if (enabled)
+		PadAddTarget(rect);
 	Fill(out, rect, enabled ? PAL16_RED + 12 : PAL16_GRAY + 13);
 	Frame(out, rect, enabled && hover ? PAL16_YELLOW + 2 : FrameColor);
 	DrawString(out, Fit(label, rect.size.width - 4), { rect.position + Displacement { 0, 6 }, { rect.size.width, 16 } },
@@ -317,6 +364,7 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 			const int cardY = y + FamilyTitleHeight + static_cast<int>(t / perLine) * (CardHeight + RowGap);
 			const int x = 2 + column * (cardWidth + ArrowWidth);
 			const Rectangle card { { x, cardY }, { cardWidth, CardHeight } };
+			PadAddTarget({ area.position + Displacement { card.position.x, card.position.y }, card.size }, /*isCard=*/true);
 			const bool isSelected = selected.tab == Tab::Monsters && selected.index == kind;
 			DrawCard(clip, card, MonsterInfo(kind), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, kind, std::nullopt);
 			if (clicked && mouseInArea && Inside(card, localMouse))
@@ -343,6 +391,7 @@ void DrawSpellBarRow(const Surface &out, const Rectangle &area, Point mouse)
 		Fill(out, slot, 0);
 		if (bar[i] >= 0) {
 			SpellIcon(out.subregion(slot.position.x, slot.position.y, slot.size.width, slot.size.height), { { 0, 0 }, slot.size }, SpellKinds[static_cast<size_t>(bar[i])].icon);
+			PadAddTarget(slot, /*isCard=*/true);
 			if (clicked && Inside(slot, mouse))
 				selected = { Tab::Spells, static_cast<size_t>(bar[i]) };
 		}
@@ -365,6 +414,7 @@ void DrawGrid(const Surface &out, const Rectangle &area, Point mouse)
 		const int column = static_cast<int>(i) % columns;
 		const int row = static_cast<int>(i) / columns;
 		const Rectangle card { { 2 + column * (CardWidth + 6), row * (CardHeight + RowGap) - offset }, { CardWidth, CardHeight } };
+		PadAddTarget({ area.position + Displacement { card.position.x, card.position.y }, card.size }, /*isCard=*/true);
 		const bool isSelected = selected.tab == tab && selected.index == i;
 		DrawCard(clip, card, spells ? SpellInfo(i) : TrapInfo(i), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, std::nullopt, spells ? SpellKinds[i].icon : TrapKinds[i].icon);
 		if (clicked && mouseInArea && Inside(card, localMouse))
@@ -432,7 +482,8 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	}
 
 	const Rectangle respec { { x, area.position.y + area.size.height - ButtonHeight - 8 }, { inner, ButtonHeight } };
-	if (Button(out, respec, confirmRespec ? "Click again to respec" : "Respec (free)", true, mouse)) {
+	padRespec = respec;
+	if (Button(out, respec, confirmRespec ? (IsPadInUse() ? "Press again to respec" : "Click again to respec") : "Respec (free)", true, mouse)) {
 		if (confirmRespec) {
 			RespecProfile();
 			Flash("All your Renown is back");
@@ -522,10 +573,13 @@ void DrawDetails(const Surface &out, const Rectangle &area, Point mouse)
 		const size_t spell = selected.index;
 		const std::array<int8_t, NumSpellSlots> &bar = ProfileSpellBar();
 		const bool onBar = std::find(bar.begin(), bar.end(), static_cast<int8_t>(spell)) != bar.end();
+		padEquip = Rectangle { { x, buttonY }, { inner, ButtonHeight } };
 		if (Button(out, { { x, buttonY }, { inner, ButtonHeight } }, onBar ? "Take off spell bar" : "Put on spell bar", true, mouse) && !ToggleProfileSpell(spell))
 			Flash("Your spell bar is full: take a spell off first");
 		buttonY += ButtonHeight + 4;
 	}
+	if (!action.empty() && canAct)
+		padPrimary = Rectangle { { x, buttonY }, { inner, ButtonHeight } };
 	if (!action.empty() && Button(out, { { x, buttonY }, { inner, ButtonHeight } }, action, canAct, mouse) && canAct) {
 		switch (selected.tab) {
 		case Tab::Monsters:
@@ -562,6 +616,8 @@ void DrawScreen(const Surface &out, Point mouse)
 	const int tabWidth = (middleWidth - 4) / static_cast<int>(TabNames.size());
 	for (size_t i = 0; i < TabNames.size(); i++) {
 		const Rectangle rect { { middleLeft + static_cast<int>(i) * (tabWidth + 2), Margin }, { tabWidth, TabHeight } };
+		padTabs[i] = rect;
+		PadAddTarget(rect);
 		const bool active = static_cast<size_t>(tab) == i;
 		Fill(out, rect, active ? PAL16_RED + 12 : CardColor);
 		Frame(out, rect, active ? PAL16_YELLOW + 4 : (Inside(rect, mouse) ? PAL16_GRAY : FrameColor));
@@ -576,10 +632,12 @@ void DrawScreen(const Surface &out, Point mouse)
 
 	const int listTop = Margin + TabHeight + 6;
 	const int barHeight = tab == Tab::Spells ? SPLICONLENGTH + 26 : 0;
-	const Rectangle list { { middleLeft, listTop }, { middleWidth, out.h() - listTop - Margin - barHeight } };
+	const int promptHeight = IsPadInUse() ? PadPromptHeight : 0;
+	const Rectangle list { { middleLeft, listTop }, { middleWidth, out.h() - listTop - Margin - barHeight - promptHeight } };
 	Fill(out, list, 0);
 	Frame(out, list, PAL16_GRAY + 12);
 	const Rectangle inside { list.position + Displacement { 4, 4 }, { list.size.width - 8, list.size.height - 8 } };
+	padList = inside;
 	if (tab == Tab::Monsters)
 		DrawMonsters(out, inside, mouse);
 	else
@@ -590,7 +648,7 @@ void DrawScreen(const Surface &out, Point mouse)
 	DrawDetails(out, details, mouse);
 
 	const Rectangle done { { details.position.x, out.h() - Margin - ButtonHeight }, { rightWidth, ButtonHeight } };
-	if (Button(out, done, "Done (Esc)", true, mouse))
+	if (Button(out, done, fmt::format("Done ({})", InputName(PadAction::Cancel)), true, mouse))
 		endScreen = true;
 
 	if (!message.empty() && SDL_GetTicks() < messageUntil) {
@@ -600,11 +658,140 @@ void DrawScreen(const Surface &out, Point mouse)
 		Frame(out, line, RedFrame);
 		DrawString(out, message, { line.position + Displacement { 0, 3 }, { line.size.width, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
+
+	if (IsPadInUse()) {
+		if (padFocus.size.width > 0)
+			PadDrawFocusFrame(out, padFocus);
+		const auto name = [](ControllerButton button) { return std::string(ToString(GamepadType, TranslateTo(GamepadType, button))); };
+		const std::string prompt = fmt::format("{}: buy   {}: spell bar   {}: respec   {} {}: tabs   {}: done",
+		    InputName(PadAction::Confirm), name(ControllerButton_BUTTON_X), name(ControllerButton_BUTTON_Y), InputName(PadAction::PrevTab), InputName(PadAction::NextTab), InputName(PadAction::Cancel));
+		DrawString(out, FitText(prompt, middleWidth), { { middleLeft, out.h() - Margin - PadPromptHeight + 3 }, { middleWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+	}
+}
+
+/** Moves the focus and works out where this frame's mouse is. @return true if it clicks there. */
+bool PadFrame(Point &mouse)
+{
+	if (padTargets.empty())
+		return false;
+	std::optional<Rectangle> click;
+	if (padFocusFirstCard) {
+		const auto firstCard = std::find(padIsCard.begin(), padIsCard.end(), true);
+		if (firstCard != padIsCard.end()) {
+			padFocus = padTargets[static_cast<size_t>(firstCard - padIsCard.begin())];
+			click = padFocus;
+		}
+		padFocusFirstCard = false;
+	}
+	if (padFocus.size.width == 0) {
+		const auto firstCard = std::find(padIsCard.begin(), padIsCard.end(), true);
+		padFocus = padTargets[firstCard != padIsCard.end() ? static_cast<size_t>(firstCard - padIsCard.begin()) : 0];
+	} else if (!click) {
+		// Scrolling and changing tabs move things about.
+		padFocus = padTargets[PadNearestTarget(padTargets, padFocus.Center()).value_or(0)];
+	}
+
+	const AxisDirection dir = padRepeater.Get(GetLeftStickOrDpadDirection(false));
+	if (dir.x != AxisDirectionX_NONE || dir.y != AxisDirectionY_NONE) {
+		if (const std::optional<size_t> next = PadStepFocus(padTargets, padFocus, dir); next) {
+			padFocus = padTargets[*next];
+			if (padIsCard[*next]) {
+				if (padList.contains(padFocus.Center()) || padFocus.position.y < padList.position.y + padList.size.height) {
+					// A card of the list, not one of the spell bar's slots underneath it: bring it into view.
+					int &offset = scroll[static_cast<size_t>(tab)];
+					const int top = padFocus.position.y - PadScrollMargin - padList.position.y;
+					const int bottom = padFocus.position.y + padFocus.size.height - (padList.position.y + padList.size.height);
+					const int move = top < 0 ? top : std::max(bottom, 0);
+					offset += move;
+					padFocus.position.y -= move;
+				}
+				click = padFocus;
+			}
+		}
+	}
+
+	switch (padPress) {
+	case PadPress::Confirm: {
+		const std::optional<size_t> at = PadNearestTarget(padTargets, padFocus.Center());
+		if (at && padIsCard[*at]) {
+			// The card is already selected: pressing it is the button that buys it.
+			if (padPrimary)
+				click = padPrimary;
+		} else {
+			click = padFocus;
+		}
+		break;
+	}
+	case PadPress::Equip:
+		if (padEquip)
+			click = padEquip;
+		break;
+	case PadPress::Respec:
+		click = padRespec;
+		break;
+	case PadPress::PrevTab:
+	case PadPress::NextTab: {
+		const size_t count = padTabs.size();
+		const size_t next = (static_cast<size_t>(tab) + (padPress == PadPress::NextTab ? 1 : count - 1)) % count;
+		click = padTabs[next];
+		padFocusFirstCard = true;
+		break;
+	}
+	case PadPress::None:
+		break;
+	}
+	padPress = PadPress::None;
+	mouse = click ? click->Center() : padFocus.Center();
+	return click.has_value();
+}
+
+void PadHandleEvent(const SDL_Event &event)
+{
+	for (const ControllerButtonEvent ctrlEvent : ToControllerButtonEvents(event)) {
+		if (ctrlEvent.button == ControllerButton_IGNORE)
+			continue;
+		DetectInputMethod(event, ctrlEvent);
+		if (IsControllerMotion(event) || ctrlEvent.button == ControllerButton_NONE || ctrlEvent.up)
+			continue;
+		switch (TranslateTo(GamepadType, ctrlEvent.button)) {
+		case ControllerButton_BUTTON_A:
+			padPress = PadPress::Confirm;
+			break;
+		case ControllerButton_BUTTON_B:
+		case ControllerButton_BUTTON_START:
+		case ControllerButton_BUTTON_BACK:
+			endScreen = true;
+			break;
+		case ControllerButton_BUTTON_X:
+			padPress = PadPress::Equip;
+			break;
+		case ControllerButton_BUTTON_Y:
+			padPress = PadPress::Respec;
+			break;
+		case ControllerButton_BUTTON_LEFTSHOULDER:
+			padPress = PadPress::PrevTab;
+			break;
+		case ControllerButton_BUTTON_RIGHTSHOULDER:
+			padPress = PadPress::NextTab;
+			break;
+		default:
+			break;
+		}
+	}
 }
 
 bool HandleEvent(SDL_Event &event)
 {
 	switch (event.type) {
+	case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+	case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+	case SDL_EVENT_GAMEPAD_BUTTON_UP:
+	case SDL_EVENT_JOYSTICK_AXIS_MOTION:
+	case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+	case SDL_EVENT_JOYSTICK_BUTTON_UP:
+	case SDL_EVENT_JOYSTICK_HAT_MOTION:
+		PadHandleEvent(event);
+		return true;
 	case SDL_EVENT_KEY_DOWN:
 		if (SDLC_EventKey(event) == SDLK_ESCAPE) {
 			endScreen = true;
@@ -642,9 +829,18 @@ void UiKeeperScreen()
 	confirmRespec = false;
 	clicked = false;
 	wheel = 0;
+	padFocus = {};
+	padPress = PadPress::None;
+	padFocusFirstCard = false;
 
 	while (!endScreen) {
-		const Point mouse { MousePosition.x / scale, MousePosition.y / scale };
+		Point mouse { MousePosition.x / scale, MousePosition.y / scale };
+		if (IsPadInUse())
+			clicked = PadFrame(mouse);
+		padTargets.clear();
+		padIsCard.clear();
+		padPrimary = std::nullopt;
+		padEquip = std::nullopt;
 		DrawScreen(canvas, mouse);
 		clicked = false;
 		wheel = 0;
