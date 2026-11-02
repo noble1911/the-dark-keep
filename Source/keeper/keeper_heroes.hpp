@@ -141,6 +141,14 @@ std::optional<HeroSummary> GetHeroSummary(const Monster &monster);
 /** Scouting report for a wave, e.g. "Next raid: 2 Warriors, 1 Rogue". */
 std::string DescribeWave(uint8_t wave);
 
+/** A monster hero's numbers, in whole hit points. */
+struct HeroBody {
+	int life;
+	int minDamage;
+	int maxDamage;
+	int armor;
+};
+
 /** What scouting tells about one hero of a coming raid. */
 struct ScoutedHero {
 	HeroClassKind cls = HeroClassKind::Warrior;

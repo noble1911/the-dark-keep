@@ -17,6 +17,7 @@
 #include "items.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -377,7 +378,7 @@ void CheckFear(Player &bot, BotState &state)
 		return;
 	state.fearRolled = true;
 	// With no friend near, a hero with no potions left always runs.
-	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= FearChancePercent)
+	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= RaidFearPercent(FearChancePercent))
 		return;
 	state.fleeing = true;
 	if (state.carried > 0) {
@@ -617,6 +618,11 @@ void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried)
 	Escape(bot, state, throughPortal);
 }
 
+bool RunsThisRaid(const Player &player)
+{
+	return IsBot(player) && IsActive() && RaidWalkSkippedFrames() > 0;
+}
+
 bool SimulatesLocally(const Player &player)
 {
 	return &player == MyPlayer || IsBot(player);
@@ -644,6 +650,7 @@ std::optional<ScoutedHero> ScoutBot(HeroClassKind cls)
 		SetRndSeed(rngState);
 		const bool champion = State.wave >= NumWaves();
 		ScaleBot(bot, champion);
+		ApplyRaidTypeToBot(bot);
 		ScoutedHero hero;
 		hero.cls = cls;
 		hero.full = true;
@@ -697,6 +704,7 @@ void SpawnBot(size_t slot, HeroClassKind cls, Point tile)
 
 	InitPlayerGFX(bot);
 	InitPlayer(bot, true);
+	ApplyRaidTypeToBot(bot);
 	SyncInitPlrPos(bot);
 
 	BotState &state = Bots[slot];

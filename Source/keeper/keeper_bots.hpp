@@ -41,6 +41,8 @@ int32_t BotLifeForSync(size_t slot);
 void ApplyBotLifeSync(size_t slot, int32_t hitPoints);
 /** The host's copy got out: a joiner's does too, however far it had come, with the host's facts. */
 void ApplyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
+/** A full hero of a fast raid: it moves at the pace the engine lets players run in town. */
+bool RunsThisRaid(const Player &player);
 /** True if this client applies the player's damage/effects itself: the local master, or any bot. */
 bool SimulatesLocally(const Player &player);
 

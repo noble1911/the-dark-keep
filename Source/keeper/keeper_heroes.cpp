@@ -21,6 +21,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
@@ -448,12 +449,23 @@ bool IsSafeStep(const Monster &monster, Direction dir)
 	return !IsBurning(monster.position.tile + dir) || IsBurning(monster.position.tile);
 }
 
+/** Heroes of a fast raid skip part of each step. Every client does it, and it only depends on the raid. */
+void QuickenStep(Monster &monster)
+{
+	const int skipped = RaidWalkSkippedFrames();
+	if (skipped == 0)
+		return;
+	const AnimStruct &anim = monster.type().getAnimData(MonsterGraphic::Walk);
+	monster.animInfo.setNewAnimation(anim.spritesForDirection(monster.direction), anim.frames, anim.rate, AnimationDistributionFlags::ProcessAnimationPending, static_cast<int8_t>(skipped));
+}
+
 /** Walk one step in dir, or the nearest turn that is open. */
 bool StepTowards(Monster &monster, Direction dir)
 {
 	for (const Direction tryDir : { dir, Left(dir), Right(dir) }) {
 		if (DirOK(monster, tryDir) && IsSafeStep(monster, tryDir)) {
 			Walk(monster, tryDir);
+			QuickenStep(monster);
 			return true;
 		}
 	}
@@ -499,17 +511,11 @@ bool FollowField(Monster &monster, const DistanceField &field)
 	if (!best)
 		return false;
 	Walk(monster, *best);
+	QuickenStep(monster);
 	return true;
 }
 
-struct HeroBody {
-	int life;
-	int minDamage;
-	int maxDamage;
-	int armor;
-};
-
-/** A monster hero of this raid, in whole hit points. The scout card shows the same numbers. */
+/** A monster hero of this raid. The scout card shows the same numbers. */
 HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 {
 	const int wave = std::max<int>(State.wave, 1);
@@ -517,12 +523,14 @@ HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 	int hp = stats.lifeBase + stats.lifePerRaid * wave;
 	if (champion)
 		hp = hp * 3 / 2;
-	return {
+	HeroBody body {
 		ScaleHeroCombat(hp),
 		std::min(ScaleHeroCombat(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),
 		std::min(ScaleHeroCombat(stats.maxDamageBase + HeroMaxDamagePerTenRaids * wave / 10), 255),
 		std::min(ScaleHeroArmor(stats.armorBase + stats.armorPerRaid * wave), 255),
 	};
+	ApplyRaidTypeToBody(body);
+	return body;
 }
 
 void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
@@ -534,6 +542,7 @@ void ApplyHeroStats(Monster &monster, HeroClassKind cls, bool champion)
 	monster.maxHitPoints = body.life << 6;
 	monster.hitPoints = monster.maxHitPoints;
 	monster.flags |= MFLAG_CAN_OPEN_DOOR;
+	monster.resistance |= CurrentRaidInfo().resistances;
 }
 
 void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
@@ -545,11 +554,11 @@ void Announce(std::string_view message, UiFlags color = UiFlags::ColorRed)
 
 std::vector<HeroClassKind> PartyForWave(uint8_t wave)
 {
-	// How many comes from the level. Classes alternate, so bots and monster heroes both get a mix.
+	// How many comes from the level, and in what mix from the raid's type.
 	std::vector<HeroClassKind> party;
 	const int size = PartySizeForWave(wave);
 	for (int i = 0; i < size; i++)
-		party.push_back(static_cast<HeroClassKind>(i % NumHeroClasses));
+		party.push_back(RaidHeroClass(wave, static_cast<size_t>(i)));
 	return party;
 }
 
@@ -668,7 +677,7 @@ void CheckFear(const Monster &monster, HeroState &hero)
 	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)
 		return;
 	hero.fearRolled = true;
-	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= FearChancePercent)
+	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= RaidFearPercent(FearChancePercent))
 		return;
 	hero.fleeing = true;
 	if (hero.carried > 0) {
@@ -1225,6 +1234,8 @@ std::string DescribeWave(uint8_t wave)
 	for (const HeroClassKind cls : party)
 		counts[static_cast<size_t>(cls)]++;
 	std::string text = wave >= NumWaves() ? "Champions: " : "Next raid: ";
+	if (const RaidType type = RaidTypeForWave(wave); type != RaidType::Mixed)
+		text += fmt::format("{}, ", RaidTypeInfoOf(type).name);
 	bool first = true;
 	for (size_t i = 0; i < NumHeroClasses; i++) {
 		if (counts[i] == 0)
@@ -1695,6 +1706,7 @@ std::optional<size_t> FindBaitFor(HeroClassKind cls, Point position, uint8_t bai
 		sight = SorcererBaitSight;
 		break;
 	}
+	sight = RaidBaitSight(sight);
 	if (sight <= 0)
 		return std::nullopt;
 	std::optional<size_t> best;

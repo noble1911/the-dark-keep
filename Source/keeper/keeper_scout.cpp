@@ -19,6 +19,7 @@
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_roster.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "monster.h"
@@ -204,20 +205,35 @@ std::string_view GreedWord(const std::vector<ScoutedHero> &party)
 {
 	int sight = 0;
 	for (const ScoutedHero &hero : party)
-		sight += BaitSightOf(hero.cls);
+		sight += RaidBaitSight(BaitSightOf(hero.cls));
 	const int average = party.empty() ? 0 : sight / static_cast<int>(party.size());
 	return average >= 9 ? "high" : (average >= 6 ? "fair" : "low");
 }
 
 std::string_view CourageWord()
 {
-	return State.wave >= NumWaves() ? "never run" : "steady";
+	const int fear = CurrentRaidInfo().fearPercent;
+	return fear < 100 ? "bold" : (fear > 100 ? "skittish" : "steady");
+}
+
+std::string ResistWords()
+{
+	const RaidTypeInfo &type = CurrentRaidInfo();
+	std::string words;
+	const auto add = [&words](bool has, std::string_view word) {
+		if (has)
+			words += fmt::format("{}{}", words.empty() ? "" : ", ", word);
+	};
+	add((type.resistances & RESIST_FIRE) != 0, "fire");
+	add((type.resistances & RESIST_LIGHTNING) != 0, "lightning");
+	add((type.resistances & RESIST_MAGIC) != 0, "magic");
+	return words.empty() ? "nothing" : words;
 }
 
 /** The card's height for what it holds: the heroes are the only part that varies. */
 int CardHeight(const CardLayout &layout, const ScoutInfo &info)
 {
-	return layout.margin * 2 + layout.titleHeight + 2 * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
+	return layout.margin * 2 + layout.titleHeight + 4 * layout.textHeight + layout.portraitHeight + 4 + layout.textHeight + static_cast<int>(info.rows.size()) * layout.rowHeight
 	    + layout.textHeight + 2 * layout.textHeight + 8 + 6 + layout.textHeight;
 }
 
@@ -309,7 +325,8 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	int y = rect->position.y + layout.margin;
 	const bool champions = State.wave >= NumWaves();
 	const UiFlags titleFont = layout.big ? UiFlags::FontSize24 : UiFlags::FontSize12;
-	const std::string title = champions ? fmt::format("Raid {}: the champions", State.wave) : fmt::format("Raid {} of {}", State.wave, NumWaves());
+	const RaidTypeInfo &type = CurrentRaidInfo();
+	const std::string title = champions ? fmt::format("Raid {}: {} champions", State.wave, type.name) : fmt::format("Raid {} of {}: {}", State.wave, NumWaves(), type.name);
 	DrawString(out, title, { { x, y }, { inner, layout.titleHeight } }, { .flags = titleFont | UiFlags::ColorGold });
 	// How hard this game is set, whoever chose it. Normal on one's own needs no saying.
 	const int masters = RaidMasters();
@@ -319,10 +336,12 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 		DrawString(out, setting, { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	}
 	y += layout.titleHeight;
+	DrawString(out, FitLines(type.blurb, inner, 2 * layout.textHeight, layout.textHeight), { { x, y }, { inner, 2 * layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorOrange, .lineHeight = layout.textHeight });
+	y += 2 * layout.textHeight;
 	DrawString(out, fmt::format("{} {}.  Greed: {}.  Courage: {}.", info.party.size(), info.party.size() == 1 ? "hero" : "heroes", GreedWord(info.party), CourageWord()),
 	    { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	y += layout.textHeight;
-	DrawString(out, "Resists: nothing.", { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+	DrawString(out, fmt::format("Resists: {}.", ResistWords()), { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 	y += layout.textHeight;
 
 	// A picture for every hero, gold framed for the full ones. They shrink together if a big party wouldn't fit.
