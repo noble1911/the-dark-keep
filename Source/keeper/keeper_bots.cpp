@@ -36,6 +36,14 @@ constexpr int BotSight = 7;
 constexpr int SorcererRange = 8;
 constexpr int RogueRange = 9;
 constexpr int ThinkInterval = 6;
+constexpr int RogueDisarmPercent = 60;
+constexpr int RogueSpotRange = 3;
+constexpr int FearHealthDivisor = 4;
+constexpr int FearChancePercent = 50;
+/** Most AI decisions a bot spends falling back, about 9 steps. */
+constexpr int FallBackMaxThinks = 12;
+/** Near a known trap, walk the route tile by tile: the engine's path to a far waypoint would cut through it. */
+constexpr int CarefulTrapRange = 9;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -46,7 +54,17 @@ struct BotState {
 	bool deathHandled = false;
 	int potions = 0;
 	int thinkCooldown = 0;
+	/** Traps a Rogue has rolled to disarm. */
 	uint16_t trapsSeen = 0;
+	/** Traps this bot saw go off or spotted: its route avoids them. */
+	uint16_t trapsKnown = 0;
+	/** Fool's gold piles already visited. */
+	uint8_t baitsVisited = 0;
+	/** Game ticks left gawping at fool's gold. */
+	int baitLingerTicks = 0;
+	bool fellBack = false;
+	int fallBackThinks = 0;
+	int regroupBudget = RegroupBudgetTicks;
 	/** Game ticks left turned to stone (the masters' Stone Curse). */
 	int petrifiedTicks = 0;
 };
@@ -96,6 +114,23 @@ size_t SlotOf(const Player &player)
 {
 	return player.getId() - FirstBotId;
 }
+
+/**
+ * A percentile roll every client agrees on. Bots think outside the monster loop's per-monster seeds,
+ * where the global RNG isn't in step between clients, so their decisions must not draw from it.
+ */
+int SyncedRoll(const Player &bot, uint32_t salt)
+{
+	uint32_t hash = (static_cast<uint32_t>(bot.getId()) + 1) * 2654435761U;
+	hash ^= (static_cast<uint32_t>(State.wave) + 1) * 2246822519U;
+	hash ^= (salt + 1) * 3266489917U;
+	hash ^= hash >> 15;
+	hash *= 2654435761U;
+	hash ^= hash >> 13;
+	return static_cast<int>(hash % 100);
+}
+
+constexpr uint32_t FearRollSalt = 0x46454152;
 
 void ClearBotFromMap(Player &bot)
 {
@@ -302,10 +337,11 @@ void DrinkIfHurt(Player &bot, BotState &state)
 
 void CheckFear(Player &bot, BotState &state)
 {
-	if (state.fearRolled || state.fleeing || state.potions > 0 || bot._pHitPoints * 4 >= bot._pMaxHP)
+	if (state.fearRolled || state.fleeing || state.potions > 0 || bot._pHitPoints * FearHealthDivisor >= bot._pMaxHP)
 		return;
 	state.fearRolled = true;
-	if (GenerateRnd(100) >= 50)
+	// With no friend near, a hero with no potions left always runs.
+	if (NearestHealthyHero(bot.position.tile, FallBackAllyRange) && SyncedRoll(bot, FearRollSalt) >= FearChancePercent)
 		return;
 	state.fleeing = true;
 	if (state.carried > 0) {
@@ -324,32 +360,44 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 		return;
 	for (size_t i = 0; i < MaxTraps; i++) {
 		Trap &trap = State.traps[i];
-		if (!trap.active || (state.trapsSeen & (1U << i)) != 0 || bot.position.tile.WalkingDistance(trap.position) > 3)
+		if (!trap.active || (state.trapsSeen & (1U << i)) != 0 || bot.position.tile.WalkingDistance(trap.position) > RogueSpotRange)
 			continue;
 		state.trapsSeen |= static_cast<uint16_t>(1U << i);
-		if (GenerateRnd(100) < 60) {
+		state.trapsKnown |= static_cast<uint16_t>(1U << i);
+		if (SyncedRoll(bot, static_cast<uint32_t>(i) + static_cast<uint32_t>(trap.position.x * 256 + trap.position.y) * 16) < RogueDisarmPercent) {
 			trap.active = false;
 			Announce(fmt::format("{} disarmed one of your Fire Traps!", bot._pName));
 		}
 	}
 }
 
+bool IsNearKnownTrap(Point tile, uint16_t knownTraps)
+{
+	for (size_t i = 0; i < MaxTraps; i++) {
+		if ((knownTraps & (1U << i)) != 0 && State.traps[i].active && tile.WalkingDistance(State.traps[i].position) <= CarefulTrapRange)
+			return true;
+	}
+	return false;
+}
+
 /** Walk towards a goal along the hero paths. @return false if there is no way forward. */
 bool Travel(Player &bot, BotState &state, HeroGoal goal)
 {
 	const Point position = bot.position.tile;
-	if (const std::optional<Point> door = LockedDoorOnPath(goal, position); door) {
+	if (const std::optional<Point> door = LockedDoorOnPath(goal, position, state.trapsKnown); door) {
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_ATTACK;
 		bot.destParam1 = door->x;
 		bot.destParam2 = door->y;
-		StrikeLockedDoor(*door, state.cls == HeroClassKind::Warrior ? 3 : 1, bot._pName);
+		StrikeLockedDoor(*door, BashBlows(state.cls), bot._pName);
 		return true;
 	}
-	for (const int steps : { 7, 3, 1 }) {
-		const std::optional<Point> waypoint = GoalWaypoint(goal, position, steps);
+	const bool careful = IsNearKnownTrap(position, state.trapsKnown);
+	for (const int steps : { careful ? 1 : 7, careful ? 1 : 3, 1 }) {
+		const std::optional<Point> waypoint = GoalWaypoint(goal, position, steps, state.trapsKnown);
 		if (!waypoint)
 			return false;
+		ClrPlrPath(bot);
 		MakePlrPath(bot, *waypoint, true);
 		if (bot.walkpath[0] != WALK_NONE) {
 			bot.destAction = ACTION_NONE;
@@ -357,6 +405,51 @@ bool Travel(Player &bot, BotState &state, HeroGoal goal)
 		}
 	}
 	return false;
+}
+
+/** Like the monster heroes: greedy bots detour to fool's gold they can see. @return true if the bot acted. */
+bool TryGoForBait(Player &bot, BotState &state)
+{
+	const Point position = bot.position.tile;
+	const std::optional<size_t> slot = FindBaitFor(state.cls, position, state.baitsVisited);
+	if (!slot)
+		return false;
+	const Point bait = State.baits[*slot].position;
+	ClrPlrPath(bot);
+	bot.destAction = ACTION_NONE;
+	if (position.WalkingDistance(bait) <= 1) {
+		ConsumeBait(*slot, state.baitsVisited, bot._pName);
+		state.baitLingerTicks = BaitLingerTicks;
+		return true;
+	}
+	MakePlrPath(bot, bait, false);
+	if (bot.walkpath[0] != WALK_NONE)
+		return true;
+	state.baitsVisited |= static_cast<uint8_t>(1U << *slot); // can't reach it: give up on this pile
+	return false;
+}
+
+/** Out of potions and wounded in a fight: break off, once, and run to a healthy friend. @return true if it moved. */
+bool TryFallBack(Player &bot, BotState &state)
+{
+	if (state.fleeing || state.carried != 0 || state.potions > 0 || State.wave >= NumWaves)
+		return false;
+	if (state.fallBackThinks == 0) {
+		if (state.fellBack || bot._pHitPoints * 100 >= bot._pMaxHP * FallBackHealthPercent || FindTarget(bot, BotSight) == nullptr)
+			return false;
+		state.fellBack = true;
+		state.fallBackThinks = FallBackMaxThinks;
+	}
+	const std::optional<Point> ally = NearestHealthyHero(bot.position.tile, FallBackAllyRange);
+	if (!ally || bot.position.tile.WalkingDistance(*ally) <= FallBackArriveDistance) {
+		state.fallBackThinks = 0;
+		return false;
+	}
+	state.fallBackThinks--;
+	ClrPlrPath(bot);
+	bot.destAction = ACTION_NONE;
+	MakePlrPath(bot, *ally, false);
+	return true;
 }
 
 void Think(Player &bot, BotState &state)
@@ -381,6 +474,8 @@ void Think(Player &bot, BotState &state)
 	}
 
 	const bool running = state.fleeing || (State.bossDown && PortalPosition());
+	if (!State.bossDown && TryFallBack(bot, state))
+		return;
 	if (!running) {
 		if (Monster *target = FindTarget(bot, BotSight); target != nullptr) {
 			Attack(bot, state, *target);
@@ -404,6 +499,9 @@ void Think(Player &bot, BotState &state)
 		return;
 	}
 
+	if (TryGoForBait(bot, state))
+		return;
+
 	if (GoalDistance(HeroGoal::Vault, position) <= 1) {
 		// Rogues are here for the gold; the others came for the Lord and wait for him at the vault.
 		if (state.cls == HeroClassKind::Rogue && State.vaultGold > 0) {
@@ -411,6 +509,13 @@ void Think(Player &bot, BotState &state)
 			NoteGoldLooted(state.carried);
 			Announce(fmt::format("{} looted {} gold from the vault!", bot._pName, state.carried));
 		}
+		return;
+	}
+	if (state.regroupBudget > 0 && IsAheadOfParty(position)) {
+		// Called every tick while the bot stands idle.
+		state.regroupBudget--;
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
 		return;
 	}
 	Travel(bot, state, HeroGoal::Vault);
@@ -531,6 +636,10 @@ void UpdateBots()
 			state.thinkCooldown = 0;
 			continue;
 		}
+		if (state.baitLingerTicks > 0) {
+			state.baitLingerTicks--;
+			continue;
+		}
 		state.thinkCooldown = ThinkInterval;
 		Think(bot, state);
 		AvoidFire(bot);
@@ -608,6 +717,49 @@ bool IsBotNear(Point tile, int distance)
 			return true;
 	}
 	return false;
+}
+
+void BotsWitnessTrap(size_t trapSlot, Point trapPosition, int range)
+{
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (!IsLivingBot(bot))
+			continue;
+		const int distance = bot.position.tile.WalkingDistance(trapPosition);
+		if (distance <= 1 || (distance <= range && HasLineOfSight(bot.position.tile, trapPosition)))
+			Bots[i].trapsKnown |= static_cast<uint16_t>(1U << trapSlot);
+	}
+}
+
+std::optional<Point> NearestHealthyBot(Point from, int range)
+{
+	std::optional<Point> best;
+	int bestDistance = 0;
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (!IsLivingBot(bot) || Bots[i].fleeing || Bots[i].carried != 0 || bot._pHitPoints * 100 < bot._pMaxHP * HealthyAllyPercent)
+			continue;
+		const int distance = from.WalkingDistance(bot.position.tile);
+		if (distance <= range && (!best || distance < bestDistance)) {
+			best = Point(bot.position.tile);
+			bestDistance = distance;
+		}
+	}
+	return best;
+}
+
+uint16_t BotRearVaultDistance()
+{
+	uint16_t rear = 0;
+	for (size_t i = 0; i < MaxBots && FirstBotId + i < Players.size(); i++) {
+		const Player &bot = Players[FirstBotId + i];
+		if (!IsLivingBot(bot) || Bots[i].fleeing || Bots[i].carried != 0)
+			continue;
+		const uint16_t distance = GoalDistance(HeroGoal::Vault, bot.position.tile);
+		if (distance != 0xFFFF)
+			rear = std::max(rear, distance);
+	}
+	return rear;
 }
 
 void BotCastTownPortal(Player &bot)
