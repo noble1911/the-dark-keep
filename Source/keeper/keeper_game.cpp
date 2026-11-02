@@ -146,6 +146,7 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+	RaidResult,
 };
 
 #pragma pack(push, 1)
@@ -323,8 +324,9 @@ void AnnouncePhase(Phase from, Phase to)
 
 void SetPhase(Phase phase)
 {
+	const bool leavingRaid = State.phase == Phase::Raid && phase != Phase::Raid;
 	// AnnouncePhase takes the bots off the map: joiners first hear how their last fights ended.
-	if (IsHost() && State.phase == Phase::Raid && phase != Phase::Raid)
+	if (IsHost() && leavingRaid)
 		BroadcastState();
 	AnnouncePhase(State.phase, phase);
 	State.phase = phase;
@@ -341,6 +343,13 @@ void SetPhase(Phase phase)
 	}
 	if (IsHost())
 		BroadcastState();
+	// Joiners take the host's numbers for the raid's summary: after the phase, as that is what ends their tally.
+	if (leavingRaid && IsHost() && gbIsMultiplayer) {
+		for (size_t field = 0; field < NumRaidResultFields; field++) {
+			const auto value = static_cast<uint32_t>(RaidResultField(field));
+			Send(Action::RaidResult, static_cast<uint8_t>(field), 0, { static_cast<int>((value >> 16) & 0xFF), static_cast<int>((value >> 24) & 0xFF) }, static_cast<uint16_t>(value & 0xFFFF));
+		}
+	}
 }
 
 bool IsMemberAlive(int16_t monsterId, _monster_id type)
@@ -1851,6 +1860,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncBot:
 	case Action::SyncEnd:
 		ApplySnapshotEntry(message);
+		break;
+	case Action::RaidResult:
+		if (&player != MyPlayer && !IsHost())
+			ApplyRaidResultField(message.a, static_cast<int>(static_cast<uint32_t>(Swap16LE(message.w)) | (static_cast<uint32_t>(message.x) << 16) | (static_cast<uint32_t>(message.y) << 24)));
 		break;
 	case Action::Restart:
 		// Only the game's creator picks what comes next; everyone else comes back to its new game.

@@ -36,6 +36,7 @@
 #include "keeper/keeper_menu.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_roster.hpp"
+#include "keeper/keeper_tutorial.hpp"
 #include "panels/spell_icons.hpp"
 #include "utils/display.h"
 #include "utils/sdl_compat.h"
@@ -552,6 +553,9 @@ void DrawScreen(const Surface &out, Point mouse)
 	const int left = (out.w() - width) / 2;
 	const int leftWidth = width >= 1000 ? 230 : 170;
 	const int rightWidth = width >= 1000 ? 290 : 200;
+	const bool clickedScreen = clicked;
+	if (TutorialIsMouseOver(mouse))
+		clicked = false; // the tip is on top of the list, and it is drawn after it
 	const Rectangle character { { left + Margin, Margin }, { leftWidth, out.h() - 2 * Margin } };
 	const Rectangle details { { left + width - rightWidth - Margin, Margin }, { rightWidth, out.h() - 2 * Margin - ButtonHeight - 6 } };
 	const int middleLeft = character.position.x + leftWidth + Margin;
@@ -592,6 +596,8 @@ void DrawScreen(const Surface &out, Point mouse)
 	const Rectangle done { { details.position.x, out.h() - Margin - ButtonHeight }, { rightWidth, ButtonHeight } };
 	if (Button(out, done, "Done (Esc)", true, mouse))
 		endScreen = true;
+
+	DrawKeeperScreenTip(out, list, mouse, clickedScreen);
 
 	if (!message.empty() && SDL_GetTicks() < messageUntil) {
 		const int textWidth = GetLineWidth(message) + 16;

@@ -38,6 +38,19 @@ inline void DrawPanel(const Surface &out, const Rectangle &rect)
 	DrawFrame(out, rect, PanelFrameColor);
 }
 
+/** A solid panel in the Keeper screen's style. Index 255 is white in the dungeon palettes, hence the grey. */
+inline void DrawDungeonPanel(const Surface &out, const Rectangle &rect)
+{
+	FillRect(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height, PAL16_GRAY + 14);
+	DrawFrame(out, rect, PAL16_RED + 10);
+	DrawFrame(out, { rect.position + Displacement { 1, 1 }, { rect.size.width - 2, rect.size.height - 2 } }, PAL16_GRAY + 12);
+}
+
+inline int CountLinesOfText(std::string_view text)
+{
+	return 1 + static_cast<int>(std::count(text.begin(), text.end(), '\n'));
+}
+
 /** Cuts `text` down until it fits in `width` pixels, marking the cut. Cuts fall between UTF-8 characters: player names can be anything. */
 inline std::string FitText(std::string_view text, int width)
 {

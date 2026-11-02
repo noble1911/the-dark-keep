@@ -84,6 +84,7 @@
 
 #include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_bots.hpp" // [DARK KEEP]
+#include "keeper/keeper_tutorial.hpp" // [DARK KEEP]
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
@@ -1461,7 +1462,7 @@ void DrawView(const Surface &out, Point startPosition)
 	if (MyPlayerIsDead) {
 		RedBack(out);
 		DrawDeathText(out);
-	} else if (PauseMode != 0) {
+	} else if (PauseMode != 0 && !keeper::IsHelpOpen()) { // [DARK KEEP] the help pauses a solo game quietly
 		gmenu_draw_pause(out);
 	}
 	if (IsDiabloMsgAvailable()) {

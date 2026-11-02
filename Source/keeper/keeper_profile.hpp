@@ -66,6 +66,10 @@ const std::array<int8_t, NumSpellSlots> &ProfileSpellBar();
 /** Puts the spell on the bar or takes it off. @return false if the bar is full. */
 bool ToggleProfileSpell(size_t spell);
 
+/** Which first-map tips this master has seen, one bit each. */
+unsigned ProfileTipsSeen();
+void ProfileSetTipsSeen(unsigned seen);
+
 // ---- what this game may use -----------------------------------------------------------------
 
 /** The host's unlocks for a joiner, a test flag's rank, or this player's own. */

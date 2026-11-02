@@ -37,6 +37,25 @@ void DismissRaidSummary();
 /** New game / level load: forget all raid stats and hide the summary. */
 void ResetRaidStats();
 
+/** The whole map so far, for the end-of-map screen. */
+struct MapTotals {
+	int slain = 0;
+	int escaped = 0;
+	int fled = 0;
+	int goldLooted = 0;
+	int goldCarriedOff = 0;
+	int monstersLost = 0;
+};
+MapTotals GetMapTotals();
+
+/**
+ * Co-op: a joiner's own tally can miss what happened before it arrived or while it was loading, so at the
+ * end of each raid the host sends its numbers and they replace the joiner's. XP stays each player's own.
+ */
+constexpr size_t NumRaidResultFields = 16;
+int RaidResultField(size_t field);
+void ApplyRaidResultField(size_t field, int value);
+
 // ---- stat hooks (called from the simulation) -------------------------------------
 
 /** Every client, when the phase changes to Raid. */

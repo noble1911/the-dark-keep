@@ -63,6 +63,7 @@ struct Profile {
 	std::array<uint8_t, NumSpellKinds> spells {};
 	std::array<uint8_t, NumTrapKinds> traps {};
 	std::array<int8_t, NumSpellSlots> spellBar {};
+	unsigned tipsSeen = 0;
 };
 
 Profile profile;
@@ -137,6 +138,7 @@ ReadResult ReadProfile(const std::string &path, Profile &p)
 	}
 	p.spellBar.fill(-1);
 	size_t barSlot = 0;
+	bool hasTips = false;
 	char key[16] {};
 	int a = 0;
 	int b = 0;
@@ -160,9 +162,16 @@ ReadResult ReadProfile(const std::string &path, Profile &p)
 		} else if (name == "bar") {
 			if (a >= 0 && static_cast<size_t>(a) < NumSpellKinds && barSlot < NumSpellSlots)
 				p.spellBar[barSlot++] = static_cast<int8_t>(a);
+		} else if (name == "tips") {
+			// Two halves: fscanf's %d stops short of a full 32 bits.
+			p.tipsSeen = static_cast<unsigned>(a & 0xFFFF) | (static_cast<unsigned>(b & 0xFFFF) << 16);
+			hasTips = true;
 		}
 	}
 	std::fclose(file);
+	// A profile from before the tips, that has played: no need to teach this master the basics.
+	if (!hasTips && (p.xp > 0 || p.stats.heroesSlain > 0))
+		p.tipsSeen = ~0U;
 	return ReadResult::Ok;
 }
 
@@ -430,6 +439,21 @@ bool ToggleProfileSpell(size_t spell)
 	return false;
 }
 
+unsigned ProfileTipsSeen()
+{
+	Load();
+	return profile.tipsSeen;
+}
+
+void ProfileSetTipsSeen(unsigned seen)
+{
+	Load();
+	if (profile.tipsSeen == seen)
+		return;
+	profile.tipsSeen = seen;
+	SaveProfile();
+}
+
 bool IsKindAvailable(size_t kind)
 {
 	if (kind >= NumLairKinds)
@@ -599,6 +623,7 @@ void SaveProfile()
 		if (slot >= 0)
 			text += fmt::format("bar {} 1\n", slot);
 	}
+	text += fmt::format("tips {} {}\n", profile.tipsSeen & 0xFFFF, profile.tipsSeen >> 16);
 	const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
 	const bool closed = std::fclose(file) == 0;
 	if (!written || !closed) {

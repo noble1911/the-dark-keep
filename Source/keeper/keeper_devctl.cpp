@@ -28,6 +28,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_tutorial.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "monster.h"
@@ -426,6 +427,10 @@ void Execute(const std::string &line)
 	} else if (command == "fillmana") {
 		State.mana[MyPlayerId] = MaxMana * ManaScale;
 		State.spellCooldown[MyPlayerId] = 0;
+	} else if (command == "textcheck") {
+		for (const std::string &problem : CheckTextFits())
+			Output(fmt::format("textcheck {}", problem));
+		Output("textcheck done");
 	} else if (command == "echo") {
 		std::string rest;
 		std::getline(in, rest);

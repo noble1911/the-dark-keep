@@ -154,6 +154,9 @@ set(libdevilutionx_SRCS
   keeper/keeper_map.cpp
   keeper/keeper_editor.cpp
   keeper/keeper_lobby.cpp
+  keeper/keeper_tutorial.cpp
+  keeper/keeper_alerts.cpp
+  keeper/keeper_summary.cpp
 
   qol/autopickup.cpp
   qol/chatlog.cpp
