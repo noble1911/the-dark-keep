@@ -555,15 +555,23 @@ void LeaveKeep(Monster &monster, HeroState &hero, bool throughPortal)
 	HeroEscapes(monster, hero, throughPortal);
 }
 
-void HeroSteals(Monster &monster, HeroState &hero)
+void HeroLoots(HeroState &hero, int amount)
 {
-	const int amount = std::min(ScaleByHeroStrength(HeroClasses[static_cast<size_t>(hero.cls)].carryCap), State.vaultGold);
-	if (amount <= 0)
-		return;
-	State.vaultGold -= amount;
 	hero.carried = amount;
 	NoteGoldLooted(amount);
 	Announce(fmt::format("A {} looted {} gold from the vault!", ClassName(hero), amount));
+}
+
+void HeroSteals(Monster &monster, HeroState &hero)
+{
+	if (IsHost()) { // a joiner's copy waits to be told
+		const int amount = std::min(ScaleByHeroStrength(HeroClasses[static_cast<size_t>(hero.cls)].carryCap), State.vaultGold);
+		if (amount <= 0)
+			return;
+		State.vaultGold -= amount;
+		NotifyHeroLooted(monster.getId(), amount);
+		HeroLoots(hero, amount);
+	}
 	KeeperAiDelay(monster, 10);
 }
 
@@ -613,13 +621,9 @@ bool TryGoForBait(Monster &monster, HeroState &hero)
 }
 
 /** Badly hurt heroes may lose their nerve (once): they drop any loot and run. With no friend near, they always do. */
-void CheckFear(const Monster &monster, HeroState &hero)
+void HeroStartsFleeing(HeroState &hero)
 {
-	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)
-		return;
 	hero.fearRolled = true;
-	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= FearChancePercent)
-		return;
 	hero.fleeing = true;
 	if (hero.carried > 0) {
 		AddVaultGold(hero.carried);
@@ -629,6 +633,19 @@ void CheckFear(const Monster &monster, HeroState &hero)
 	} else {
 		Announce(fmt::format("A {} flees in terror!", ClassName(hero)), UiFlags::ColorGold);
 	}
+}
+
+void CheckFear(const Monster &monster, HeroState &hero)
+{
+	if (hero.champion || hero.fleeing || hero.fearRolled || monster.hitPoints * FearHealthDivisor >= monster.maxHitPoints)
+		return;
+	hero.fearRolled = true;
+	if (NearestHealthyHero(monster.position.tile, FallBackAllyRange) && GenerateRnd(100) >= FearChancePercent)
+		return;
+	if (!IsHost()) // the host says when it runs
+		return;
+	NotifyHeroFled(monster.getId());
+	HeroStartsFleeing(hero);
 }
 
 /** Rogues spot traps near them and may disarm them (one roll per trap). */
@@ -642,10 +659,8 @@ void RogueCheckTraps(const Monster &monster, HeroState &hero)
 			continue;
 		hero.trapsSeen |= static_cast<uint16_t>(1U << i);
 		hero.trapsKnown |= static_cast<uint16_t>(1U << i);
-		if (GenerateRnd(100) < RogueDisarmPercent) {
-			trap.active = false;
-			Announce(fmt::format("A Rogue disarmed one of your {}s!", TrapKinds[trap.kind].name));
-		}
+		if (GenerateRnd(100) < RogueDisarmPercent && IsHost())
+			DisarmTrap(i, std::nullopt);
 	}
 }
 
@@ -1215,6 +1230,18 @@ void LeashMonsters()
 			continue;
 		StepHome(monster, home);
 	}
+}
+
+void ApplyHeroLooted(size_t monsterId, int amount)
+{
+	if (monsterId < MaxMonsters && Heroes[monsterId].active)
+		HeroLoots(Heroes[monsterId], amount);
+}
+
+void ApplyHeroFled(size_t monsterId)
+{
+	if (monsterId < MaxMonsters && Heroes[monsterId].active && !Heroes[monsterId].fleeing)
+		HeroStartsFleeing(Heroes[monsterId]);
 }
 
 void ApplyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried)

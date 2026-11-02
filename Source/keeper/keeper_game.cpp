@@ -16,6 +16,7 @@
 #include "gamemenu.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_bots.hpp"
+#include "keeper/keeper_devctl.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_lobby.hpp"
 #include "keeper/keeper_profile.hpp"
@@ -66,6 +67,8 @@ constexpr int RaidSummonTicks = 3 * TicksPerSecond;
 constexpr int LockStrength = 12;
 constexpr int BaitUses = 3;
 constexpr int StateBroadcastInterval = TicksPerSecond;
+/** During a raid the broadcast also keeps the bots in step, so it runs twice as often. */
+constexpr int RaidStateBroadcastInterval = TicksPerSecond / 2;
 /** Net mana cost of possession, in hundredths per tick (on top of cancelling regeneration). */
 constexpr int PossessDrainPerTick = 10;
 constexpr int ManaCastTolerance = 5 * ManaScale;
@@ -146,6 +149,11 @@ enum class Action : uint8_t {
 	SyncHostSlot,
 	BotEscaped,
 	HeroEscaped,
+	TrapDisarmed,
+	BotLooted,
+	BotFled,
+	HeroLooted,
+	HeroFled,
 };
 
 #pragma pack(push, 1)
@@ -173,6 +181,9 @@ struct TCmdKeeperState {
 	/** Every upgrade's tier, so a client that joined late still gets them. */
 	std::array<uint8_t, NumUpgrades> upgradeTiers;
 	std::array<int32_t, MaxBots> botHitPoints;
+	/** Where the host's bots are: see ApplyBotPositionSync. */
+	std::array<std::array<uint8_t, 2>, MaxBots> botTiles;
+	std::array<uint8_t, MaxBots> botPotions;
 };
 #pragma pack(pop)
 
@@ -225,10 +236,15 @@ void BroadcastState()
 	const Monster *boss = FindBoss();
 	cmd.bossHitPoints = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(boss != nullptr ? boss->hitPoints : -1)));
 	cmd.upgradeTiers = UpgradeTiers();
-	for (size_t i = 0; i < MaxBots; i++)
+	for (size_t i = 0; i < MaxBots; i++) {
 		cmd.botHitPoints[i] = static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(BotLifeForSync(i))));
+		const BotSyncFacts facts = BotFactsForSync(i);
+		cmd.botTiles[i] = { static_cast<uint8_t>(facts.tile.x), static_cast<uint8_t>(facts.tile.y) };
+		cmd.botPotions[i] = facts.potions;
+	}
+	DevctlNoteSent(sizeof(cmd) + sizeof(TPktHdr));
 	NetSendHiPri(MyPlayerId, reinterpret_cast<std::byte *>(&cmd), sizeof(cmd));
-	ticksUntilBroadcast = StateBroadcastInterval;
+	ticksUntilBroadcast = State.phase == Phase::Raid && DevctlBotSyncOn() ? RaidStateBroadcastInterval : StateBroadcastInterval;
 }
 
 void Announce(std::string_view message, UiFlags color = UiFlags::ColorGold)
@@ -1684,6 +1700,54 @@ void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried
 	SendEscape(Action::BotEscaped, static_cast<uint8_t>(slot), 0, throughPortal, fleeing, carried);
 }
 
+namespace {
+
+/** Gold travels in x and y, as it does for an escape. */
+Point GoldAsTile(int gold)
+{
+	const int clamped = std::clamp(gold, 0, 0xFFFF);
+	return { clamped & 0xFF, clamped >> 8 };
+}
+
+void AnnounceTrapDisarmed(const Trap &trap, std::optional<size_t> botSlot)
+{
+	const std::string_view name = TrapKinds[trap.kind].name;
+	if (botSlot)
+		Announce(fmt::format("{} disarmed one of your {}s!", Players[FirstBotId + *botSlot]._pName, name));
+	else
+		Announce(fmt::format("A Rogue disarmed one of your {}s!", name));
+}
+
+} // namespace
+
+void DisarmTrap(size_t trapSlot, std::optional<size_t> botSlot)
+{
+	Trap &trap = State.traps[trapSlot];
+	trap.active = false;
+	AnnounceTrapDisarmed(trap, botSlot);
+	Send(Action::TrapDisarmed, static_cast<uint8_t>(trapSlot), botSlot ? static_cast<uint8_t>(*botSlot + 1) : 0);
+}
+
+void NotifyBotLooted(size_t slot, int amount)
+{
+	Send(Action::BotLooted, 0, static_cast<uint8_t>(slot), GoldAsTile(amount));
+}
+
+void NotifyBotFled(size_t slot)
+{
+	Send(Action::BotFled, 0, static_cast<uint8_t>(slot));
+}
+
+void NotifyHeroLooted(size_t monsterId, int amount)
+{
+	Send(Action::HeroLooted, 0, 0, GoldAsTile(amount), static_cast<uint16_t>(monsterId));
+}
+
+void NotifyHeroFled(size_t monsterId)
+{
+	Send(Action::HeroFled, 0, 0, {}, static_cast<uint16_t>(monsterId));
+}
+
 void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried)
 {
 	SendEscape(Action::HeroEscaped, 0, static_cast<uint16_t>(monsterId), throughPortal, fleeing, carried);
@@ -1700,8 +1764,10 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			// Before the phase and the wave: leaving a raid removes the bots and moves the wave on, and a
 			// death has to be counted first, at the raid's own bounty.
 			if (phase == Phase::Raid) {
-				for (size_t i = 0; i < MaxBots; i++)
+				for (size_t i = 0; i < MaxBots; i++) {
 					ApplyBotLifeSync(i, static_cast<int32_t>(Swap32LE(static_cast<uint32_t>(message.botHitPoints[i]))));
+					ApplyBotPositionSync(i, { message.botTiles[i][0], message.botTiles[i][1] }, message.botPotions[i]);
+				}
 			}
 			State.wave = message.wave;
 			const bool wasBossDown = State.bossDown;
@@ -1798,6 +1864,28 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::BotEscaped:
 		if (&player != MyPlayer && message.b < MaxBots)
 			ApplyBotEscaped(message.b, (message.a & 1) != 0, (message.a & 2) != 0, message.x | (message.y << 8));
+		break;
+	case Action::TrapDisarmed:
+		if (&player != MyPlayer && message.a < MaxTraps && State.traps[message.a].active) {
+			State.traps[message.a].active = false;
+			AnnounceTrapDisarmed(State.traps[message.a], message.b > 0 && message.b <= MaxBots ? std::optional<size_t>(message.b - 1) : std::nullopt);
+		}
+		break;
+	case Action::BotLooted:
+		if (&player != MyPlayer && message.b < MaxBots)
+			ApplyBotLooted(message.b, message.x | (message.y << 8));
+		break;
+	case Action::BotFled:
+		if (&player != MyPlayer && message.b < MaxBots)
+			ApplyBotFled(message.b);
+		break;
+	case Action::HeroLooted:
+		if (&player != MyPlayer)
+			ApplyHeroLooted(Swap16LE(message.w), message.x | (message.y << 8));
+		break;
+	case Action::HeroFled:
+		if (&player != MyPlayer)
+			ApplyHeroFled(Swap16LE(message.w));
 		break;
 	case Action::HeroEscaped:
 		if (&player != MyPlayer)

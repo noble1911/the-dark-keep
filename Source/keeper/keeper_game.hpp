@@ -297,6 +297,12 @@ constexpr int PossessManaCost = 10;
 void DevFireTrap(size_t slot, Point victim);
 
 /** Host: a hero left the keep (`carried` is its gold). Joiners can't work this out for themselves. */
+/** Host: a Rogue disarmed a trap (botSlot empty: a monster hero's). Everyone hears of it. */
+void DisarmTrap(size_t trapSlot, std::optional<size_t> botSlot);
+void NotifyBotLooted(size_t slot, int amount);
+void NotifyBotFled(size_t slot);
+void NotifyHeroLooted(size_t monsterId, int amount);
+void NotifyHeroFled(size_t monsterId);
 void NotifyBotEscaped(size_t slot, bool throughPortal, bool fleeing, int carried);
 void NotifyHeroEscaped(size_t monsterId, bool throughPortal, bool fleeing, int carried);
 

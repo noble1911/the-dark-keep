@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 namespace devilution::keeper {
@@ -18,9 +19,23 @@ void DevctlInit(std::string path);
 
 /** Runs due commands. Called once per presented frame, whatever screen is up. */
 void DevctlFrame();
+
+// Measuring how far a joiner's copies stray from the host's. `botsync 0` turns correction off, to compare.
+bool DevctlBotSyncOn();
+void DevctlNoteBotDrift(int tiles);
+void DevctlNoteBotLifeDrift(int hitPoints);
+void DevctlNoteBotFix(bool snap);
+void DevctlNoteMonsterDrift(int tiles, int hitPoints);
+void DevctlNoteSent(size_t bytes);
 #else
 // Only built with -DKEEPER_DEVCTL=ON.
 inline void DevctlFrame() { }
+inline bool DevctlBotSyncOn() { return true; }
+inline void DevctlNoteBotDrift(int /*tiles*/) { }
+inline void DevctlNoteBotLifeDrift(int /*hitPoints*/) { }
+inline void DevctlNoteBotFix(bool /*snap*/) { }
+inline void DevctlNoteMonsterDrift(int /*tiles*/, int /*hitPoints*/) { }
+inline void DevctlNoteSent(size_t /*bytes*/) { }
 #endif
 
 } // namespace devilution::keeper
