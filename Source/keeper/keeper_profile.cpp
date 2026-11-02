@@ -73,6 +73,7 @@ bool loaded = false;
 /** A profile from a newer build is never overwritten. */
 bool writable = true;
 bool saveFailed = false;
+bool startedAfresh = false;
 
 /** The host's unlocks, while in someone else's game. */
 bool usingHost = false;
@@ -201,8 +202,10 @@ void Load()
 	}
 	if (result == ReadResult::Newer)
 		writable = false; // plays with a fresh profile, and leaves that one alone
-	if (result == ReadResult::Damaged)
+	if (result == ReadResult::Damaged) {
 		CopyFileOverwrite(path.c_str(), (path + ".bad").c_str()); // kept for repair: the next save replaces it
+		startedAfresh = true;
+	}
 	// A first run, or progress from before XP: every level already cleared counts.
 	profile = {};
 	GrantStarters(profile);
@@ -634,9 +637,16 @@ void SaveProfile()
 		LogError("Cannot replace keeper profile {}", path);
 }
 
-bool ProfileSaveFailed()
+std::string_view ProfileProblem()
 {
-	return saveFailed;
+	Load();
+	if (!writable)
+		return "Profile from a newer version: progress here won't be saved.";
+	if (saveFailed)
+		return "Your progress can't be saved: check the save folder.";
+	if (startedAfresh)
+		return "Damaged profile: started anew. Old file kept, ending in .bad.";
+	return {};
 }
 
 } // namespace devilution::keeper
