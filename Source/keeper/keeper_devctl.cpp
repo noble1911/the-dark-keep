@@ -12,6 +12,7 @@
 #include <iterator>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 #include <SDL.h>
 #include <fmt/format.h>
@@ -126,6 +127,114 @@ void WriteState()
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
 	Output(line);
+}
+
+/** Raid events, without having to poll: when heroes reach the vault, and how each raid ended. */
+struct RaidWatch {
+	bool inRaid = false;
+	int wave = 0;
+	uint32_t startTick = 0;
+	bool reached = false;
+	int keepAtStart = 0;
+	int peakHeroes = 0;
+	int peakPartyLife = 0;
+	int lordAtStart = 0;
+	int lordLow = 0;
+	int goldAtStart = 0;
+	int partyLife = 0;
+	int heroesNow = 0;
+	int keepNow = 0;
+};
+RaidWatch watch;
+std::string autocast;
+size_t autocastNext = 0;
+
+void WatchRaid()
+{
+	const bool inKeep = IsActive();
+	const bool raiding = inKeep && State.phase == Phase::Raid;
+	if (!raiding && !watch.inRaid)
+		return;
+	if (raiding) {
+		int party = 0;
+		int heroes = 0;
+		int keep = 0;
+		int nearest = 9999;
+		for (size_t i = 0; i < ActiveMonsterCount; i++) {
+			const Monster &monster = Monsters[ActiveMonsters[i]];
+			if (monster.hitPoints <= 0 || monster.mode == MonsterMode::Death)
+				continue;
+			if (IsHero(monster)) {
+				heroes++;
+				party += monster.hitPoints >> 6;
+				nearest = std::min(nearest, monster.position.tile.WalkingDistance(State.vault));
+			} else if (monster.type().type != MT_GOLEM) {
+				keep++;
+			}
+		}
+		for (size_t i = 0; i < MaxBots; i++) {
+			const Player &bot = Players[FirstBotId + i];
+			if (!IsLivingBot(bot))
+				continue;
+			heroes++;
+			party += bot._pHitPoints >> 6;
+			nearest = std::min(nearest, bot.position.tile.WalkingDistance(State.vault));
+		}
+		const Monster *boss = FindBoss();
+		const int lord = boss != nullptr ? boss->hitPoints >> 6 : 0;
+		if (!watch.inRaid) {
+			watch = {};
+			watch.inRaid = true;
+			watch.wave = State.wave;
+			watch.startTick = DevKeeperTicks();
+			watch.keepAtStart = keep;
+			watch.lordAtStart = lord;
+			watch.lordLow = lord;
+			watch.goldAtStart = State.vaultGold;
+		}
+		watch.peakHeroes = std::max(watch.peakHeroes, heroes);
+		watch.peakPartyLife = std::max(watch.peakPartyLife, party);
+		watch.lordLow = std::min(watch.lordLow, lord);
+		watch.partyLife = party;
+		watch.heroesNow = heroes;
+		watch.keepNow = keep;
+		if (!watch.reached && nearest <= 3) {
+			watch.reached = true;
+			Output(fmt::format("reach wave={} ticks={}", watch.wave, DevKeeperTicks() - watch.startTick));
+		}
+		if (!autocast.empty() && heroes > 0 && State.spellCooldown[MyPlayerId] == 0) {
+			std::istringstream list(autocast);
+			std::vector<size_t> spells;
+			for (std::string item; std::getline(list, item, ',');)
+				spells.push_back(static_cast<size_t>(std::atoi(item.c_str())));
+			for (size_t tried = 0; tried < spells.size(); tried++) {
+				const size_t spell = spells[(autocastNext + tried) % spells.size()];
+				if (State.mana[MyPlayerId] < SpellManaCost(spell) * ManaScale)
+					continue;
+				autocastNext += tried + 1;
+				for (size_t i = 0; i < MaxBots; i++) {
+					if (IsLivingBot(Players[FirstBotId + i])) {
+						RequestCastSpell(spell, Players[FirstBotId + i].position.tile);
+						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
+						return;
+					}
+				}
+				for (size_t i = 0; i < ActiveMonsterCount; i++) {
+					const Monster &monster = Monsters[ActiveMonsters[i]];
+					if (IsHero(monster) && monster.hitPoints > 0) {
+						RequestCastSpell(spell, monster.position.tile);
+						Output(fmt::format("autocast {} tick={}", spell, DevKeeperTicks() - watch.startTick));
+						return;
+					}
+				}
+				return;
+			}
+		}
+		return;
+	}
+	watch.inRaid = false;
+	Output(fmt::format("raidend wave={} result={} ticks={} peakHeroes={} peakPartyLife={} partyLifeLeft={} heroesLeft={} keepStart={} keepEnd={} lordStart={} lordLow={} goldStart={} goldEnd={} goldLost={}",
+	    watch.wave, inKeep ? PhaseName(State.phase) : "left", DevKeeperTicks() - watch.startTick, watch.peakHeroes, watch.peakPartyLife, watch.partyLife, watch.heroesNow, watch.keepAtStart, watch.keepNow, watch.lordAtStart, watch.lordLow, watch.goldAtStart, State.vaultGold, State.goldLost));
 }
 
 void WriteMonsters()
@@ -279,6 +388,9 @@ void Execute(const std::string &line)
 	} else if (command == "trapfire") {
 		in >> a >> b >> c;
 		DevFireTrap(static_cast<size_t>(a), { b, c });
+	} else if (command == "autocast") {
+		autocast.clear();
+		in >> autocast;
 	} else if (command == "bait") {
 		in >> a >> b;
 		RequestPlaceBait({ a, b });
@@ -361,6 +473,7 @@ void DevctlFrame()
 		nextLog = SDL_GetTicks() + logEvery;
 		WriteState();
 	}
+	WatchRaid();
 	ReadNewCommands();
 	// One input a frame, so a screen sees each event as it would from a person.
 	while (!pending.empty() && !IsWaiting()) {

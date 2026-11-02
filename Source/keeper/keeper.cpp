@@ -1673,6 +1673,11 @@ void Tick()
 		LeashMonsters();
 }
 
+uint32_t DevKeeperTicks()
+{
+	return tickCounter;
+}
+
 void DevCenterCamera(Point tile)
 {
 	CenterCameraOn(tile);
