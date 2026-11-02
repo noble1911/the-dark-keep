@@ -44,6 +44,8 @@ namespace {
 
 /** Full stick crosses the screen's height in this long. */
 constexpr float CursorCrossSeconds = 1.1F;
+/** Anything straight ahead beats anything off to the side, however near. */
+constexpr int OffToTheSide = 100000;
 /** How far from the cursor a monster or hero counts as under it, in tiles. */
 constexpr int SoftTargetTiles = 2;
 
@@ -613,7 +615,17 @@ std::optional<size_t> PadStepFocus(const std::vector<Rectangle> &targets, const 
 		// How far off to the side, not counting any overlap: a wide button under a narrow card is straight down.
 		const int low = horizontal ? std::max(target.position.y, from.position.y) : std::max(target.position.x, from.position.x);
 		const int high = horizontal ? std::min(target.position.y + target.size.height, from.position.y + from.size.height) : std::min(target.position.x + target.size.width, from.position.x + from.size.width);
-		const int score = along + 3 * std::max(low - high, 0);
+		const int aside = low - high;
+		int score = along;
+		if (aside >= 0) {
+			// Off to the side: only as a last resort, and only if it is clear past this one.
+			const int gap = horizontal
+			    ? (sign > 0 ? target.position.x - (from.position.x + from.size.width) : from.position.x - (target.position.x + target.size.width))
+			    : (sign > 0 ? target.position.y - (from.position.y + from.size.height) : from.position.y - (target.position.y + target.size.height));
+			if (gap < 0)
+				continue;
+			score += OffToTheSide + 3 * aside;
+		}
 		if (score < bestScore) {
 			bestScore = score;
 			best = i;

@@ -2135,10 +2135,14 @@ void DrawHud(const Surface &out)
 {
 	if (IsEditorActive()) {
 		EditorDrawWorld(out);
+		const auto drawEditorUi = [](const Surface &ui) {
+			EditorDrawUi(ui);
+			PadDrawOverlay(ui);
+		};
 		if (UiScale() > 1)
-			DrawScaledUi(out, EditorDrawUi);
+			DrawScaledUi(out, drawEditorUi);
 		else
-			EditorDrawUi(out);
+			drawEditorUi(out);
 		PadDrawCursor(out);
 		return;
 	}
@@ -2193,7 +2197,7 @@ void DrawUi(const Surface &out)
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
 		const std::string raidKey = InputName(KeeperAction::StartRaid);
-		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: Open the gates", raidKey), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		DrawString(out, raidKey.empty() ? std::string("Open the gates") : fmt::format("{}: {}", raidKey, IsPadInUse() ? "Open gates" : "Open the gates"), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	DrawCardBar(out);
