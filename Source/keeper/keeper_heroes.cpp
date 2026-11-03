@@ -169,6 +169,11 @@ constexpr int ThiefDashRange = 10;
 constexpr int MonkHealRange = 6;
 constexpr int MonkHealBelowPercent = 70;
 constexpr int MonkHealPercent = 15;
+/** Ticks a fight may go on with the target neither hurt nor any closer, and how long the hero then ignores it. */
+constexpr int StaleEngagementTicks = 100;
+constexpr int IgnoreStaleTargetTicks = 300;
+/** Ticks on one tile, with no monster beside it, before a hero is moved along its route. */
+constexpr int HeroWatchdogTicks = 800;
 /** Ticks without getting closer to its goal before a hero shoves past one coming the other way, then past anyone. */
 constexpr int StuckTicksBeforeSqueeze = 30;
 constexpr int StuckTicksBeforeShove = 100;
@@ -210,6 +215,8 @@ struct HeroState {
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
 	HeroProgress progress;
+	HeroEngagement engagement;
+	HeroWatchdog watchdog;
 };
 
 std::array<HeroState, MaxMonsters> Heroes;
@@ -834,6 +841,18 @@ bool FightIfBlocked(Monster &monster)
 	return true;
 }
 
+bool IsKeepMonsterBeside(Point tile)
+{
+	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+		const Point next = tile + dir;
+		if (!InDungeonBounds(next))
+			continue;
+		if (const int mid = dMonster[next.x][next.y] - 1; mid >= 0 && !IsHero(Monsters[mid]) && IsAliveMonster(Monsters[mid]))
+			return true;
+	}
+	return false;
+}
+
 /** Moves a standing monster hero to `tile` at once. */
 void PlaceMonsterHero(Monster &monster, Point tile)
 {
@@ -1225,6 +1244,13 @@ void HeroAi(Monster &monster)
 	RogueCheckTraps(monster, hero);
 	if (StepOutOfHazard(monster))
 		return;
+	if (HeroWatchdogFired(hero.watchdog, monster.position.tile) && !State.bossDown && !IsKeepMonsterBeside(monster.position.tile)) {
+		const HeroGoal goal = hero.fleeing || hero.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault;
+		if (const std::optional<Point> next = GoalWaypoint(goal, monster.position.tile, 1, hero.trapsKnown); next && IsFreeFloor(*next)) {
+			PlaceMonsterHero(monster, *next);
+			return;
+		}
+	}
 	if (hero.cls == HeroClassKind::Monk && heroClock >= hero.healReady && HealWoundedAlly(monster.position.tile)) {
 		hero.healReady = heroClock + MonkHealCooldownTicks;
 		if ((hero.said & 2) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "Hold fast! I have you."))
@@ -1263,7 +1289,7 @@ void HeroAi(Monster &monster)
 
 	if (!hero.fleeing && !thieving && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
 		const Monster &enemy = Monsters[monster.enemy];
-		if (IsAliveMonster(enemy)) {
+		if (IsAliveMonster(enemy) && NoteEngagement(hero.engagement, enemy, monster.position.tile.WalkingDistance(enemy.position.tile))) {
 			monster.enemyPosition = enemy.position.tile;
 			HoldHeroProgress(hero.progress);
 			const int distance = monster.position.tile.WalkingDistance(enemy.position.tile);
@@ -2096,6 +2122,52 @@ void OpenDoorsAround(Point tile)
 			continue;
 		KeeperOperateDoor(*door, false);
 	}
+}
+
+bool IsIgnoredTarget(const HeroEngagement &engagement, const Monster &target, int distance)
+{
+	return distance > 1 && engagement.ignored == static_cast<int>(target.getId()) && heroClock < engagement.ignoredUntil;
+}
+
+bool NoteEngagement(HeroEngagement &engagement, const Monster &target, int distance)
+{
+	if (IsIgnoredTarget(engagement, target, distance))
+		return false;
+	const int id = static_cast<int>(target.getId());
+	if (distance <= 1 || id != engagement.target || target.hitPoints < engagement.life || distance < engagement.distance) {
+		engagement.target = id;
+		engagement.life = target.hitPoints;
+		engagement.distance = distance;
+		engagement.since = heroClock;
+		return true;
+	}
+	if (heroClock - engagement.since < StaleEngagementTicks)
+		return true;
+	engagement.ignored = id;
+	engagement.ignoredUntil = heroClock + IgnoreStaleTargetTicks;
+	engagement.target = -1;
+	return false;
+}
+
+bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile)
+{
+	if (tile != watchdog.tile) {
+		watchdog.tile = tile;
+		watchdog.since = heroClock;
+		return false;
+	}
+	if (heroClock - watchdog.since < HeroWatchdogTicks)
+		return false;
+	watchdog.since = heroClock;
+	return true;
+}
+
+void BotNudgeAlong(Player &bot, HeroGoal goal, uint16_t knownTraps)
+{
+	if (IsKeepMonsterBeside(bot.position.tile))
+		return;
+	if (const std::optional<Point> next = GoalWaypoint(goal, bot.position.tile, 1, knownTraps); next && IsFreeFloor(*next))
+		PlaceBot(bot, *next);
 }
 
 void HoldHeroProgress(HeroProgress &progress)

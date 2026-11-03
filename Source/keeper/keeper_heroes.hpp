@@ -295,6 +295,30 @@ struct HeroProgress {
 	uint16_t best = Unreachable;
 	uint32_t since = 0;
 };
+/**
+ * Whether a fight is getting anywhere. The missile check can say a monster behind a wall is in the clear while every
+ * shot hits the wall, and a monster can be seen with no way to it: a hero mustn't stand at that for the rest of the raid.
+ */
+struct HeroEngagement {
+	int target = -1;
+	int life = 0;
+	int distance = 0;
+	uint32_t since = 0;
+	int ignored = -1;
+	uint32_t ignoredUntil = 0;
+};
+/** Call on each decision to fight `target`. @return false if there's no point: not hurt and no closer for a while. Next to it, there always is. */
+bool NoteEngagement(HeroEngagement &engagement, const Monster &target, int distance);
+bool IsIgnoredTarget(const HeroEngagement &engagement, const Monster &target, int distance);
+/** Last resort against a raid that never ends: a hero on one tile for a long time with nothing beside it. */
+struct HeroWatchdog {
+	Point tile;
+	uint32_t since = 0;
+};
+/** @return true if the watchdog has run out for a hero on `tile`, and restarts it. */
+bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile);
+/** Moves a bot one tile along its route if that tile is free. */
+void BotNudgeAlong(Player &bot, HeroGoal goal, uint16_t knownTraps);
 /** Waiting or fighting isn't being stuck. */
 void HoldHeroProgress(HeroProgress &progress);
 /** A bot that has stopped getting closer changes places with the hero in its way. @return true if it did. */
