@@ -28,7 +28,7 @@ void DevctlNoteBotDrift(int tiles);
 void DevctlNoteBotLifeDrift(int hitPoints);
 void DevctlNoteBotFix(bool snap);
 void DevctlNoteMonsterDrift(int tiles, int hitPoints);
-/** A joiner's copy of a monster is far from the host's: says which, for tracing it. */
+/** A joiner's copy of a monster, already placed by the snapshot, is far from the host's: says which, for tracing it. */
 void DevctlNoteMonsterJump(int monsterId, int hostX, int hostY);
 void DevctlNoteSent(size_t bytes);
 /** The event log, for raid scripts: EventPlrMsg copies each line here. */

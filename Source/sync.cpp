@@ -169,10 +169,13 @@ void SyncMonster(bool isOwner, const TSyncMonster &monsterSync)
 	// monster answers to its master here, and a blow in mid-swing lands before the next sync moves it.
 	if (keeper::IsActive()) {
 		const int hitPoints = SwapSigned32LE(monsterSync._mhitpoints);
-		const int driftTiles = Point(monster.position.tile).WalkingDistance(Point { monsterSync._mx, monsterSync._my });
-		keeper::DevctlNoteMonsterDrift(driftTiles, std::abs(monster.hitPoints - hitPoints) >> 6);
-		if (driftTiles >= 20)
-			keeper::DevctlNoteMonsterJump(monsterSync._mndx, monsterSync._mx, monsterSync._my);
+		// Before the snapshot a spawned monster is still in the holding cell (LoadDeltaSpawnedMonster), so this isn't drift.
+		if (!keeper::IsAwaitingKeepSnapshot()) {
+			const int driftTiles = Point(monster.position.tile).WalkingDistance(Point { monsterSync._mx, monsterSync._my });
+			keeper::DevctlNoteMonsterDrift(driftTiles, std::abs(monster.hitPoints - hitPoints) >> 6);
+			if (driftTiles > 10)
+				keeper::DevctlNoteMonsterJump(monsterSync._mndx, monsterSync._mx, monsterSync._my);
+		}
 		if (hitPoints > 0)
 			monster.hitPoints = std::min(hitPoints, monster.maxHitPoints);
 		if (keeper::IgnoresMonsterSyncMove(monster))
