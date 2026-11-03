@@ -396,7 +396,15 @@ int DrawBanner(const Surface &out, int left, int width, int y)
 			x += slot;
 		}
 	} else {
-		DrawString(out, FitText(banner.text, boxWidth - 8), { { rect.position.x, rowY + 6 }, { boxWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
+		// Whole sentences rather than one cut short, when the banner sits beside the scout card on a small screen.
+		std::string_view line = banner.text;
+		while (GetLineWidth(line) > boxWidth - 8) {
+			const size_t end = line.rfind(". ");
+			if (end == std::string_view::npos)
+				break;
+			line = line.substr(0, end + 1);
+		}
+		DrawString(out, FitText(line, boxWidth - 8), { { rect.position.x, rowY + 6 }, { boxWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	}
 	return y + BannerHeight + 4;
 }

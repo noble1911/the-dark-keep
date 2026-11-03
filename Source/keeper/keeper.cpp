@@ -2602,6 +2602,9 @@ void DrawUi(const Surface &out)
 	std::string phaseLine = std::string(PhaseName(State.phase));
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += IsPrepTimerHeld() ? std::string("  held") : fmt::format("  {}", FormatTicks(State.phaseTicks));
+	// Clear of the help button at the column's end: the widest time, 4:00, needs the room.
+	if (const size_t gap = phaseLine.find("  "); gap != std::string::npos && GetLineWidth(phaseLine) > columnWidth - 24)
+		phaseLine.erase(gap, 1);
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
 	const Rectangle speedButton = SpeedButtonRect();
 	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);

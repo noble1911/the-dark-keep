@@ -5,6 +5,7 @@
  * joining rules over the whole layout and rebuilds the level, so what you see is what plays.
  */
 #include "keeper/keeper_editor.hpp"
+#include "plrmsg.h"
 
 #include <algorithm>
 #include <array>
@@ -1302,6 +1303,7 @@ void EditorEndTestRun()
 	SetCurrentSetup(setupBeforeTest);
 	// Off with the raid while the level is still whole; the reload replaces everything else.
 	ResetGame(State.entrance, State.vault);
+	InitPlrMsg(); // the test's raid log is over with it
 	ReloadLevel();
 }
 
