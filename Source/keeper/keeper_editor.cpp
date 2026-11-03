@@ -182,6 +182,8 @@ std::string modalText;
 std::string modalNote;
 std::vector<std::string> modalList;
 int modalScroll = 0;
+/** The list row the keyboard is on. */
+int modalRow = 0;
 
 std::string feedback;
 bool feedbackIsError = false;
@@ -867,6 +869,7 @@ void DoAction(const Button &button)
 		modal = Modal::LoadList;
 		modalList = ListMapFiles(/*includeScratch=*/true);
 		modalScroll = 0;
+		modalRow = 0;
 		modalNote = modalList.empty() ? "No maps saved yet" : "";
 		break;
 	case ActionKind::Tileset:
@@ -875,6 +878,7 @@ void DoAction(const Button &button)
 		for (size_t i = 0; i < NumMapTilesets; i++)
 			modalList.emplace_back(MapTilesetName(static_cast<MapTileset>(i)));
 		modalScroll = 0;
+		modalRow = 0;
 		modalNote.clear();
 		break;
 	case ActionKind::Author:
@@ -998,7 +1002,7 @@ void DrawModal(const Surface &out)
 		if (index >= modalList.size())
 			break;
 		const Point at = text + Displacement { 0, 18 + row * ModalRowHeight };
-		if (hovered == index)
+		if (hovered ? *hovered == index : index == static_cast<size_t>(modalRow))
 			FillRect(out, at.x, at.y, width, ModalRowHeight, PAL16_RED + 12);
 		const bool current = modal == Modal::TilesetList ? index == static_cast<size_t>(model.tileset) : modalList[index] == fileName;
 		DrawString(out, modalList[index], { at + Displacement { 4, 1 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | (current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
@@ -1315,6 +1319,15 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	if (modal != Modal::None) {
 		if (key == SDLK_ESCAPE)
 			modal = Modal::None;
+		if ((modal == Modal::LoadList || modal == Modal::TilesetList) && !modalList.empty()) {
+			const int last = static_cast<int>(modalList.size()) - 1;
+			if (key == SDLK_DOWN || key == SDLK_UP) {
+				modalRow = std::clamp(modalRow + (key == SDLK_DOWN ? 1 : -1), 0, last);
+				modalScroll = std::clamp(modalScroll, std::max(modalRow - ModalRows + 1, 0), modalRow);
+			} else if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
+				ClickModalRow(ModalRowAt(UiMousePosition()).value_or(static_cast<size_t>(modalRow)));
+			}
+		}
 		return true;
 	}
 
