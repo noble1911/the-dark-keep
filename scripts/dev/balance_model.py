@@ -867,7 +867,11 @@ def write_plan(game, rows, path):
             regen = game.g["ManaRegenPerTick"] * percent / 100 * 20 / 100
             return SPELL_EFFICIENCY * (game.g["MaxMana"] / seconds + regen)
         average = sum(game.mana_cost(s, row["spells"][s["name"]]) for s in casts) / max(len(casts), 1)
-        plans.append(dict(level=level, wave=last["wave"], army=[dict(index=k["index"], name=k["name"], count=n) for k, n in last["army"] if n],
+        cheapest = min((k for k in game.kinds if k["id"] in row["kinds"]), key=lambda k: k["cost"] / k["pop"])
+        plans.append(dict(level=level, wave=last["wave"], army=[dict(index=k["index"], name=k["name"], count=n, cost=k["cost"], pop=k["pop"]) for k, n in last["army"] if n],
+                          filler=dict(index=cheapest["index"], name=cheapest["name"], cost=cheapest["cost"], pop=cheapest["pop"]), start_gold=game.levels[level - 1]["gold"],
+                          upgrade_costs=[[game.upgrade_cost(level, u, t) for t in range(u["tiers"])] for u in game.upgrades],
+                          trap_cost=last["trap_kind"]["cost"] if last["trap_kind"] else 0,
                           tiers=last["tiers"], spell_levels={str(i): row["spells"][s["name"]] for i, s in enumerate(game.spells) if s["name"] in row["spells"]},
                           trap_levels={str(i): row["traps"][t["name"]] for i, t in enumerate(game.traps) if t["name"] in row["traps"]},
                           trap_kind=lairs + game.traps.index(last["trap_kind"]) if last["trap_kind"] else 0, trap_count=last["trap_count"],
