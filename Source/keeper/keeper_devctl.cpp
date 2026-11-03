@@ -223,6 +223,7 @@ void WriteState()
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
 	line += fmt::format(" menu={}", gmenu_is_active() ? 1 : 0);
+	line += fmt::format(" ready={} readyTicks={} voters={} snap={}", State.readyMask, State.readyTicks, MastersInKeepCount(), IsAwaitingKeepSnapshot() ? 1 : 0);
 	line += fmt::format(" device={} mode={} myTile={},{}", ControlTypeName(ControlDevice), ControlTypeName(ControlMode), MyPlayer != nullptr ? MyPlayer->position.tile.x : -1, MyPlayer != nullptr ? MyPlayer->position.tile.y : -1);
 	Output(line);
 }
