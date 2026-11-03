@@ -1130,14 +1130,16 @@ void NoteRefusalLabel(Point tile, std::string_view reason)
 		refusalLabel = { tile, std::string(reason) };
 }
 
-void DrawRefusalLabel(const Surface &out)
+void DrawRefusalLabel(const Surface &out, int hudTop)
 {
 	if (!refusalLabel)
 		return;
-	const OverlayPass pass = overlayPass;
-	overlayPass = OverlayPass::Text;
-	DrawWorldLabel(out, refusalLabel->first, refusalLabel->second, UiFlags::ColorRed);
-	overlayPass = pass;
+	// This surface is the UI's, which is smaller than the world's when the UI is scaled up.
+	const int scale = UiScale();
+	const Point anchor = GetScreenPosition(refusalLabel->first) + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
+	const Point at { anchor.x * ZoomFactor() / scale - WorldLabelWidth / 2, anchor.y * ZoomFactor() / scale - 4 };
+	if (at.y >= 0 && at.y + 14 < hudTop)
+		DrawString(out, refusalLabel->second, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed | UiFlags::Outlined });
 	refusalLabel = std::nullopt;
 }
 
@@ -1451,10 +1453,10 @@ void DrawRouteLine(const Surface &out, const std::vector<Point> &route, uint8_t 
 		const Point to = TileCenter(route[i + 1]);
 		// Offsets on both axes: routes run in every direction on the screen.
 		for (const Displacement edge : { Displacement { -2, 0 }, Displacement { 2, 0 }, Displacement { 0, -2 }, Displacement { 0, 2 } })
-			DrawLine(out, from + edge, to + edge, 0, out.h());
+			DrawLine(out, from + edge, to + edge, 0, ScreenHudTop());
 		const bool marching = !dashed && (i + RouteMarchSpacing - march) % RouteMarchSpacing == 0;
 		for (const Displacement body : { Displacement { -1, 0 }, Displacement { 1, 0 }, Displacement { 0, -1 }, Displacement { 0, 1 }, Displacement { 0, 0 } })
-			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, out.h());
+			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, ScreenHudTop());
 	}
 }
 
@@ -2643,7 +2645,7 @@ void DrawUi(const Surface &out)
 	}
 
 	DrawScoutCard(out, top, UiMouse()); // under the spell bar, which has to stay usable on a small screen
-	DrawRefusalLabel(out);
+	DrawRefusalLabel(out, top);
 	DrawCardBar(out);
 	DrawSpellBar(out);
 	DrawInfoPanel(out);
@@ -2658,17 +2660,24 @@ void DrawUi(const Surface &out)
 	int pauseCentre = out.w() / 2;
 	if (!IsGameOver()) {
 		const std::optional<Rectangle> roster = RaidRosterRect(out);
-		const int newsLeft = gbIsMultiplayer ? 198 : 6;
+		int newsLeft = gbIsMultiplayer ? 198 : 6;
 		int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
-		// Beside the scout card if the news still has room there, otherwise the card goes below it.
-		const std::optional<Rectangle> scoutCard = ScoutCardRect(out, top);
-		const bool beside = scoutCard && scoutCard->position.x - 6 - newsLeft >= NewsMinWidthBesideCard;
-		if (beside)
-			newsRight = std::min(newsRight, scoutCard->position.x - 6);
+		// Under the strips along the very top: the test-run banner, then the controller's prompts.
+		int newsTop = 6 + (IsEditorTestRun() ? 20 : 0) + (IsPadInUse() ? 20 : 0);
+		bool tipFits = true;
+		SetScoutCardTop(newsTop);
+		// The card stays put. The news goes beside it if that leaves it room, otherwise under it.
+		if (const std::optional<Rectangle> scoutCard = ScoutCardRect(out, top); scoutCard) {
+			if (scoutCard->position.x - 6 - newsLeft >= NewsMinWidthBesideCard) {
+				newsRight = std::min(newsRight, scoutCard->position.x - 6);
+			} else {
+				newsLeft = 6;
+				newsTop = scoutCard->position.y + scoutCard->size.height + 2;
+				tipFits = false; // below the card a tip would run over the bar: it waits until the card is closed
+			}
+		}
 		const int newsWidth = newsRight - newsLeft;
 		pauseCentre = newsLeft + newsWidth / 2;
-		// Under the strips along the very top: the test-run banner, then the controller's prompts.
-		const int newsTop = 6 + (IsEditorTestRun() ? 20 : 0) + (IsPadInUse() ? 20 : 0);
 		int newsY = DrawBanner(out, newsLeft, newsWidth, newsTop);
 		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
 		const Rectangle firstTab = TabRect(0);
@@ -2681,11 +2690,13 @@ void DrawUi(const Surface &out)
 			roster,
 		};
 		const int tipWidth = std::min(newsWidth, 380);
-		DrawTutorialTip(out, newsLeft + (newsWidth - tipWidth) / 2, tipWidth, newsY, UiMouse(), targets);
+		if (tipFits)
+			DrawTutorialTip(out, newsLeft + (newsWidth - tipWidth) / 2, tipWidth, newsY, UiMouse(), targets);
+		else
+			TutorialTipHidden();
 		if (const std::optional<Rectangle> tip = TutorialTipRect(); tip)
 			newsY = tip->position.y + tip->size.height + 2;
 		pauseY = newsY > newsTop ? newsY : newsTop - 4;
-		SetScoutCardTop(beside || !scoutCard ? newsTop : newsY + 2);
 	}
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.

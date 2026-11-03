@@ -692,6 +692,11 @@ void DrawTutorialTip(const Surface &out, int left, int width, int y, Point mouse
 	DrawTipBox(out, rect, shownTip->title, text, TipIcon(*shownTip), mouse);
 }
 
+void TutorialTipHidden()
+{
+	tipRect = std::nullopt;
+}
+
 std::optional<Rectangle> TutorialTipRect()
 {
 	return tipRect;

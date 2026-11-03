@@ -120,7 +120,7 @@ const CardLayout &LayoutFor(const Surface &out)
 }
 
 bool scoutCardOn = false;
-/** Where the card's top goes: the news along the top pushes it down on a screen too small for both side by side. */
+/** Where the card's top goes: under any strips along the very top of the screen. */
 int scoutCardTop = 6;
 
 /** Identical heroes make one row. */
@@ -340,7 +340,9 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 	const Difficulty difficulty = GameDifficulty();
 	if (masters > 1 || difficulty != Difficulty::Normal) {
 		const std::string setting = masters > 1 ? fmt::format("{}, {} masters", DifficultyName(difficulty), masters) : std::string(DifficultyName(difficulty));
-		DrawString(out, setting, { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+		// A small screen's title leaves no room for it, and the title matters more.
+		if (layout.big || GetLineWidth(title) + GetLineWidth(setting) + 8 <= inner)
+			DrawString(out, setting, { { x, y }, { inner, layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
 	}
 	y += layout.titleHeight;
 	DrawString(out, FitLines(type.blurb, inner, 2 * layout.textHeight, layout.textHeight), { { x, y }, { inner, 2 * layout.textHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorOrange, .lineHeight = layout.textHeight });

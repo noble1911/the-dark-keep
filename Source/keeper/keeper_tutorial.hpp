@@ -87,6 +87,8 @@ void TutorialTick();
 void DrawTutorialTip(const Surface &out, int left, int width, int y, Point mouse, const TipTargets &targets);
 /** @return true if the click was the tip's. */
 bool TutorialOnClick(Point mouse);
+/** There is no room for the tip this frame: it isn't drawn, and takes no clicks. */
+void TutorialTipHidden();
 /** Where the tip was last drawn, if one is up. */
 std::optional<Rectangle> TutorialTipRect();
 bool TutorialIsMouseOver(Point mouse);
