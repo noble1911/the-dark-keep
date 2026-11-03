@@ -106,7 +106,12 @@ Most keys can be rebound under Settings > Keymapping.
 | Left click | Place / cast the selected tool (or order a possessed monster) |
 | Right click / Esc | Cancel the tool (Esc also releases a possessed monster, closes a summary or dismisses a tip) |
 | E | Possess the monster under the cursor / release it |
-| R | Open the gates early (start the next raid) |
+| R | Open the gates early (start the next raid). In co-op: say you are ready, and the host pressing again starts it |
+| O | The scout card: what the next raid brings |
+| U | Show or hide the heroes' expected route |
+| N | Game speed: 1x, 2x, 3x |
+| M | Mark a spot for the other masters |
+| J | Single player: stop the preparation clock |
 | Click an alert | Jump the camera to what it is about |
 
 ## For developers

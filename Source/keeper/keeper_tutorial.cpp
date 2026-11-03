@@ -55,7 +55,12 @@ struct InputToken {
 	KeeperAction action;
 	size_t index;
 };
-constexpr std::array<InputToken, 14> InputTokens { {
+constexpr std::array<InputToken, 19> InputTokens { {
+	{ "speed", KeeperAction::CycleSpeed, 0 },
+	{ "ping", KeeperAction::Ping, 0 },
+	{ "hold", KeeperAction::HoldTimer, 0 },
+	{ "route", KeeperAction::RoutePreview, 0 },
+	{ "scout", KeeperAction::ScoutCard, 0 },
 	{ "raid", KeeperAction::StartRaid, 0 },
 	{ "spell1", KeeperAction::Spell, 0 },
 	{ "spell2", KeeperAction::Spell, 1 },
@@ -154,7 +159,7 @@ constexpr std::array<HelpRow, 3> HelpKeeper { {
 } };
 
 /** Input rows: `title` is the input's name, tokens included. */
-constexpr std::array<HelpRow, 16> HelpKeys { {
+constexpr std::array<HelpRow, 21> HelpKeys { {
 	{ {}, "{camera}", "Move the view (arrows and the screen edge too)" },
 	{ {}, "Wheel", "Zoom in and out, or scroll over the cards" },
 	{ {}, "{entrance} / {vault}", "Jump to the entrance / the vault" },
@@ -168,6 +173,11 @@ constexpr std::array<HelpRow, 16> HelpKeys { {
 	{ {}, "{sell}", "Sell what is selected" },
 	{ {}, "{possess}", "Possess or release a monster" },
 	{ {}, "{raid}", "Open the gates: start the next raid now" },
+	{ {}, "{scout}", "The scout card: what the next raid brings" },
+	{ {}, "{route}", "Show or hide the heroes' expected route" },
+	{ {}, "{speed}", "Game speed: 1x, 2x, 3x" },
+	{ {}, "{ping}", "Mark a spot for the other masters" },
+	{ {}, "{hold}", "Single player: stop the preparation clock" },
 	{ {}, "Esc", "Cancel, close, or the game menu" },
 	{ {}, "Enter", "Chat, in co-op" },
 	{ {}, "{help}", "This help" },
