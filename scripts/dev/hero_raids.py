@@ -32,8 +32,8 @@ class LoggedGame(br.Game):
     log_path = {}
     extras = ()
 
-    def __init__(self, profile, plan, extra=()):
-        super().__init__(profile, plan, tuple(extra) + tuple(LoggedGame.extras))
+    def __init__(self, profile, plan, role="--keeper-autostart", *rest):
+        super().__init__(profile, plan, " ".join((role, *LoggedGame.extras)), *rest)
         self.log = open(LoggedGame.log_path[profile], "w", encoding="utf-8")
 
     def send(self, *lines):
