@@ -87,6 +87,8 @@ void TutorialTick();
 void DrawTutorialTip(const Surface &out, int left, int width, int y, Point mouse, const TipTargets &targets);
 /** @return true if the click was the tip's. */
 bool TutorialOnClick(Point mouse);
+/** Where the tip was last drawn, if one is up. */
+std::optional<Rectangle> TutorialTipRect();
 bool TutorialIsMouseOver(Point mouse);
 /** @return true if Esc dismissed a tip. */
 bool TutorialOnEscape();

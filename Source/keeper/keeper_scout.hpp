@@ -52,6 +52,7 @@ bool IsScoutCardOn();
 void ToggleScoutCard();
 /** Where the card is in UI pixels, top right of the view, when it's showing. */
 std::optional<Rectangle> ScoutCardRect(const Surface &out, int hudTop);
+void SetScoutCardTop(int y);
 void DrawScoutCard(const Surface &out, int hudTop, Point mouse);
 /** @return true if the click was on the card. */
 bool OnScoutCardClick(const Surface &out, int hudTop, Point mouse);

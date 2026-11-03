@@ -40,7 +40,7 @@ constexpr int LineHeight = 14;
 constexpr int ButtonHeight = 24;
 constexpr int ButtonGap = 12;
 constexpr int ButtonMaxWidth = 280;
-constexpr int UnlockCardWidth = 76;
+constexpr int UnlockCardWidth = 84;
 constexpr int UnlockCardHeight = 92;
 constexpr int UnlockImageHeight = 56;
 constexpr int UnlockGap = 6;
@@ -113,7 +113,14 @@ void DrawUnlockCard(const Surface &out, const Rectangle &rect, const UnlockItem 
 	const Rectangle image { rect.position + Displacement { 2, 2 }, { rect.size.width - 4, UnlockImageHeight } };
 	FillRect(out, image.position.x, image.position.y, image.size.width, image.size.height, 0);
 	DrawUiIcon(out.subregion(image.position.x, image.position.y, image.size.width, image.size.height), UnlockPicture(item));
-	DrawString(out, FitText(UnlockName(item), rect.size.width - 2), { rect.position + Displacement { 0, UnlockImageHeight + 4 }, { rect.size.width, LineHeight } },
+	const std::string name = UnlockName(item);
+	std::string_view nameLine = name;
+	if (const size_t space = nameLine.find(' '); space != std::string_view::npos && GetLineWidth(nameLine) > rect.size.width - 2) {
+		DrawString(out, FitText(nameLine.substr(0, space), rect.size.width - 2), { rect.position + Displacement { 0, UnlockImageHeight - 9 }, { rect.size.width, LineHeight } },
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite | UiFlags::Outlined });
+		nameLine.remove_prefix(space + 1);
+	}
+	DrawString(out, FitText(nameLine, rect.size.width - 2), { rect.position + Displacement { 0, UnlockImageHeight + 4 }, { rect.size.width, LineHeight } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite });
 	DrawString(out, fmt::format("{} Renown", UnlockCost(item)), { rect.position + Displacement { 0, UnlockImageHeight + 18 }, { rect.size.width, LineHeight } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });

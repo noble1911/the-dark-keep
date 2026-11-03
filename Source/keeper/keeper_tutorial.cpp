@@ -682,6 +682,11 @@ void DrawTutorialTip(const Surface &out, int left, int width, int y, Point mouse
 	DrawTipBox(out, rect, shownTip->title, text, TipIcon(*shownTip), mouse);
 }
 
+std::optional<Rectangle> TutorialTipRect()
+{
+	return tipRect;
+}
+
 bool TutorialIsMouseOver(Point mouse)
 {
 	return tipRect && tipRect->contains(mouse);

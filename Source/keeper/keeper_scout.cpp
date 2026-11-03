@@ -119,6 +119,8 @@ const CardLayout &LayoutFor(const Surface &out)
 }
 
 bool scoutCardOn = false;
+/** Where the card's top goes: the news along the top pushes it down on a screen too small for both side by side. */
+int scoutCardTop = 6;
 
 /** Identical heroes make one row. */
 struct HeroRow {
@@ -306,8 +308,13 @@ std::optional<Rectangle> ScoutCardRect(const Surface &out, int hudTop)
 	if (!scoutCardOn || (State.phase != Phase::Setup && State.phase != Phase::Breather) || IsRaidSummaryVisible() || IsAwaitingKeepSnapshot())
 		return std::nullopt;
 	const CardLayout &layout = LayoutFor(out);
-	const int height = std::min(CardHeight(layout, GetScoutInfo()), hudTop - 8);
-	return Rectangle { { out.w() - layout.width - 6, 6 }, { layout.width, height } };
+	const int height = std::min(CardHeight(layout, GetScoutInfo()), hudTop - scoutCardTop - 2);
+	return Rectangle { { out.w() - layout.width - 6, scoutCardTop }, { layout.width, height } };
+}
+
+void SetScoutCardTop(int y)
+{
+	scoutCardTop = y;
 }
 
 void DrawScoutCard(const Surface &out, int hudTop, Point mouse)

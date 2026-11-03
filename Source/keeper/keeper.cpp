@@ -1105,6 +1105,8 @@ void DrawTileDiamond(const Surface &out, Point tile, uint8_t color, int radius =
 
 /** Wide enough for the longest refusal: narrower cut "Not enough gold" and "Vault: 615 gold" short. */
 constexpr int WorldLabelWidth = 260;
+/** Narrower than this and the top news doesn't go beside the scout card. */
+constexpr int NewsMinWidthBesideCard = 280;
 
 void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFlags color, int raise = 0)
 {
@@ -1117,6 +1119,26 @@ void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFla
 	if (at.y < 0 || at.y + 14 >= ScreenHudTop())
 		return;
 	DrawString(out, text, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
+}
+
+/** What the cursor's tile refuses: drawn after the scout card, which could otherwise hide it. */
+std::optional<std::pair<Point, std::string>> refusalLabel;
+
+void NoteRefusalLabel(Point tile, std::string_view reason)
+{
+	if (overlayPass == OverlayPass::Text)
+		refusalLabel = { tile, std::string(reason) };
+}
+
+void DrawRefusalLabel(const Surface &out)
+{
+	if (!refusalLabel)
+		return;
+	const OverlayPass pass = overlayPass;
+	overlayPass = OverlayPass::Text;
+	DrawWorldLabel(out, refusalLabel->first, refusalLabel->second, UiFlags::ColorRed);
+	overlayPass = pass;
+	refusalLabel = std::nullopt;
 }
 
 /** The hero a Stone Curse cast at `tile` would take (it petrifies the nearest one within 5 tiles). */
@@ -1174,7 +1196,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, ok ? PAL16_ORANGE + 6 : PAL16_RED + 6, 1); // fires at heroes on or next to it
 		DrawTileDiamond(out, tile, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 		if (!ok)
-			DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+			NoteRefusalLabel(tile, reason);
 		return;
 	}
 	case ToolType::Bait: {
@@ -1183,7 +1205,7 @@ void DrawToolPreview(const Surface &out)
 			DrawTileDiamond(out, tile, PAL16_YELLOW + 8, 8); // heroes who can see it within 8 tiles detour
 		DrawTileDiamond(out, tile, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 		if (!ok)
-			DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+			NoteRefusalLabel(tile, reason);
 		return;
 	}
 	case ToolType::LockDoor: {
@@ -1192,13 +1214,13 @@ void DrawToolPreview(const Surface &out)
 			for (const Point at : BarricadeLine(tile))
 				DrawTileDiamond(out, at, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 			if (!ok)
-				DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+				NoteRefusalLabel(tile, reason);
 			return;
 		}
 		const Object *door = FindDoorAt(tile);
 		DrawTileDiamond(out, door != nullptr ? door->position : tile, ok ? PAL16_YELLOW + 2 : PAL16_RED + 2);
 		if (!ok)
-			DrawWorldLabel(out, tile, reason, UiFlags::ColorRed);
+			NoteRefusalLabel(tile, reason);
 		return;
 	}
 	case ToolType::Spell:
@@ -1776,7 +1798,7 @@ bool IsMouseOverUi()
 std::string ReadyButtonLabel()
 {
 	if (!gbIsMultiplayer)
-		return "Open the gates";
+		return IsPadInUse() ? "Open gates" : "Open the gates";
 	const std::string count = fmt::format("{}/{}", ReadyMasterCount(), MastersInKeepCount());
 	if (!IsMasterReady(MyPlayerId))
 		return fmt::format("Ready {}", count);
@@ -2608,7 +2630,9 @@ void DrawUi(const Surface &out)
 		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
 		DrawFrame(out, ready, PAL16_YELLOW + 4);
 		const std::string raidKey = InputName(KeeperAction::StartRaid);
-		DrawString(out, raidKey.empty() ? ReadyButtonLabel() : fmt::format("{}: {}", raidKey, ReadyButtonLabel()), { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		// The key only if it fits: what the button does matters more.
+		const std::string withKey = fmt::format("{}: {}", raidKey, ReadyButtonLabel());
+		DrawString(out, raidKey.empty() || GetLineWidth(withKey) > ready.size.width - 4 ? ReadyButtonLabel() : withKey, { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	{
@@ -2619,6 +2643,7 @@ void DrawUi(const Surface &out)
 	}
 
 	DrawScoutCard(out, top, UiMouse()); // under the spell bar, which has to stay usable on a small screen
+	DrawRefusalLabel(out);
 	DrawCardBar(out);
 	DrawSpellBar(out);
 	DrawInfoPanel(out);
@@ -2629,11 +2654,19 @@ void DrawUi(const Surface &out)
 	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
 
 	// News along the top, between the masters list and the raid roster.
+	int pauseY = 2;
+	int pauseCentre = out.w() / 2;
 	if (!IsGameOver()) {
 		const std::optional<Rectangle> roster = RaidRosterRect(out);
 		const int newsLeft = gbIsMultiplayer ? 198 : 6;
-		const int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
+		int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
+		// Beside the scout card if the news still has room there, otherwise the card goes below it.
+		const std::optional<Rectangle> scoutCard = ScoutCardRect(out, top);
+		const bool beside = scoutCard && scoutCard->position.x - 6 - newsLeft >= NewsMinWidthBesideCard;
+		if (beside)
+			newsRight = std::min(newsRight, scoutCard->position.x - 6);
 		const int newsWidth = newsRight - newsLeft;
+		pauseCentre = newsLeft + newsWidth / 2;
 		int newsY = DrawBanner(out, newsLeft, newsWidth, 6);
 		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
 		const Rectangle firstTab = TabRect(0);
@@ -2647,6 +2680,10 @@ void DrawUi(const Surface &out)
 		};
 		const int tipWidth = std::min(newsWidth, 380);
 		DrawTutorialTip(out, newsLeft + (newsWidth - tipWidth) / 2, tipWidth, newsY, UiMouse(), targets);
+		if (const std::optional<Rectangle> tip = TutorialTipRect(); tip)
+			newsY = tip->position.y + tip->size.height + 2;
+		pauseY = newsY > 6 ? newsY : 2;
+		SetScoutCardTop(beside || !scoutCard ? 6 : newsY + 2);
 	}
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
@@ -2682,8 +2719,8 @@ void DrawUi(const Surface &out)
 	if (PauseMode != 0 && !gmenu_is_active()) {
 		const std::string line = "Paused: orders still work";
 		const int width = GetLineWidth(line) + 16;
-		DrawHalfTransparentRectTo(out, (out.w() - width) / 2, 2, width, 18);
-		DrawString(out, line, { { (out.w() - width) / 2, 4 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		DrawHalfTransparentRectTo(out, pauseCentre - width / 2, pauseY, width, 18);
+		DrawString(out, line, { { pauseCentre - width / 2, pauseY + 2 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
 	}
 
 	if (IsGameOver() && !CoopHasHostLeft()) {
