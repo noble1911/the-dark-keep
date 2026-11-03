@@ -2667,7 +2667,9 @@ void DrawUi(const Surface &out)
 			newsRight = std::min(newsRight, scoutCard->position.x - 6);
 		const int newsWidth = newsRight - newsLeft;
 		pauseCentre = newsLeft + newsWidth / 2;
-		int newsY = DrawBanner(out, newsLeft, newsWidth, 6);
+		// Under the strips along the very top: the test-run banner, then the controller's prompts.
+		const int newsTop = 6 + (IsEditorTestRun() ? 20 : 0) + (IsPadInUse() ? 20 : 0);
+		int newsY = DrawBanner(out, newsLeft, newsWidth, newsTop);
 		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
 		const Rectangle firstTab = TabRect(0);
 		const Rectangle lastTab = TabRect(NumBarTabs - 1);
@@ -2682,15 +2684,15 @@ void DrawUi(const Surface &out)
 		DrawTutorialTip(out, newsLeft + (newsWidth - tipWidth) / 2, tipWidth, newsY, UiMouse(), targets);
 		if (const std::optional<Rectangle> tip = TutorialTipRect(); tip)
 			newsY = tip->position.y + tip->size.height + 2;
-		pauseY = newsY > 6 ? newsY : 2;
-		SetScoutCardTop(beside || !scoutCard ? 6 : newsY + 2);
+		pauseY = newsY > newsTop ? newsY : newsTop - 4;
+		SetScoutCardTop(beside || !scoutCard ? newsTop : newsY + 2);
 	}
 
 	// Scout line under the cards: the coming raid, the Lord's health, the portal.
 	const Rectangle bar = BarRect();
 	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {}", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
 	if (State.phase != Phase::Raid && !IsGameOver() && !IsScoutCardOn())
-		scout += fmt::format("  -  {}: scout card", KeyLabel(KeeperAction::ScoutCard));
+		scout += fmt::format("  -  {}: scout card", InputName(KeeperAction::ScoutCard));
 	UiFlags scoutColor = UiFlags::ColorGold;
 	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
 		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;

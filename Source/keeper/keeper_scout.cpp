@@ -19,6 +19,7 @@
 #include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_input.hpp"
+#include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_raidtypes.hpp"
@@ -427,9 +428,9 @@ void DrawScoutCard(const Surface &out, int hudTop, Point mouse)
 
 	const Rectangle close = CloseButton(*rect, layout);
 	const Rectangle route = RouteButton(*rect, layout);
-	DrawString(out, fmt::format("{}: hide card", KeyLabel(KeeperAction::ScoutCard)), { close.position, close.size },
+	DrawString(out, fmt::format("{}: hide card", InputName(KeeperAction::ScoutCard)), { close.position, close.size },
 	    { .flags = UiFlags::FontSize12 | (close.contains(mouse) ? UiFlags::ColorGold : UiFlags::ColorWhite) });
-	DrawString(out, fmt::format("{}: route {}", KeyLabel(KeeperAction::RoutePreview), IsRoutePreviewOn() ? "on" : "off"), { route.position, route.size },
+	DrawString(out, fmt::format("{}: route {}", InputName(KeeperAction::RoutePreview), IsRoutePreviewOn() ? "on" : "off"), { route.position, route.size },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (route.contains(mouse) ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 }
 
