@@ -18,6 +18,8 @@ namespace devilution::keeper {
 #ifdef KEEPER_DEVCTL
 /** Starts reading commands from `path`; output goes to `path` + ".out". */
 void DevctlInit(std::string path);
+/** True in a game driven by --keeper-devctl: nothing may open a window, not even to report a fatal error. */
+bool DevctlEnabled();
 
 /** Runs due commands. Called once per presented frame, whatever screen is up. */
 void DevctlFrame();

@@ -30,6 +30,7 @@
 #include "engine/surface.hpp"
 #include "items.h"
 #include "keeper/keeper.hpp"
+#include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_bots.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_devqa.hpp"
@@ -54,9 +55,14 @@
 #include "utils/is_of.hpp"
 #include "utils/surface_to_png.hpp"
 
+#ifdef _WIN32
+extern "C" __declspec(dllimport) unsigned int __stdcall SetErrorMode(unsigned int mode);
+#endif
+
 namespace devilution::keeper {
 
 void DevHallSelect(int whichTab, size_t index);
+void DevEditor(const std::string &what, const std::string &arg);
 
 namespace {
 
@@ -944,6 +950,26 @@ void Execute(const std::string &line)
 		in >> a >> b;
 		const Point at = DevTileOnScreen({ a, b });
 		PushMotion(at.x, at.y);
+	} else if (command == "editor") {
+		std::string arg;
+		in >> word >> arg;
+		DevEditor(word, arg);
+	} else if (command == "lockroute") {
+		// The first door or neck on the heroes' way that can be shut, a good way in.
+		const std::vector<Point> route = EstimateHeroRoute({});
+		Output(fmt::format("lockroute route={} tiles barricades={}", route.size(), UsesBarricades()));
+		for (size_t i = route.size() / 3; i < route.size(); i++) {
+			for (const Direction dir : { Direction::NoDirection, Direction::North, Direction::East, Direction::South, Direction::West }) {
+				const Point tile = dir == Direction::NoDirection ? route[i] : route[i] + dir;
+				std::string_view reason;
+				if (CanLockDoorAt(tile, &reason)) {
+					Output(fmt::format("lockroute locking {},{}", tile.x, tile.y));
+					RequestLockDoor(tile);
+					return;
+				}
+			}
+		}
+		Output("lockroute nothing to lock");
 	} else if (command == "hallselect") {
 		in >> a >> b;
 		DevHallSelect(a, static_cast<size_t>(b));
@@ -1069,8 +1095,15 @@ void DevctlInit(std::string path)
 #ifdef _WIN32
 	// A failed assert must end the run and say why in a file: the usual message box would land on the user's desktop.
 	_set_error_mode(_OUT_TO_STDERR);
+	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+	SetErrorMode(0x0001 | 0x0002); // SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX: no Windows crash dialog either
 #endif
 	(void)std::freopen((commandPath + ".err").c_str(), "w", stderr);
+}
+
+bool DevctlEnabled()
+{
+	return enabled;
 }
 
 bool DevctlSkipsDraw()

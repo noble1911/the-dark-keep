@@ -93,6 +93,11 @@ function Start-TestGame([string]$ProfileDir, [string[]]$GameArgs, [switch]$Windo
     Remove-Item -ErrorAction SilentlyContinue "$ProfileDir\ctl.txt", "$ProfileDir\ctl.txt.out"
     New-Item -ItemType File -Force "$ProfileDir\ctl.txt" | Out-Null
     $a = @('--config-dir', $ProfileDir, '--save-dir', $ProfileDir, '--keeper-devctl', "$ProfileDir\ctl.txt") + $GameArgs
+    # A missing runtime DLL would make Windows open a dialog before the game could stop it.
+    if ($env:DK_BUILD -like '*asan*') {
+        if (-not (Test-Path "$script:ExeDir\clang_rt.asan_dynamic-x86_64.dll")) { throw "ASan runtime missing from $script:ExeDir" }
+        $env:ASAN_OPTIONS = "log_path=`"$ProfileDir\asan.log`""
+    }
     $savedVideo = $env:SDL_VIDEODRIVER; $savedAudio = $env:SDL_AUDIODRIVER
     $env:SDL_AUDIODRIVER = 'dummy'
     if (-not $Windowed) { $env:SDL_VIDEODRIVER = 'dummy' }

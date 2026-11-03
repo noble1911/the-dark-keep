@@ -1,3 +1,8 @@
+#ifdef KEEPER_DEVCTL
+#include <cstdio>
+
+#include "keeper/keeper_devctl.hpp" // [DARK KEEP]
+#endif
 #include "DiabloUI/dialogs.h"
 
 #include <cstdint>
@@ -170,6 +175,14 @@ void UiOkDialog(std::string_view caption, std::string_view text, bool error, con
 	} else {
 		LogError("{}", text);
 	}
+
+#ifdef KEEPER_DEVCTL
+	if (keeper::DevctlEnabled()) { // [DARK KEEP] dev/test: SDL's message box is a real window, even with the dummy video driver
+		std::fprintf(stderr, "UiOkDialog: %.*s: %.*s\n", static_cast<int>(caption.size()), caption.data(), static_cast<int>(text.size()), text.data());
+		std::fflush(stderr);
+		return;
+	}
+#endif
 
 	if (!gbActive || inDialog) {
 		if (!HeadlessMode) {
