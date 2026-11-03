@@ -191,6 +191,8 @@ void UiOkDialog(std::string_view caption, std::string_view text, bool error, con
 		}
 	}
 
+	// [DARK KEEP] Set before Init: Init loads UI assets, and a missing one calls app_fatal, which comes back here. Set after, that recursed until the stack overflowed.
+	inDialog = true;
 	if (!Init(caption, text, error, !renderBehind.empty())) {
 		LogError("{}\n{}", caption, text);
 		const std::string captionStr = std::string(caption);
@@ -200,7 +202,6 @@ void UiOkDialog(std::string_view caption, std::string_view text, bool error, con
 		}
 	}
 
-	inDialog = true;
 	SDL_SetSurfaceClipRect(DiabloUiSurface(), nullptr);
 	DialogLoop(vecOkDialog, renderBehind);
 	Deinit();
