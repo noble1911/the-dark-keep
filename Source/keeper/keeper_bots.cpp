@@ -85,6 +85,9 @@ struct BotState {
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
 	HeroProgress progress;
+	HeroEngagement engagement;
+	HeroWatchdog watchdog;
+	bool watchdogDue = false;
 	/** Reached the vault and came for the Lord: it goes where he is, not back to the vault. */
 	bool huntingLord = false;
 	/** HeroClock time until which it keeps clear of every floor hazard. */
@@ -337,7 +340,7 @@ Monster *FindTarget(const Player &bot, const BotState &state, int range)
 		if (!IsKeepTarget(monster))
 			continue;
 		const int distance = position.WalkingDistance(monster.position.tile);
-		if (distance > range || (distance > 1 && !HasLineOfSight(position, monster.position.tile)))
+		if (distance > range || (distance > 1 && !HasLineOfSight(position, monster.position.tile)) || IsIgnoredTarget(state.engagement, monster, distance))
 			continue;
 		const int score = state.cls == HeroClassKind::Warrior && IsOnSofterFriend(monster) ? distance - WarriorProtectBonus : distance;
 		if (best == nullptr || score < bestDistance) {
@@ -384,9 +387,15 @@ std::optional<SpellID> SpellAgainst(const Monster &target)
 
 void Attack(Player &bot, BotState &state, const Monster &target)
 {
-	HoldHeroProgress(state.progress);
 	const size_t monsterId = target.getId();
 	const int distance = bot.position.tile.WalkingDistance(target.position.tile);
+	if (!NoteEngagement(state.engagement, target, distance)) {
+		// Not hurting it and no closer: leave it. The next decision goes on along the route.
+		ClrPlrPath(bot);
+		bot.destAction = ACTION_NONE;
+		return;
+	}
+	HoldHeroProgress(state.progress);
 	const bool clearShot = HasLineOfSight(bot.position.tile, target.position.tile);
 	switch (state.cls) {
 	case HeroClassKind::Sorcerer:
@@ -688,11 +697,11 @@ void Think(Player &bot, BotState &state)
 	}
 
 	if (state.huntingLord) {
-		if (const Monster *lord = FindBoss(); lord != nullptr) {
+		if (const Monster *lord = FindBoss(); lord != nullptr && !IsIgnoredTarget(state.engagement, *lord, position.WalkingDistance(lord->position.tile))) {
 			Attack(bot, state, *lord);
 			return;
 		}
-		state.huntingLord = false; // he hasn't risen yet: back to the vault
+		state.huntingLord = false; // he hasn't risen yet, or can't be got at from here: back to the vault
 	}
 
 	if (TryGoForBait(bot, state))
@@ -1063,8 +1072,14 @@ void UpdateBots()
 		if (state.healCooldown > 0)
 			state.healCooldown--;
 
+		if (HeroWatchdogFired(state.watchdog, bot.position.tile) && !State.bossDown)
+			state.watchdogDue = true; // it may be mid-shot: moved when it next stands
 		if (bot._pmode != PM_STAND)
 			continue; // mid-swing, mid-step, mid-cast or reeling
+		if (state.watchdogDue) {
+			state.watchdogDue = false;
+			BotNudgeAlong(bot, state.fleeing || state.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault, state.trapsKnown);
+		}
 		// First of all: an order given a moment ago is no reason to stand in a fire.
 		if (StepOutOfHazard(bot, state)) {
 			state.thinkCooldown = 0;
