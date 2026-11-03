@@ -1290,6 +1290,20 @@ bool EditorOnTestKey(SDL_Keycode key)
 	return true;
 }
 
+#ifdef KEEPER_DEVCTL
+void DevEditor(const std::string &what, const std::string &arg)
+{
+	if (what == "save")
+		Save();
+	else if (what == "load")
+		LoadMapNamed(arg);
+	else if (what == "new")
+		NewMap();
+	else if (what == "undo")
+		Undo();
+}
+#endif
+
 bool IsEditorTestRun()
 {
 	return testing;
