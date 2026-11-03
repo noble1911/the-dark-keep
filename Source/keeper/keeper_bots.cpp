@@ -57,6 +57,8 @@ constexpr int BotForceSnapDistance = 10;
 constexpr int MaxBotBlockPercent = 75;
 /** A Warrior prefers a monster on a softer friend over a nearer one on itself, by this many tiles. */
 constexpr int WarriorProtectBonus = 3;
+/** A bot hunting the Lord walks his route in legs of this many steps until it is this close. */
+constexpr int LordHuntNearSteps = 8;
 
 struct BotState {
 	HeroClassKind cls = HeroClassKind::Warrior;
@@ -389,7 +391,9 @@ void Attack(Player &bot, BotState &state, const Monster &target)
 {
 	const size_t monsterId = target.getId();
 	const int distance = bot.position.tile.WalkingDistance(target.position.tile);
-	if (!NoteEngagement(state.engagement, target, distance)) {
+	// The Lord can be a long way round from where he looks to be: what counts is the way there.
+	const int routeToLord = IsBoss(target) ? LordRouteDistance(bot.position.tile) : 0;
+	if (!NoteEngagement(state.engagement, target, IsBoss(target) ? routeToLord : distance)) {
 		// Not hurting it and no closer: leave it. The next decision goes on along the route.
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_NONE;
@@ -432,6 +436,15 @@ void Attack(Player &bot, BotState &state, const Monster &target)
 		break;
 	}
 	// Melee (and casters without a clear shot close in).
+	if (IsBoss(target) && routeToLord > LordHuntNearSteps) {
+		// Further than a path can reach, and an attack order would keep asking for one: walk the route.
+		if (const std::optional<Point> waypoint = LordRouteWaypoint(bot.position.tile, LordHuntNearSteps); waypoint) {
+			ClrPlrPath(bot);
+			MakePlrPath(bot, *waypoint, true);
+			bot.destAction = ACTION_NONE;
+			return;
+		}
+	}
 	if (distance > 1)
 		MakePlrPath(bot, target.position.future, false);
 	bot.destAction = ACTION_ATTACKMON;
@@ -697,7 +710,7 @@ void Think(Player &bot, BotState &state)
 	}
 
 	if (state.huntingLord) {
-		if (const Monster *lord = FindBoss(); lord != nullptr && !IsIgnoredTarget(state.engagement, *lord, position.WalkingDistance(lord->position.tile))) {
+		if (const Monster *lord = FindBoss(); lord != nullptr && !HasGivenUpOn(state.engagement, *lord)) {
 			Attack(bot, state, *lord);
 			return;
 		}
@@ -909,10 +922,7 @@ std::optional<BotSyncState> GetBotSyncState(size_t slot)
 	synced.hazardWaryLeft = state.hazardWaryUntil > now ? static_cast<int>(state.hazardWaryUntil - now) : 0;
 	synced.said = state.said;
 	synced.huntingLord = state.huntingLord;
-	if (state.engagement.ignored >= 0 && state.engagement.ignoredUntil > now) {
-		synced.ignoredTarget = state.engagement.ignored;
-		synced.ignoredLeft = static_cast<int>(state.engagement.ignoredUntil - now);
-	}
+	synced.ignoredTarget = LongestGivenUp(state.engagement, synced.ignoredLeft);
 	synced.progressGoal = static_cast<uint8_t>(state.progress.goal);
 	synced.progressBest = state.progress.best;
 	synced.progressAge = static_cast<int>(now - state.progress.since);
@@ -944,8 +954,8 @@ void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
 	state.hazardWaryUntil = now + static_cast<uint32_t>(synced.hazardWaryLeft);
 	state.said = synced.said;
 	state.huntingLord = synced.huntingLord;
-	state.engagement.ignored = synced.ignoredTarget;
-	state.engagement.ignoredUntil = now + static_cast<uint32_t>(synced.ignoredLeft);
+	if (synced.ignoredTarget >= 0)
+		SetGivenUp(state.engagement, synced.ignoredTarget, synced.ignoredLeft);
 	state.progress.goal = static_cast<HeroGoal>(synced.progressGoal);
 	state.progress.traps = synced.trapsKnown;
 	state.progress.best = synced.progressBest;
@@ -1101,13 +1111,14 @@ void UpdateBots()
 		if (state.healCooldown > 0)
 			state.healCooldown--;
 
-		if (HeroWatchdogFired(state.watchdog, bot.position.tile) && !State.bossDown)
+		if (HeroWatchdogFired(state.watchdog, bot.position.tile, state.engagement) && !State.bossDown)
 			state.watchdogDue = true; // it may be mid-shot: moved when it next stands
 		if (bot._pmode != PM_STAND)
 			continue; // mid-swing, mid-step, mid-cast or reeling
 		if (state.watchdogDue) {
 			state.watchdogDue = false;
-			BotNudgeAlong(bot, state.fleeing || state.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault, state.trapsKnown);
+			if (!State.bossDown) // the Lord may have died since: a bot may be opening the portal
+				BotNudgeAlong(bot, state.fleeing || state.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault, state.trapsKnown);
 		}
 		// First of all: an order given a moment ago is no reason to stand in a fire.
 		if (StepOutOfHazard(bot, state)) {

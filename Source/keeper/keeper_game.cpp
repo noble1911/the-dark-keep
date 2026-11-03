@@ -127,6 +127,9 @@ constexpr int VaultInterestMaxGold = 100;
 constexpr int EarlyCallGoldPerSecond = 1;
 constexpr int EarlyCallMaxGold = 60;
 
+/** A hero's time left ignoring a target goes in a byte: it never runs to more than a few hundred ticks. */
+constexpr int SyncIgnoredTicksPerUnit = 4;
+
 enum class Action : uint8_t {
 	RequestBuild = 1,
 	Built,
@@ -198,6 +201,7 @@ enum class Action : uint8_t {
 	SyncBotTimers,
 	SyncBotPursuit,
 	SyncBotStuck,
+	SyncHeroPursuit,
 };
 
 #pragma pack(push, 1)
@@ -1251,6 +1255,7 @@ void AddRaidJoinState(DirectCommands &out)
 		out.Add(Action::SyncHeroMind, static_cast<uint8_t>(hero->trapsKnown), static_cast<uint8_t>(hero->trapsKnown >> 8), static_cast<uint8_t>(hero->trapsSeen), static_cast<uint8_t>(hero->trapsSeen >> 8), w);
 		const int regroup = std::clamp(hero->regroupBudget, 0, 0xFFFF);
 		out.Add(Action::SyncHeroPace, static_cast<uint8_t>(std::clamp(hero->fallBackSteps, 0, 0xFF)), 0, static_cast<uint8_t>(regroup), static_cast<uint8_t>(regroup >> 8), w);
+		out.Add(Action::SyncHeroPursuit, static_cast<uint8_t>(hero->ignoredTarget + 1), static_cast<uint8_t>(std::clamp(hero->ignoredLeft / SyncIgnoredTicksPerUnit, 0, 0xFF)), static_cast<uint8_t>(std::clamp(hero->watchdogAge, 0, 0xFFFF)), static_cast<uint8_t>(std::clamp(hero->watchdogAge, 0, 0xFFFF) >> 8), w);
 	}
 	for (size_t i = 0; i < MaxBots; i++) {
 		const std::optional<BotSyncState> bot = GetBotSyncState(i);
@@ -1495,6 +1500,7 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	case Action::SyncHero:
 	case Action::SyncHeroMind:
 	case Action::SyncHeroPace:
+	case Action::SyncHeroPursuit:
 		if (IsMonsterInPlay(monsterId)) {
 			std::optional<HeroSyncState> hero = GetHeroSyncState(static_cast<size_t>(monsterId));
 			if (!hero)
@@ -1508,6 +1514,10 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 			} else if (message.action == Action::SyncHeroMind) {
 				hero->trapsKnown = static_cast<uint16_t>(message.a | (message.b << 8));
 				hero->trapsSeen = static_cast<uint16_t>(message.x | (message.y << 8));
+			} else if (message.action == Action::SyncHeroPursuit) {
+				hero->ignoredTarget = static_cast<int>(message.a) - 1;
+				hero->ignoredLeft = message.b * SyncIgnoredTicksPerUnit;
+				hero->watchdogAge = message.x | (message.y << 8);
 			} else {
 				hero->fallBackSteps = message.a;
 				hero->regroupBudget = message.x | (message.y << 8);
@@ -2769,6 +2779,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncPortal:
 	case Action::SyncPortalCaster:
 	case Action::SyncHeroPace:
+	case Action::SyncHeroPursuit:
 	case Action::SyncBotPace:
 	case Action::SyncBotTimers:
 	case Action::SyncBotPursuit:
