@@ -1826,7 +1826,7 @@ void ResetGame(Point entrance, Point vault)
 	State.phaseTicks = SetupTicks;
 	LatchGameDifficulty();
 	SetRaidMasters(CountMasters());
-	SetFailedGoals(0);
+	ForgetLevelGoals();
 	for (size_t i = 0; i < NumSpellKinds; i++)
 		State.spellLevels[i] = static_cast<uint8_t>(GameSpellLevel(i));
 	for (size_t i = 0; i < NumTrapKinds; i++)

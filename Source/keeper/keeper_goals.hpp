@@ -27,6 +27,10 @@ struct LevelGoalInfo {
 	std::string_view description;
 };
 const LevelGoalInfo &GoalInfo(size_t goal);
+/** A new keep: nothing failed and nothing paid yet. */
+void ForgetLevelGoals();
+/** The medals for this keep have been handed out to this master. */
+bool WereGoalsAwarded();
 
 /** Host: a goal can no longer be met in this game. */
 void FailGoal(LevelGoal goal);

@@ -192,8 +192,6 @@ std::vector<SummaryLine> SummaryLines()
 		{ "Gold stolen from the vault", std::to_string(s.goldLooted), s.goldLooted > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "  ...carried out of the keep", std::to_string(s.goldCarriedOff), s.goldCarriedOff > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "Gold recovered + bounties", std::to_string(s.goldRecovered + s.bounties), UiFlags::ColorGold },
-		{ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold },
-		{ "Your monsters lost", std::to_string(s.monstersLost), s.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 	};
 	if (s.outcome == Phase::Breather)
 		lines.push_back({ "Tribute paid", std::to_string(s.tribute), UiFlags::ColorGold });

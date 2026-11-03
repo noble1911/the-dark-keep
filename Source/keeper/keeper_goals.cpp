@@ -22,6 +22,8 @@ constexpr std::array<LevelGoalInfo, NumLevelGoals> Goals { {
 } };
 
 uint8_t failedGoals = 0;
+/** This master saw the win and was paid for it: one who connected afterwards wasn't. */
+bool goalsAwarded = false;
 
 } // namespace
 
@@ -53,6 +55,17 @@ void SetFailedGoals(uint8_t failed)
 	failedGoals = failed;
 }
 
+void ForgetLevelGoals()
+{
+	failedGoals = 0;
+	goalsAwarded = false;
+}
+
+bool WereGoalsAwarded()
+{
+	return goalsAwarded;
+}
+
 bool GoalsApply()
 {
 	return CurrentSetup().mode == GameMode::Campaign;
@@ -64,6 +77,7 @@ void AwardLevelGoals()
 		return;
 	const auto all = static_cast<uint8_t>((1U << NumLevelGoals) - 1);
 	ProfileAwardMedals(CurrentSetup().campaignLevel, static_cast<uint8_t>(all & ~failedGoals));
+	goalsAwarded = true;
 }
 
 } // namespace devilution::keeper

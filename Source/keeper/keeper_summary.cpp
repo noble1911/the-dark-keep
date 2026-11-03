@@ -20,6 +20,7 @@
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_goals.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raid.hpp"
 #include "keeper/keeper_roster.hpp"
@@ -163,6 +164,8 @@ Rectangle MapSummaryRect(const Surface &out)
 		for (const std::string &advice : info.advice.tryNext)
 			content += CountLinesOfText(WordWrapString(advice, inner - 10)) * LineHeight;
 	}
+	if (WereGoalsAwarded())
+		content += static_cast<int>(NumLevelGoals) * LineHeight + 4;
 	if (RenownAvailable() > 0)
 		content += LineHeight + 1 + (info.unlocks.empty() ? 0 : UnlockCardHeight + 4);
 	content += 2 * LineHeight + 6 + ButtonHeight + Margin; // the note, the next step and the buttons
@@ -244,6 +247,16 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::stri
 			DrawString(out, ">", { { x, y }, { 10, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 			DrawString(out, text, { { x + 10, y }, { inner - 10, static_cast<int>(lines) * LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = LineHeight });
 			y += static_cast<int>(lines) * LineHeight;
+		}
+		y += 4;
+	}
+
+	if (WereGoalsAwarded()) {
+		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+			const bool earned = (FailedGoals() & (1U << goal)) == 0;
+			DrawString(out, GoalInfo(goal).name, { { x, y }, { inner, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+			DrawString(out, earned ? "Medal!" : "Missed", { { x, y }, { inner, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (earned ? UiFlags::ColorGold : UiFlags::ColorRed) });
+			y += LineHeight;
 		}
 		y += 4;
 	}
