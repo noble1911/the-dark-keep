@@ -40,7 +40,7 @@ function Sync-GameData([string]$DataDir = "E:\Games\Diablo", [switch]$NoSync) {
         throw "$($running.Count) game(s) running from this build (pid $($running.ProcessId -join ', ')) would keep assets and mods from refreshing. Stop them, or pass -NoSync to run on the data as it is."
     }
     if (-not $NoSync) {
-        Copy-Item -Recurse -Force "$script:Root\build\assets\*" (New-Item -ItemType Directory -Force "$script:ExeDir\assets")
+        Copy-Item -Recurse -Force "$script:ExeDir\..\assets\*" (New-Item -ItemType Directory -Force "$script:ExeDir\assets")
         if (Test-Path "$script:ExeDir\mods") { Remove-Item -Recurse -Force "$script:ExeDir\mods" }
         Copy-Item -Recurse -Force "$script:ExeDir\..\mods" "$script:ExeDir\mods"
     }
