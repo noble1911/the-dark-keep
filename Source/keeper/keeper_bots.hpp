@@ -73,6 +73,21 @@ struct BotSyncState {
 	int fallBackThinks = 0;
 	int regroupBudget = 0;
 	int thinkCooldown = 0;
+	// Times are how long ago or how long left: each client's hero clock is its own.
+	int kiteCooldown = 0;
+	int healCooldown = 0;
+	int hazardWaryLeft = 0;
+	uint8_t said = 0;
+	bool huntingLord = false;
+	/** The target it has given up on (-1 = none), and for how much longer. */
+	int ignoredTarget = -1;
+	int ignoredLeft = 0;
+	/** How near it has come to its goal, and how long ago that was. */
+	uint8_t progressGoal = 0;
+	uint16_t progressBest = 0;
+	int progressAge = 0;
+	/** How long it has been on its tile, for the last-resort nudge. */
+	int watchdogAge = 0;
 };
 /** Nullopt if there is no living bot in that slot. */
 std::optional<BotSyncState> GetBotSyncState(size_t slot);

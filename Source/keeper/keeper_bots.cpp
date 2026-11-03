@@ -902,7 +902,22 @@ std::optional<BotSyncState> GetBotSyncState(size_t slot)
 	if (slot >= MaxBots || !IsLivingBot(Players[FirstBotId + slot]))
 		return std::nullopt;
 	const BotState &state = Bots[slot];
-	return BotSyncState { state.fleeing, state.fearRolled, state.fellBack, state.carried, state.potions, state.petrifiedTicks, state.baitsVisited, state.trapsKnown, state.trapsSeen, state.baitLingerTicks, state.fallBackThinks, state.regroupBudget, state.thinkCooldown };
+	const uint32_t now = HeroClock();
+	BotSyncState synced { state.fleeing, state.fearRolled, state.fellBack, state.carried, state.potions, state.petrifiedTicks, state.baitsVisited, state.trapsKnown, state.trapsSeen, state.baitLingerTicks, state.fallBackThinks, state.regroupBudget, state.thinkCooldown };
+	synced.kiteCooldown = state.kiteCooldown;
+	synced.healCooldown = state.healCooldown;
+	synced.hazardWaryLeft = state.hazardWaryUntil > now ? static_cast<int>(state.hazardWaryUntil - now) : 0;
+	synced.said = state.said;
+	synced.huntingLord = state.huntingLord;
+	if (state.engagement.ignored >= 0 && state.engagement.ignoredUntil > now) {
+		synced.ignoredTarget = state.engagement.ignored;
+		synced.ignoredLeft = static_cast<int>(state.engagement.ignoredUntil - now);
+	}
+	synced.progressGoal = static_cast<uint8_t>(state.progress.goal);
+	synced.progressBest = state.progress.best;
+	synced.progressAge = static_cast<int>(now - state.progress.since);
+	synced.watchdogAge = static_cast<int>(now - state.watchdog.since);
+	return synced;
 }
 
 void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
@@ -923,6 +938,20 @@ void ApplyBotSyncState(size_t slot, const BotSyncState &synced)
 	state.fallBackThinks = synced.fallBackThinks;
 	state.regroupBudget = synced.regroupBudget;
 	state.thinkCooldown = synced.thinkCooldown;
+	const uint32_t now = HeroClock();
+	state.kiteCooldown = synced.kiteCooldown;
+	state.healCooldown = synced.healCooldown;
+	state.hazardWaryUntil = now + static_cast<uint32_t>(synced.hazardWaryLeft);
+	state.said = synced.said;
+	state.huntingLord = synced.huntingLord;
+	state.engagement.ignored = synced.ignoredTarget;
+	state.engagement.ignoredUntil = now + static_cast<uint32_t>(synced.ignoredLeft);
+	state.progress.goal = static_cast<HeroGoal>(synced.progressGoal);
+	state.progress.traps = synced.trapsKnown;
+	state.progress.best = synced.progressBest;
+	state.progress.since = now - static_cast<uint32_t>(synced.progressAge); // the clocks' difference is all that's read
+	state.watchdog.tile = Players[FirstBotId + slot].position.tile;
+	state.watchdog.since = now - static_cast<uint32_t>(synced.watchdogAge);
 }
 
 bool RunsThisRaid(const Player &player)

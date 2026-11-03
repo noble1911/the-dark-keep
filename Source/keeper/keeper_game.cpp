@@ -194,6 +194,10 @@ enum class Action : uint8_t {
 	Ping,
 	RaidResult,
 	EarlyCallPaid,
+	// A joining master's copy of a bot: its timers, what it has given up on, and how it is getting on.
+	SyncBotTimers,
+	SyncBotPursuit,
+	SyncBotStuck,
 };
 
 #pragma pack(push, 1)
@@ -1258,6 +1262,9 @@ void AddRaidJoinState(DirectCommands &out)
 		out.Add(Action::SyncBotPace, a, static_cast<uint8_t>(std::clamp(bot->fallBackThinks, 0, 0xFF)), static_cast<uint8_t>(std::clamp(bot->thinkCooldown, 0, 0xFF)), static_cast<uint8_t>(std::clamp(bot->baitLingerTicks, 0, 0xFF)), static_cast<uint16_t>(std::clamp(bot->regroupBudget, 0, 0xFFFF)));
 		if (bot->petrifiedTicks > 0)
 			out.Add(Action::SyncBotPetrified, a, 0, 0, 0, static_cast<uint16_t>(std::clamp(bot->petrifiedTicks, 0, 0xFFFF)));
+		out.Add(Action::SyncBotTimers, a, static_cast<uint8_t>(std::clamp(bot->kiteCooldown, 0, 0xFF)), static_cast<uint8_t>(std::clamp(bot->healCooldown, 0, 0xFF)), bot->said, static_cast<uint16_t>(std::clamp(bot->hazardWaryLeft, 0, 0xFFFF)));
+		out.Add(Action::SyncBotPursuit, a, static_cast<uint8_t>(bot->ignoredTarget + 1), bot->huntingLord ? 1 : 0, static_cast<uint8_t>(std::clamp(bot->progressAge, 0, 0xFF)), static_cast<uint16_t>(std::clamp(bot->ignoredLeft, 0, 0xFFFF)));
+		out.Add(Action::SyncBotStuck, a, bot->progressGoal, static_cast<uint8_t>(std::clamp(bot->watchdogAge, 0, 0xFFFF)), static_cast<uint8_t>(std::clamp(bot->watchdogAge, 0, 0xFFFF) >> 8), bot->progressBest);
 	}
 	const PortalSyncState portal = GetPortalSyncState();
 	if (State.bossDown || portal.open) {
@@ -1509,6 +1516,9 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 	case Action::SyncBotMind:
 	case Action::SyncBotPace:
 	case Action::SyncBotPetrified:
+	case Action::SyncBotTimers:
+	case Action::SyncBotPursuit:
+	case Action::SyncBotStuck:
 		if (message.a < MaxBots) {
 			std::optional<BotSyncState> bot = GetBotSyncState(message.a);
 			if (!bot)
@@ -1528,6 +1538,20 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 				bot->thinkCooldown = message.x;
 				bot->baitLingerTicks = message.y;
 				bot->regroupBudget = Swap16LE(message.w);
+			} else if (message.action == Action::SyncBotTimers) {
+				bot->kiteCooldown = message.b;
+				bot->healCooldown = message.x;
+				bot->said = message.y;
+				bot->hazardWaryLeft = Swap16LE(message.w);
+			} else if (message.action == Action::SyncBotPursuit) {
+				bot->ignoredTarget = static_cast<int>(message.b) - 1;
+				bot->huntingLord = message.x != 0;
+				bot->progressAge = message.y;
+				bot->ignoredLeft = Swap16LE(message.w);
+			} else if (message.action == Action::SyncBotStuck) {
+				bot->progressGoal = message.b;
+				bot->watchdogAge = message.x | (message.y << 8);
+				bot->progressBest = Swap16LE(message.w);
 			} else {
 				bot->petrifiedTicks = Swap16LE(message.w);
 			}
@@ -2743,6 +2767,9 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 	case Action::SyncPortalCaster:
 	case Action::SyncHeroPace:
 	case Action::SyncBotPace:
+	case Action::SyncBotTimers:
+	case Action::SyncBotPursuit:
+	case Action::SyncBotStuck:
 	case Action::SyncBegin:
 	case Action::SyncHostSlot:
 	case Action::SyncUpgrade:
