@@ -744,3 +744,17 @@ Most important first.
 
 Late levels were judged on models, not on play. If the playtest stream reports that a level is out of
 line, adjust that level's strength first: it is the one number meant to carry a level's difficulty.
+
+## Check on the combined build (f6c115ef7)
+
+Real raids on Normal, last raid of each level, after every branch was merged. Few raids per cell, so
+treat these as hints. They disagree with the heroes branch's own numbers, which used different armies.
+
+| Level | Army | Traps | Spells | Sloppy | Full |
+|---|---|---|---|---|---|
+| 1 | 1/3 | 0/3 | 3/4 | 0/4 | 6/6 |
+| 10 | 0/3 | - | 2/4 | 2/4 | 6/6 |
+| 20 | 0/3 | - | 1/4 | 1/4 | 6/6 |
+
+Look first at level 1 for a weak player, then levels 10 and 20 at full support. Raid types, interest,
+early call, thieves and Easy and Hard weren't exercised, because the harness starts at the last raid.
