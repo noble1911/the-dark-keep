@@ -214,7 +214,8 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::stri
 	const std::array<std::tuple<std::string_view, std::string, UiFlags>, 5> stats { {
 		{ "Raids survived", fmt::format("{} of {}", raids, NumWaves()), won ? UiFlags::ColorGold : UiFlags::ColorWhite },
 		{ "Heroes slain", std::to_string(totals.slain), UiFlags::ColorGold },
-		{ "Heroes escaped", std::to_string(totals.escaped + totals.fled), totals.escaped > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
+		// Separately: only an escape costs the No escapes medal.
+		{ "Heroes escaped", totals.fled > 0 ? fmt::format("{}, and {} fled", totals.escaped, totals.fled) : std::to_string(totals.escaped), totals.escaped > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "Gold carried off", std::to_string(totals.goldCarriedOff), totals.goldCarriedOff > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "Your monsters lost", std::to_string(totals.monstersLost), totals.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 	} };
