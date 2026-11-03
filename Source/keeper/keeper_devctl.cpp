@@ -3,6 +3,7 @@
  *
  * Dev/test only. See keeper_devctl.hpp.
  */
+#include "gmenu.h"
 #include "keeper/keeper_devctl.hpp"
 
 #include <algorithm>
@@ -221,6 +222,7 @@ void WriteState()
 	line += fmt::format(" xp={} mapXp={} klevel={} renown={} cleared={} curs={},{} mouse={},{} screen={}x{} level={} entrance={},{} vault={},{}",
 	    ProfileXp(), MapXpEarned(), KeeperLevel(), RenownAvailable(), LevelsCleared(), cursPosition.x, cursPosition.y, MousePosition.x, MousePosition.y, gnScreenWidth, gnScreenHeight, CurrentLevelNumber(),
 	    State.entrance.x, State.entrance.y, State.vault.x, State.vault.y);
+	line += fmt::format(" menu={}", gmenu_is_active() ? 1 : 0);
 	line += fmt::format(" device={} mode={} myTile={},{}", ControlTypeName(ControlDevice), ControlTypeName(ControlMode), MyPlayer != nullptr ? MyPlayer->position.tile.x : -1, MyPlayer != nullptr ? MyPlayer->position.tile.y : -1);
 	Output(line);
 }
@@ -1074,6 +1076,14 @@ void DevctlInit(std::string path)
 bool DevctlSkipsDraw()
 {
 	return drawEvery > 1 && ++drawCounter % static_cast<uint32_t>(drawEvery) != 0;
+}
+
+void DevctlNoteMonsterJump(int monsterId, int hostX, int hostY)
+{
+	if (!enabled)
+		return;
+	const Monster &monster = Monsters[monsterId];
+	Output(fmt::format("bigdrift t={} mon={} {} here={},{} future={},{} old={},{} host={},{} mode={} hp={} hero={} invalid={} phase={}", DevKeeperTicks(), monsterId, monster.name(), monster.position.tile.x, monster.position.tile.y, monster.position.future.x, monster.position.future.y, monster.position.old.x, monster.position.old.y, hostX, hostY, static_cast<int>(monster.mode), monster.hitPoints >> 6, IsHero(monster), monster.isInvalid, PhaseName(State.phase)));
 }
 
 void DevctlNoteMessage(std::string_view text)

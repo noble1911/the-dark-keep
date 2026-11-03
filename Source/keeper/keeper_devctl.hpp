@@ -28,6 +28,8 @@ void DevctlNoteBotDrift(int tiles);
 void DevctlNoteBotLifeDrift(int hitPoints);
 void DevctlNoteBotFix(bool snap);
 void DevctlNoteMonsterDrift(int tiles, int hitPoints);
+/** A joiner's copy of a monster is far from the host's: says which, for tracing it. */
+void DevctlNoteMonsterJump(int monsterId, int hostX, int hostY);
 void DevctlNoteSent(size_t bytes);
 /** The event log, for raid scripts: EventPlrMsg copies each line here. */
 void DevctlNoteMessage(std::string_view text);
@@ -64,6 +66,7 @@ inline void DevctlNoteBotDrift(int /*tiles*/) { }
 inline void DevctlNoteBotLifeDrift(int /*hitPoints*/) { }
 inline void DevctlNoteBotFix(bool /*snap*/) { }
 inline void DevctlNoteMonsterDrift(int /*tiles*/, int /*hitPoints*/) { }
+inline void DevctlNoteMonsterJump(int /*monsterId*/, int /*hostX*/, int /*hostY*/) { }
 inline void DevctlNoteSent(size_t /*bytes*/) { }
 inline void DevNoteSpeedSwitch(size_t /*level*/, uint32_t /*turn*/) { }
 #endif
