@@ -1282,7 +1282,7 @@ void SendKeepSnapshot(size_t playerId)
 {
 	DirectCommands out(playerId);
 	out.Add(Action::SyncBegin, static_cast<uint8_t>(State.phase), State.wave, static_cast<uint8_t>(RaidMasters()), static_cast<uint8_t>(GameDifficulty()), FailedGoals());
-	out.Add(Action::SyncHostSlot, LobbyHostSlot());
+	out.Add(Action::SyncHostSlot, LobbyHostSlot(), static_cast<uint8_t>(GameSpeedLevel()));
 	// Before the hit points: raising a tier adds life, and those are the final numbers.
 	for (size_t i = 0; i < NumUpgrades; i++)
 		out.Add(Action::SyncUpgrade, static_cast<uint8_t>(i), static_cast<uint8_t>(UpgradeTier(static_cast<UpgradeId>(i))));
@@ -1421,6 +1421,9 @@ void ApplySnapshotEntry(const TCmdKeeper &message)
 		break;
 	case Action::SyncHostSlot:
 		LobbySetHostSlot(message.a);
+		// From the start: states only correct it later, and none come between raids.
+		if (message.b < GameSpeeds.size())
+			ApplyGameSpeedLevel(message.b);
 		break;
 	case Action::SyncUpgrade:
 		if (message.a < NumUpgrades)
