@@ -281,6 +281,7 @@ uint32_t autocastLast = 0;
 /** Ticks between lines about every hero (`herolog`), for scripts/dev/hero_raids.py. 0: off. */
 uint32_t heroLogEvery = 0;
 uint32_t heroLogLast = 0;
+bool keepUnhurt = false;
 
 /** Every hero's place and state: enough to spot a stuck, circling or burning one from the log. */
 void WriteHeroLog()
@@ -320,6 +321,13 @@ void WatchRaid()
 	if (!raiding && !watch.inRaid)
 		return;
 	if (raiding) {
+		if (keepUnhurt) {
+			for (size_t i = 0; i < ActiveMonsterCount; i++) {
+				Monster &monster = Monsters[ActiveMonsters[i]];
+				if (!IsHero(monster) && !IsBoss(monster) && monster.hitPoints > 0 && monster.mode != MonsterMode::Death)
+					monster.hitPoints = monster.maxHitPoints;
+			}
+		}
 		int party = 0;
 		int heroes = 0;
 		int keep = 0;
@@ -779,6 +787,24 @@ void Execute(const std::string &line)
 	} else if (command == "speed") {
 		in >> a;
 		gnTickDelay = static_cast<uint16_t>(std::max(1000 / std::max(a, 1), 1));
+	} else if (command == "unhurt") {
+		// Keep monsters shrug off every blow: targets a hero can see and get nowhere with.
+		in >> a;
+		keepUnhurt = a != 0;
+	} else if (command == "lordat") {
+		// Moves the Keep Lord and his post, to test heroes who have a long way to go to him.
+		in >> a >> b;
+		if (const Monster *boss = FindBoss(); boss != nullptr) {
+			Monster &lord = const_cast<Monster &>(*boss);
+			const Point at { a, b };
+			M_ClearSquares(lord);
+			lord.position.tile = at;
+			lord.position.old = at;
+			lord.position.future = at;
+			lord.occupyTile(at, false);
+			SetMonsterHome(lord.getId(), at);
+			M_StartStand(lord, lord.direction);
+		}
 	} else if (command == "cam") {
 		in >> a >> b;
 		DevCenterCamera({ a, b });

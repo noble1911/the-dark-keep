@@ -155,6 +155,10 @@ struct HeroSyncState {
 	uint16_t trapsSeen = 0;
 	int fallBackSteps = 0;
 	int regroupBudget = 0;
+	/** The target it has given up on for longest (-1 = none), how long that's for, and how long it has been on its tile. */
+	int ignoredTarget = -1;
+	int ignoredLeft = 0;
+	int watchdogAge = 0;
 };
 /** Nullopt if the monster isn't an active, living hero. */
 std::optional<HeroSyncState> GetHeroSyncState(size_t monsterId);
@@ -301,22 +305,44 @@ struct HeroProgress {
  */
 struct HeroEngagement {
 	int target = -1;
+	/** Its life at the last look, so that any hit shows however much it has healed since. */
 	int life = 0;
+	/** The nearest the hero has come to it in this fight. */
 	int distance = 0;
+	/** When this fight last got anywhere, last looked at, and last hurt anything. */
 	uint32_t since = 0;
-	int ignored = -1;
-	uint32_t ignoredUntil = 0;
+	uint32_t lastNote = 0;
+	uint32_t lastHit = 0;
+	struct GivenUp {
+		int target = -1;
+		uint32_t until = 0;
+	};
+	std::array<GivenUp, 4> givenUp;
+	/** Having just given up, the hero picks no new fight at range until this time: however many it can see, it walks on. */
+	uint32_t moveOnUntil = 0;
 };
-/** Call on each decision to fight `target`. @return false if there's no point: not hurt and no closer for a while. Next to it, there always is. */
+/**
+ * Call on each decision to fight `target`, with how far it is (along the route, if that's how the hero is getting there).
+ * @return false if there's no point: not hurt and no closer for a while. Next to it, there always is.
+ */
 bool NoteEngagement(HeroEngagement &engagement, const Monster &target, int distance);
+/** The hero has given up on this one for now. */
+bool HasGivenUpOn(const HeroEngagement &engagement, const Monster &target);
+/** Not a target for now: given up on, or the hero is walking on after giving up on another. Never one beside it. */
 bool IsIgnoredTarget(const HeroEngagement &engagement, const Monster &target, int distance);
+/** For a joiner's snapshot: the target given up on for longest from now (-1 = none), and how many ticks that is. */
+int LongestGivenUp(const HeroEngagement &engagement, int &ticksLeft);
+void SetGivenUp(HeroEngagement &engagement, int target, int ticksLeft);
+/** Steps from `from` to the Keep Lord along the floor (Unreachable if none), and a tile `steps` along that way. */
+uint16_t LordRouteDistance(Point from);
+std::optional<Point> LordRouteWaypoint(Point from, int steps);
 /** Last resort against a raid that never ends: a hero on one tile for a long time with nothing beside it. */
 struct HeroWatchdog {
 	Point tile;
 	uint32_t since = 0;
 };
-/** @return true if the watchdog has run out for a hero on `tile`, and restarts it. */
-bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile);
+/** @return true if the watchdog has run out for a hero on `tile`, and restarts it. A hero that is hurting something isn't idle. */
+bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile, const HeroEngagement &engagement);
 /** Moves a bot one tile along its route if that tile is free. */
 void BotNudgeAlong(Player &bot, HeroGoal goal, uint16_t knownTraps);
 /** Waiting or fighting isn't being stuck. */

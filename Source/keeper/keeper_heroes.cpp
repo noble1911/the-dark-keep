@@ -172,6 +172,10 @@ constexpr int MonkHealPercent = 15;
 /** Ticks a fight may go on with the target neither hurt nor any closer, and how long the hero then ignores it. */
 constexpr int StaleEngagementTicks = 100;
 constexpr int IgnoreStaleTargetTicks = 300;
+/** A hero that hasn't looked at its target for this long has been doing something else: the fight starts afresh. */
+constexpr int EngagementLapseTicks = 60;
+/** Ticks after giving up in which a hero picks no new fight at range: enough to walk out of sight of the rest. */
+constexpr int MoveOnAfterGivingUpTicks = 60;
 /** Ticks on one tile, with no monster beside it, before a hero is moved along its route. */
 constexpr int HeroWatchdogTicks = 800;
 /** Ticks without getting closer to its goal before a hero shoves past one coming the other way, then past anyone. */
@@ -231,6 +235,9 @@ int spawnCooldown = 0;
 DistanceField ToVault;
 DistanceField ToEntrance;
 DistanceField ToPortal;
+/** Steps to the Lord, for whoever is hunting him. Depends only on where he stands and the floor, so every client gets the same. */
+DistanceField ToLord;
+Point lordFieldTile { -1, -1 };
 
 std::optional<HeroClassKind> HeroClassOf(_monster_id type)
 {
@@ -853,6 +860,15 @@ bool IsKeepMonsterBeside(Point tile)
 	return false;
 }
 
+/** The tile a hero the watchdog has caught moves to, if it should move at all. */
+std::optional<Point> NudgeTile(Point from, HeroGoal goal, uint16_t knownTraps)
+{
+	if (IsKeepMonsterBeside(from))
+		return std::nullopt;
+	const std::optional<Point> next = GoalWaypoint(goal, from, 1, knownTraps);
+	return next && IsFreeFloor(*next) ? next : std::nullopt;
+}
+
 /** Moves a standing monster hero to `tile` at once. */
 void PlaceMonsterHero(Monster &monster, Point tile)
 {
@@ -1175,6 +1191,8 @@ void UpdateEnemy(Monster &monster)
 			continue;
 		if (hero && (other.flags & MFLAG_HIDDEN) != 0)
 			continue; // invisible ambushers (and fading Counselors) can't be seen
+		if (hero && IsIgnoredTarget(Heroes[monster.getId()].engagement, other, distance))
+			continue; // it has given up on that one, not on all of them
 		if (!nearPost && tile.WalkingDistance(anchor) > chaseRange)
 			continue;
 		const bool seen = canSee(tile, distance);
@@ -1244,9 +1262,8 @@ void HeroAi(Monster &monster)
 	RogueCheckTraps(monster, hero);
 	if (StepOutOfHazard(monster))
 		return;
-	if (HeroWatchdogFired(hero.watchdog, monster.position.tile) && !State.bossDown && !IsKeepMonsterBeside(monster.position.tile)) {
-		const HeroGoal goal = hero.fleeing || hero.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault;
-		if (const std::optional<Point> next = GoalWaypoint(goal, monster.position.tile, 1, hero.trapsKnown); next && IsFreeFloor(*next)) {
+	if (HeroWatchdogFired(hero.watchdog, monster.position.tile, hero.engagement) && !State.bossDown) {
+		if (const std::optional<Point> next = NudgeTile(monster.position.tile, hero.fleeing || hero.carried != 0 ? HeroGoal::Entrance : HeroGoal::Vault, hero.trapsKnown); next) {
 			PlaceMonsterHero(monster, *next);
 			return;
 		}
@@ -1771,6 +1788,7 @@ uint32_t RouteGeneration()
 
 void RebuildPaths()
 {
+	lordFieldTile = Point { -1, -1 }; // a lock has come or gone
 	routeGeneration++;
 	BuildField(ToVault, State.vault);
 	BuildField(ToEntrance, State.entrance);
@@ -1979,7 +1997,19 @@ std::optional<HeroSyncState> GetHeroSyncState(size_t monsterId)
 	if (monsterId >= MaxMonsters || !Heroes[monsterId].active || !IsAliveMonster(Monsters[monsterId]))
 		return std::nullopt;
 	const HeroState &hero = Heroes[monsterId];
-	return HeroSyncState { hero.fleeing, hero.fearRolled, hero.fellBack, hero.carried, hero.baitsVisited, hero.trapsKnown, hero.trapsSeen, hero.fallBackSteps, hero.regroupBudget };
+	HeroSyncState synced;
+	synced.fleeing = hero.fleeing;
+	synced.fearRolled = hero.fearRolled;
+	synced.fellBack = hero.fellBack;
+	synced.carried = hero.carried;
+	synced.baitsVisited = hero.baitsVisited;
+	synced.trapsKnown = hero.trapsKnown;
+	synced.trapsSeen = hero.trapsSeen;
+	synced.fallBackSteps = hero.fallBackSteps;
+	synced.regroupBudget = hero.regroupBudget;
+	synced.ignoredTarget = LongestGivenUp(hero.engagement, synced.ignoredLeft);
+	synced.watchdogAge = static_cast<int>(heroClock - hero.watchdog.since);
+	return synced;
 }
 
 void ApplyHeroSyncState(size_t monsterId, const HeroSyncState &state)
@@ -1996,6 +2026,10 @@ void ApplyHeroSyncState(size_t monsterId, const HeroSyncState &state)
 	hero.trapsSeen = state.trapsSeen;
 	hero.fallBackSteps = state.fallBackSteps;
 	hero.regroupBudget = state.regroupBudget;
+	if (state.ignoredTarget >= 0)
+		SetGivenUp(hero.engagement, state.ignoredTarget, state.ignoredLeft);
+	hero.watchdog.tile = Monsters[monsterId].position.tile;
+	hero.watchdog.since = heroClock - static_cast<uint32_t>(state.watchdogAge);
 }
 
 PortalSyncState GetPortalSyncState()
@@ -2124,9 +2158,31 @@ void OpenDoorsAround(Point tile)
 	}
 }
 
+bool HasGivenUpOn(const HeroEngagement &engagement, const Monster &target)
+{
+	const int id = static_cast<int>(target.getId());
+	return std::any_of(engagement.givenUp.begin(), engagement.givenUp.end(), [id](const HeroEngagement::GivenUp &slot) { return slot.target == id && heroClock < slot.until; });
+}
+
 bool IsIgnoredTarget(const HeroEngagement &engagement, const Monster &target, int distance)
 {
-	return distance > 1 && engagement.ignored == static_cast<int>(target.getId()) && heroClock < engagement.ignoredUntil;
+	return distance > 1 && (heroClock < engagement.moveOnUntil || HasGivenUpOn(engagement, target));
+}
+
+void SetGivenUp(HeroEngagement &engagement, int target, int ticksLeft)
+{
+	// Its own slot if it has one, or the one that runs out first.
+	const auto own = std::find_if(engagement.givenUp.begin(), engagement.givenUp.end(), [target](const HeroEngagement::GivenUp &slot) { return slot.target == target; });
+	HeroEngagement::GivenUp &slot = own != engagement.givenUp.end() ? *own : *std::min_element(engagement.givenUp.begin(), engagement.givenUp.end(), [](const HeroEngagement::GivenUp &a, const HeroEngagement::GivenUp &b) { return a.until < b.until; });
+	slot.target = target;
+	slot.until = heroClock + static_cast<uint32_t>(ticksLeft);
+}
+
+int LongestGivenUp(const HeroEngagement &engagement, int &ticksLeft)
+{
+	const HeroEngagement::GivenUp &slot = *std::max_element(engagement.givenUp.begin(), engagement.givenUp.end(), [](const HeroEngagement::GivenUp &a, const HeroEngagement::GivenUp &b) { return a.until < b.until; });
+	ticksLeft = slot.until > heroClock ? static_cast<int>(slot.until - heroClock) : 0;
+	return ticksLeft > 0 ? slot.target : -1;
 }
 
 bool NoteEngagement(HeroEngagement &engagement, const Monster &target, int distance)
@@ -2134,28 +2190,36 @@ bool NoteEngagement(HeroEngagement &engagement, const Monster &target, int dista
 	if (IsIgnoredTarget(engagement, target, distance))
 		return false;
 	const int id = static_cast<int>(target.getId());
-	if (distance <= 1 || id != engagement.target || target.hitPoints < engagement.life || distance < engagement.distance) {
+	// A fight it left and came back to starts afresh: the time away isn't time spent getting nowhere.
+	const bool fresh = id != engagement.target || heroClock - engagement.lastNote > EngagementLapseTicks;
+	const bool hit = !fresh && target.hitPoints < engagement.life;
+	engagement.life = target.hitPoints;
+	engagement.lastNote = heroClock;
+	if (hit)
+		engagement.lastHit = heroClock;
+	if (distance <= 1 || fresh || hit || distance < engagement.distance) {
 		engagement.target = id;
-		engagement.life = target.hitPoints;
-		engagement.distance = distance;
+		engagement.distance = fresh ? distance : std::min(distance, engagement.distance);
 		engagement.since = heroClock;
 		return true;
 	}
 	if (heroClock - engagement.since < StaleEngagementTicks)
 		return true;
-	engagement.ignored = id;
-	engagement.ignoredUntil = heroClock + IgnoreStaleTargetTicks;
+	SetGivenUp(engagement, id, IgnoreStaleTargetTicks);
+	engagement.moveOnUntil = heroClock + MoveOnAfterGivingUpTicks;
 	engagement.target = -1;
 	return false;
 }
 
-bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile)
+bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile, const HeroEngagement &engagement)
 {
 	if (tile != watchdog.tile) {
 		watchdog.tile = tile;
 		watchdog.since = heroClock;
 		return false;
 	}
+	if (engagement.lastHit > watchdog.since)
+		watchdog.since = engagement.lastHit;
 	if (heroClock - watchdog.since < HeroWatchdogTicks)
 		return false;
 	watchdog.since = heroClock;
@@ -2164,10 +2228,56 @@ bool HeroWatchdogFired(HeroWatchdog &watchdog, Point tile)
 
 void BotNudgeAlong(Player &bot, HeroGoal goal, uint16_t knownTraps)
 {
-	if (IsKeepMonsterBeside(bot.position.tile))
-		return;
-	if (const std::optional<Point> next = GoalWaypoint(goal, bot.position.tile, 1, knownTraps); next && IsFreeFloor(*next))
+	if (const std::optional<Point> next = NudgeTile(bot.position.tile, goal, knownTraps); next)
 		PlaceBot(bot, *next);
+}
+
+namespace {
+
+const DistanceField *LordField()
+{
+	const Monster *lord = FindBoss();
+	if (lord == nullptr)
+		return nullptr;
+	if (Point(lord->position.tile) != lordFieldTile) {
+		lordFieldTile = lord->position.tile;
+		BuildField(ToLord, lordFieldTile);
+	}
+	return &ToLord;
+}
+
+} // namespace
+
+uint16_t LordRouteDistance(Point from)
+{
+	const DistanceField *field = LordField();
+	return field != nullptr ? FieldAt(*field, from) : Unreachable;
+}
+
+std::optional<Point> LordRouteWaypoint(Point from, int steps)
+{
+	const DistanceField *field = LordField();
+	if (field == nullptr)
+		return std::nullopt;
+	Point at = from;
+	for (int i = 0; i < steps; i++) {
+		uint16_t best = FieldAt(*field, at);
+		std::optional<Point> next;
+		for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
+			const Point candidate = at + dir;
+			const uint16_t value = FieldAt(*field, candidate);
+			if (value < best && CanStepDiagonal(at, Displacement(dir))) {
+				next = candidate;
+				best = value;
+			}
+		}
+		if (!next)
+			break;
+		at = *next;
+	}
+	if (at == from)
+		return std::nullopt;
+	return at;
 }
 
 void HoldHeroProgress(HeroProgress &progress)
