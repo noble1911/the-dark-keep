@@ -45,11 +45,11 @@ namespace {
  * Columns: name, raids, starting gold, hero strength %, first party, party growth (1/100 hero per raid), seed.
  */
 constexpr std::array<LevelRules, NumCampaignLevels> CampaignLevels { {
-	{ "Old Cellars",       5, 1800, 90, 2,  80, KeepLevelSeed },
-	{ "Rat Warrens",       5, 1800, 95, 2,  80, 0x1F3A97C4 },
-	{ "Sunken Chapel",     5, 1700, 105, 2,  85, 0xA4C21E0B },
-	{ "Bone Pits",         6, 1600, 110, 2,  85, 0x57D0E36A },
-	{ "Black Vaults",      6, 1500, 120, 2,  90, 0xC93B7721 },
+	{ "Old Cellars",       5, 1800, 85, 2,  45, KeepLevelSeed },
+	{ "Rat Warrens",       5, 1800, 95, 2,  45, 0x1F3A97C4 },
+	{ "Sunken Chapel",     5, 1700, 105, 2,  60, 0xA4C21E0B },
+	{ "Bone Pits",         6, 1600, 110, 2,  55, 0x57D0E36A },
+	{ "Black Vaults",      6, 1500, 120, 2,  70, 0xC93B7721 },
 	{ "Weeping Halls",     6, 1500, 125, 3,  80, 0x2E86F15D },
 	{ "Ashen Crypts",      7, 1600, 125, 3,  80, 0x7BA4096E },
 	{ "Iron Gaol",         7, 1700, 125, 3,  85, 0xE15C38D2 },

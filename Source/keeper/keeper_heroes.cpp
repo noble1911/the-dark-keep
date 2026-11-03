@@ -101,8 +101,8 @@ constexpr int HeroBountyPerWave = 10;
  * The Keep Lord at 100% strength. Parties gain damage faster than strength, as they grow, so his life also
  * grows per campaign level: a few heroes leaking past the army must not end the keep at once.
  */
-constexpr int LordLifeBase = 600;
-constexpr int LordLifePerLevel = 75;
+constexpr int LordLifeBase = 450;
+constexpr int LordLifePerLevel = 80;
 constexpr int LordArmorBase = 40;
 
 std::array<_monster_id, NumHeroClasses> HeroMonsterIds {};

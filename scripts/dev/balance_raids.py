@@ -14,6 +14,7 @@ types and thieves all count. Its policies, also given by --modes:
     typical  a quarter of the gold on upgrades, a quarter on traps, spells at half the mana, the rest on the army
     army     only the army
     lord     every coin on Lord upgrades, no monsters, no spells
+    lordbare no upgrades, no monsters, no spells: the Lord as he comes
 
 Modes:
     army   the army and the Lord only
@@ -199,7 +200,7 @@ def wait_for_keep(game):
         time.sleep(0.2)
 
 
-CAMPAIGN_POLICIES = ("newbie", "typical", "army", "lord")
+CAMPAIGN_POLICIES = ("newbie", "typical", "army", "lord", "lordbare")
 
 
 def campaign_run(plan, policy, profile, difficulty=None):
@@ -223,7 +224,7 @@ def campaign_run(plan, policy, profile, difficulty=None):
         used, tiers, upgrade_spent, trap_spent, traps_built = [], [0] * len(plan["upgrade_costs"]), 0, 0, 0
         main = plan["army"][0]
         kinds = [main, plan["filler"]]
-        upgrade_share, trap_share = dict(newbie=(0, 0.15), typical=(0.25, 0.25), army=(0, 0), lord=(1, 0))[policy]
+        upgrade_share, trap_share = dict(newbie=(0, 0.15), typical=(0.25, 0.25), army=(0, 0), lord=(1, 0), lordbare=(0, 0))[policy]
         order = (5, 4) if policy == "lord" else (1, 0, 3, 5, 4, 2)
         if policy in ("newbie", "typical") and plan["casts"]:
             every = plan["cast_every_ticks_plain"] * 2 if policy == "newbie" else plan["cast_every_ticks"]
@@ -256,7 +257,7 @@ def campaign_run(plan, policy, profile, difficulty=None):
                 trap_spent += plan["trap_cost"]
                 gold -= plan["trap_cost"]
                 spent += plan["trap_cost"]
-            if policy != "lord":
+            if policy not in ("lord", "lordbare"):
                 used_pop, cap = (int(v) for v in state(game)["pop"].split("/"))
                 for kind in kinds:
                     while gold >= kind["cost"] and used_pop + kind["pop"] <= cap:

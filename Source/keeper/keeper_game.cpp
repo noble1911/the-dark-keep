@@ -82,7 +82,7 @@ constexpr int ManaCastTolerance = 5 * ManaScale;
 /** Levels fill tiles 16 to 95, so this rules out nothing a hero can reach. */
 constexpr int SpellEdgeMargin = 8;
 /** Population cap: room for this many supply in raid 1, growing after every raid. */
-constexpr int BaseSupply = 16;
+constexpr int BaseSupply = 20;
 constexpr int SupplyPerRaid = 4;
 /** How long a host stays to tell joiners about the next game, and how often it says so. */
 constexpr int RestartNoticeTicks = 20;

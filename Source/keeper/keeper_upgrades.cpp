@@ -27,8 +27,8 @@ constexpr std::array<UpgradeInfo, NumUpgrades> Upgrades { {
 	{ .cardName = "Mon Dmg", .title = "Monster damage", .effectSign = "+", .effectUnit = "% damage for your lair monsters", .icon = SpellID::Rage, .maxTier = 5, .baseCost = 200, .costStep = 125, .effectPerTier = 15 },
 	{ .cardName = "Mon Armor", .title = "Monster armor", .effectSign = "+", .effectUnit = " armor for your lair monsters", .icon = SpellID::ManaShield, .maxTier = 5, .baseCost = 100, .costStep = 75, .effectPerTier = 5 },
 	{ .cardName = "Mana", .title = "Mana regeneration", .effectSign = "+", .effectUnit = "% mana regeneration", .icon = SpellID::Mana, .maxTier = 4, .baseCost = 120, .costStep = 80, .effectPerTier = 25 },
-	{ .cardName = "Lord Life", .title = "Keep Lord health", .effectSign = "+", .effectUnit = "% life for the Keep Lord", .icon = SpellID::HealOther, .maxTier = 5, .baseCost = 150, .costStep = 100, .effectPerTier = 20 },
-	{ .cardName = "Lord Dmg", .title = "Keep Lord damage", .effectSign = "+", .effectUnit = "% damage for the Keep Lord", .icon = SpellID::Berserk, .maxTier = 5, .baseCost = 150, .costStep = 100, .effectPerTier = 15 },
+	{ .cardName = "Lord Life", .title = "Keep Lord health", .effectSign = "+", .effectUnit = "% life for the Keep Lord", .icon = SpellID::HealOther, .maxTier = 5, .baseCost = 300, .costStep = 150, .effectPerTier = 20 },
+	{ .cardName = "Lord Dmg", .title = "Keep Lord damage", .effectSign = "+", .effectUnit = "% damage for the Keep Lord", .icon = SpellID::Berserk, .maxTier = 5, .baseCost = 300, .costStep = 150, .effectPerTier = 15 },
 } };
 
 /** The stats a monster had before any upgrade: every tier is worked out from these, so nothing compounds. */
