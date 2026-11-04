@@ -48,9 +48,9 @@ Equal raises and mana, 6 raids each, unless noted.
 | Spell | Before | After | Change |
 |---|---|---|---|
 | Nova | 6/6, 97% life removed | 0/6, 58% | Now 4 of 36 balls can strike the target's tile (`NovaBallsStrikingTarget`), `NovaDamagePercent` 60 |
-| Wall | 4/6, 97%, raids up to 481s | 0/6, 42%, up to 126s | Engine level 1, so walls can't hold a party indefinitely |
-| Ring | 1/6, 90%, raids of 698-1954s | 0/6, 45%, up to 144s | Engine level 0, same reason |
-| Shock Wall | 0/6, 18% | 1/6, 13% | 35 mana, engine level 1. Still weak: see open items |
+| Wall | 4/6, 97%, raids up to 481s | see the table below | Engine level capped, so walls can't hold a party indefinitely |
+| Ring | 1/6, 90%, raids of 698-1954s | see the table below | Same |
+| Shock Wall | 0/6, 18% | see the table below | Same, and dearer |
 | Fireball | 2/6, 75% | not re-run | |
 | Chain | 0/6, 73% | not re-run | |
 | Guardian | 0/6, 43% | not re-run | |
@@ -62,6 +62,21 @@ Equal raises and mana, 6 raids each, unless noted.
 **Why Nova resisted cuts.** It wasn't stun or fear. Logs of each cast showed a bot on the target tile losing all 97 life within 2 seconds, while heroes a few tiles away lost 5-20; heroes were in hit recovery for few samples, and fleeing
 appeared in one run of five. All 36 balls of the ring could hit the hero standing where it burst, so wins came from removing one bot a cast before its potions mattered. Cutting damage to 20% barely moved that, and 10% made the spell
 useless. Now each cast does about 220 in all, spread over the party.
+
+### Walls at the top spell level
+
+Engine level sets only how long a wall lasts, and it kept climbing with raises, so a lower starting level just moved the stall to higher raises (at spell level 7, Wall and Ring were back
+at the values that stalled raids). `WallEngineLevelCap` holds it at 0 at every raise: fire walls last about 8 seconds and Shock Wall about 13. Raises make them cheaper, down to half the mana at spell level 15.
+
+Spell level 15, alone with the army on level 10, 4 raids a cell, varied layouts. "Half" casts at half the mana; "all" casts whenever mana and cooldown allow.
+
+| Spell | Half: wins, life removed, seconds | All: wins, life removed, seconds | At cap 1, all: wins, seconds |
+|---|---|---|---|
+| Wall | 0/4, 26%, 95-100s | 0/4, 62%, 115-164s | 3/4, 156-356s |
+| Ring | 0/4, 35%, 108-122s | 0/4, 73%, 151-166s | 1/4, 146-822s |
+| Shock Wall | 0/4, 22%, 95-100s | 4/4, 96%, 121-160s | 4/4, 64-107s |
+
+Raids now end in normal time. Shock Wall at spell level 15 with every coin of mana still wins all 4, with the Lord barely touched: that takes 44 Renown, and all the master's mana, so I left it as a capstone. If it feels too good, its mana is the lever.
 
 ### The Lord, and what monsters buy
 
@@ -102,9 +117,10 @@ Co-op looks clearly too easy at full support, with every master casting: the spe
 |---|---|---|---|
 | keeper_game.hpp | `NovaBallsStrikingTarget` (new) | 36 in effect | 4 |
 | keeper_game.cpp | `NovaDamagePercent` | 30 | 60 |
-| keeper_game.cpp | `SpellKinds` Wall engine level | 4 | 1 |
+| keeper_game.cpp | `WallEngineLevelCap` (new) | no cap | 0: Wall, Ring and Shock Wall stay at engine level 0 at every raise |
+| keeper_game.cpp | `SpellKinds` Wall engine level, cooldown | 4, 4s | 0, 6s |
 | keeper_game.cpp | `SpellKinds` Ring engine level | 3 | 0 |
-| keeper_game.cpp | `SpellKinds` Shock Wall mana, engine level | 40, 0 | 35, 1 |
+| keeper_game.cpp | `SpellKinds` Shock Wall mana, engine level, cooldown | 40, 0, 5s | 50, 0, 8s |
 | keeper_game.cpp | `BaseSupply` | 16 | 20 |
 | keeper_upgrades.cpp | Lord Life, Lord Damage base, step | 150, 100 | 300, 150 |
 | keeper_heroes.cpp | `LordLifeBase`, `LordLifePerLevel` | 600, 75 | 450, 80 |
@@ -130,7 +146,7 @@ One small engine edit goes with `NovaBallsStrikingTarget`, in `Source/missiles.c
 1. **Weaker players past level 5.** Newbie play wins nothing from level 7 up. Likely levers are bounties and `ChampionLifePercent`. Whether a person is nearer "newbie" or "typical" is the key thing to learn.
 2. **Late levels at typical play** (13: 1/4, 20: 1/4). Could be bad luck on 4 runs, or a real step up.
 3. **Slayers' and Hidden kinds' fighting.** Their cost isn't the problem. Someone should watch one fight. Hidden kinds and Unseen may simply wait too long to strike.
-4. **Shock Wall** is now weak on moving heroes (13-18%), though the coverage stream saw 1100+ on a standing one. Standing heroes may still make it strong.
+4. **Shock Wall** swings widely: weak at half the mana (22%), winning at all of it at spell level 15 (4/4). It may also still be strong on a standing hero: the coverage stream saw 1100+ there.
 5. **Golem on a small early raid**, as reported on level 6. Measured only alongside a full army on level 10.
 6. **The Lord holding early raids alone.** He can't win a level alone, but monsters aren't needed for raids 1 to 4 on level 1, and thieves are the only cost. His wounds also carry over, which may or may not be meant.
 7. **Levels 1 to 5 after softening champions** weren't re-run. Level 1 may now be too easy.
