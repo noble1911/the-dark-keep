@@ -3066,7 +3066,10 @@ void ProcessNovaBall(Missile &missile)
 	const Point targetPosition = { missile.var1, missile.var2 };
 	missile.duration--;
 	const int j = missile.duration;
-	MoveMissileAndCheckMissileCol(missile, GetMissileData(missile._mitype).damageType(), missile._midam, missile._midam, false, false);
+	// [DARK KEEP] the ring bursts on the target, not from the caster: most of it passes a hero standing there by, or all 36 balls would strike at once
+	if (missile.var7 != 0 && missile.position.tile == missile.position.start)
+		missile.lastCollisionTargetHash = dMonster[missile.position.tile.x][missile.position.tile.y] ^ dPlayer[missile.position.tile.x][missile.position.tile.y];
+	MoveMissileAndCheckMissileCol(missile, GetMissileData(missile._mitype).damageType(), missile._midam, missile._midam, missile.var7 != 0, false);
 	if (missile._miHitFlag)
 		missile.duration = j;
 
@@ -3331,11 +3334,15 @@ void ProcessNovaCommon(Missile &missile, MissileID projectileType)
 	}
 
 	constexpr std::array<WorldTileDisplacement, 9> quarterRadius = { { { 4, 0 }, { 4, 1 }, { 4, 2 }, { 4, 3 }, { 4, 4 }, { 3, 4 }, { 2, 4 }, { 1, 4 }, { 0, 4 } } };
+	int balls = 0; // [DARK KEEP]
 	for (const WorldTileDisplacement quarterOffset : quarterRadius) {
 		// This ends up with two missiles targeting offsets 4,0, 0,4, -4,0, 0,-4.
 		const std::array<WorldTileDisplacement, 4> offsets { quarterOffset, quarterOffset.flipXY(), quarterOffset.flipX(), quarterOffset.flipY() };
-		for (const WorldTileDisplacement offset : offsets)
-			AddMissile(src, src + offset, dir, projectileType, en, id, dam, missile._mispllvl);
+		for (const WorldTileDisplacement offset : offsets) {
+			Missile *ball = AddMissile(src, src + offset, dir, projectileType, en, id, dam, missile._mispllvl);
+			if (ball != nullptr && keeper::IsActive() && projectileType == MissileID::NovaBall && balls++ >= keeper::NovaBallsStrikingTarget) // [DARK KEEP]
+				ball->var7 = 1;
+		}
 	}
 	missile.duration--;
 	if (missile.duration == 0)

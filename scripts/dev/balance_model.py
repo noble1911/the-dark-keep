@@ -34,7 +34,7 @@ TRAP_GOLD_SHARE = 0.25  # share of the gold the typical player puts into traps
 SPELL_EFFICIENCY = 0.5  # a typical player lands this share of what mana and cooldowns allow
 TRAP_EFFICIENCY = 0.3   # measured: traps add 39, 31, 10, 8 points of party life removed on levels 5, 10, 15, 20. This fits their mean, not each level
 SHOCK_WALL_FULL_LEVEL = 3  # a Shock Wall's engine level sets how long it lasts: from here up, walls pile up (measured 6 of 6 alone)
-NOVA_HITS = 15          # balls of a Nova's ring that reach each victim: it bursts on them. Measured: 4 casts killed a party
+NOVA_HITS = 10          # balls of a Nova's ring that reach each victim, now most pass the target: measured about 220 a cast at level 10
 UPGRADE_GOLD_SHARE = 0.25  # share of a level's gold the typical player puts into upgrades
 FEAR_ALONE = 0.5        # share of badly hurt heroes with no healthy friend near: those always run
 FLEE_ESCAPES = 0.5      # share of runners who get away, paying no bounty or XP
@@ -225,7 +225,7 @@ class Game:
                 "S": (15 + 6 * wave, 2 + wave, 5 + 2 * wave, 3 + wave),
             }[cls]
         if champion:
-            hp = hp * 3 // 2
+            hp = hp * self.heroes_c.get("ChampionLifePercent", 150) // 100
         return dict(cls=cls, bot=False, champion=champion, hp=self.scale(level, hp), min=min(self.scale(level, lo), 255), max=min(self.scale(level, hi), 255),
                     ac=min(self.scale_armor(level, ac), 255), ranged=cls in "RS", to_hit=60, period=HERO_SWING + ATTACK_PAUSE)
 
@@ -240,7 +240,7 @@ class Game:
         clvl = min(wave * 2 - 1, 30)
         hp = adj + lvl_life * clvl + chr_life * vit
         if champion:
-            hp = hp * 3 // 2
+            hp = hp * self.heroes_c.get("ChampionLifePercent", 150) // 100
         hp = self.scale(level, hp)
         clvl = min(clvl + c["LevelsPerCampaignLevel"] * (level - 1), c["MaxBotLevel"])
         potions = c.get("BotPotionsBase", 2) + wave // c.get("BotRaidsPerPotion", 2)
@@ -867,7 +867,11 @@ def write_plan(game, rows, path):
             regen = game.g["ManaRegenPerTick"] * percent / 100 * 20 / 100
             return SPELL_EFFICIENCY * (game.g["MaxMana"] / seconds + regen)
         average = sum(game.mana_cost(s, row["spells"][s["name"]]) for s in casts) / max(len(casts), 1)
-        plans.append(dict(level=level, wave=last["wave"], army=[dict(index=k["index"], name=k["name"], count=n) for k, n in last["army"] if n],
+        cheapest = min((k for k in game.kinds if k["id"] in row["kinds"]), key=lambda k: k["cost"] / k["pop"])
+        plans.append(dict(level=level, wave=last["wave"], army=[dict(index=k["index"], name=k["name"], count=n, cost=k["cost"], pop=k["pop"]) for k, n in last["army"] if n],
+                          filler=dict(index=cheapest["index"], name=cheapest["name"], cost=cheapest["cost"], pop=cheapest["pop"]), start_gold=game.levels[level - 1]["gold"],
+                          upgrade_costs=[[game.upgrade_cost(level, u, t) for t in range(u["tiers"])] for u in game.upgrades],
+                          trap_cost=last["trap_kind"]["cost"] if last["trap_kind"] else 0,
                           tiers=last["tiers"], spell_levels={str(i): row["spells"][s["name"]] for i, s in enumerate(game.spells) if s["name"] in row["spells"]},
                           trap_levels={str(i): row["traps"][t["name"]] for i, t in enumerate(game.traps) if t["name"] in row["traps"]},
                           trap_kind=lairs + game.traps.index(last["trap_kind"]) if last["trap_kind"] else 0, trap_count=last["trap_count"],

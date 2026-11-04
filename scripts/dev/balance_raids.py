@@ -8,6 +8,14 @@ Needs a build with -DKEEPER_DEVCTL=ON, and scripts/dev/testrun.ps1 run once to l
 invisible and silent (SDL's dummy drivers, no console), keep to build/test-profiles, and only the games
 started here are ever stopped.
 
+With --campaign, a level is played from raid 1 on real gold, buying between raids, so interest, early call, raid
+types and thieves all count. Its policies, also given by --modes:
+    newbie   the army's main kind and a filler, a few traps, spells at half the usual casting rate, no upgrades
+    typical  a quarter of the gold on upgrades, a quarter on traps, spells at half the mana, the rest on the army
+    army     only the army
+    lord     every coin on Lord upgrades, no monsters, no spells
+    lordbare no upgrades, no monsters, no spells: the Lord as he comes
+
 Modes:
     army   the army and the Lord only
     traps  adds the traps
@@ -60,7 +68,7 @@ Port={port}
 
 
 class Game:
-    def __init__(self, profile, plan, role="--keeper-autostart", port=6112):
+    def __init__(self, profile, plan, role="--keeper-autostart", port=6112, start_wave=None, difficulty=None):
         self.dir = ROOT / "build" / "test-profiles" / profile
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "diablo.ini").write_text(INI.format(port=port))
@@ -74,7 +82,9 @@ class Game:
         lines += [f"trap {i} {level}" for i, level in plan["trap_levels"].items()]
         (self.dir / "keeper_profile.txt").write_text("\n".join(lines) + "\n")
         args = [str(EXE), "--config-dir", str(self.dir), "--save-dir", str(self.dir), "--keeper-devctl", str(self.ctl),
-                *role.split(), "--keeper-level", str(plan["level"]), "--keeper-start-wave", str(plan["wave"]), "--keeper-rank", "20"]
+                *role.split(), "--keeper-level", str(plan["level"]), "--keeper-start-wave", str(start_wave or plan["wave"]), "--keeper-rank", "20"]
+        if difficulty is not None:
+            args += ["--keeper-difficulty", str(difficulty)]
         env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
         self.process = subprocess.Popen(args, cwd=EXE_DIR, env=env, creationflags=CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -190,15 +200,109 @@ def wait_for_keep(game):
         time.sleep(0.2)
 
 
-def one_raid(plan, mode, profile, coop_port=0):
-    """A co-op raid has a second master casting too, and runs at the normal speed."""
-    game = Game(profile, plan, "--keeper-host", coop_port) if coop_port else Game(profile, plan)
+CAMPAIGN_POLICIES = ("newbie", "typical", "army", "lord", "lordbare")
+
+
+def campaign_run(plan, policy, profile, difficulty=None):
+    """One level from raid 1 to its end, on the gold the game really pays. @return a row for the CSV."""
+    game = Game(profile, plan, start_wave=1, difficulty=difficulty)
+    rng = random.Random()
+    trail = []
+    try:
+        s = wait_for_keep(game)
+        entrance = tuple(int(v) for v in s["entrance"].split(","))
+        vault = tuple(int(v) for v in s["vault"].split(","))
+        rows = floor_plan(game)
+        from_vault, parent = distances(rows, vault)
+        ring = sorted((t for t in from_vault if from_vault[t] >= 3), key=lambda t: from_vault[t] + rng.uniform(0, 4))
+        route = []
+        at = min(from_vault, key=lambda t: max(abs(t[0] - entrance[0]), abs(t[1] - entrance[1])))
+        while at in parent:
+            route.append(at)
+            at = parent[at]
+        spots = route[len(route) // 5 + rng.randrange(4)::rng.choice((3, 4))]
+        used, tiers, upgrade_spent, trap_spent, traps_built = [], [0] * len(plan["upgrade_costs"]), 0, 0, 0
+        main = plan["army"][0]
+        kinds = [main, plan["filler"]]
+        upgrade_share, trap_share = dict(newbie=(0, 0.15), typical=(0.25, 0.25), army=(0, 0), lord=(1, 0), lordbare=(0, 0))[policy]
+        order = (5, 4) if policy == "lord" else (1, 0, 3, 5, 4, 2)
+        if policy in ("newbie", "typical") and plan["casts"]:
+            every = plan["cast_every_ticks_plain"] * 2 if policy == "newbie" else plan["cast_every_ticks"]
+            game.send(f"autocast {','.join(str(c) for c in plan['casts'])} {every}")
+        game.send(f"speed {SPEED}")
+        spent = 0
+        started = time.time()
+        while True:
+            s = state(game)
+            gold = int(s["gold"])
+            earned = gold + spent
+            # Upgrades first, up to their share of all gold so far.
+            while True:
+                options = [i for i in order if tiers[i] < len(plan["upgrade_costs"][i])]
+                if not options:
+                    break
+                choice = min(options, key=lambda i: tiers[i]) if policy != "lord" else options[0]
+                cost = plan["upgrade_costs"][choice][tiers[choice]]
+                if cost > gold or upgrade_spent + cost > earned * upgrade_share:
+                    break
+                game.ask(f"upgrade {choice}\nwait 30\necho upgrade-done", "upgrade-done")
+                tiers[choice] += 1
+                upgrade_spent += cost
+                gold -= cost
+                spent += cost
+            while trap_share and plan["trap_cost"] and traps_built < 16 and gold >= plan["trap_cost"] and trap_spent + plan["trap_cost"] <= earned * trap_share:
+                if place(game, plan["trap_kind"], 1, spots, used) == 0:
+                    break
+                traps_built += 1
+                trap_spent += plan["trap_cost"]
+                gold -= plan["trap_cost"]
+                spent += plan["trap_cost"]
+            if policy not in ("lord", "lordbare"):
+                used_pop, cap = (int(v) for v in state(game)["pop"].split("/"))
+                for kind in kinds:
+                    while gold >= kind["cost"] and used_pop + kind["pop"] <= cap:
+                        if place(game, kind["index"], 1, ring, used) == 0:
+                            break
+                        gold -= kind["cost"]
+                        spent += kind["cost"]
+                        used_pop += kind["pop"]
+            game.ask("raid\necho raid-sent", "raid-sent")
+            raid_started = time.time()
+            ended = None
+            while time.time() - raid_started < GAME_SECONDS_LIMIT:
+                if game.process.poll() is not None:
+                    raise RuntimeError(f"game exited with {game.process.returncode}")
+                for line in game.read():
+                    if line.startswith("raidend"):
+                        ended = dict(re.findall(r"(\w+)=(\S+)", line))
+                if ended:
+                    break
+                time.sleep(0.05)
+            if not ended:
+                return dict(level=plan["level"], policy=policy, result="timeout", raids=len(trail), trail=" ".join(trail), seconds=int(time.time() - started))
+            trail.append(f"{ended['wave']}:{gold}g,{int(ended['ticks']) // 20}s,lord{ended['lordLow']}/{ended['lordStart']},lost{ended['goldLost']}")
+            if ended["result"] in ("Victory", "Defeat"):
+                return dict(level=plan["level"], policy=policy, result=ended["result"], raids=ended["wave"], trail=" ".join(trail), seconds=int(time.time() - started))
+            deadline = time.time() + 20
+            while s.get("phase") == "Raid!" and time.time() < deadline:
+                s = state(game)
+                time.sleep(0.05)
+    finally:
+        game.stop()
+
+
+def one_raid(plan, mode, profile, coop_port=0, difficulty=None, masters=1):
+    """A co-op raid has more masters casting too, and runs at the normal speed."""
+    game = Game(profile, plan, "--keeper-host", coop_port, difficulty=difficulty) if coop_port else Game(profile, plan, difficulty=difficulty)
+    joiners = []
     joiner = None
     try:
         s = wait_for_keep(game)
         if coop_port:
-            joiner = Game(profile + "j", plan, f"--keeper-join 127.0.0.1:{coop_port}", coop_port)
-            wait_for_keep(joiner)
+            for i in range(masters - 1):
+                joiners.append(Game(f"{profile}j{i}", plan, f"--keeper-join 127.0.0.1:{coop_port}", coop_port))
+                wait_for_keep(joiners[-1])
+            joiner = joiners[0] if joiners else None
             s = state(game)
         entrance = tuple(int(v) for v in s["entrance"].split(","))
         vault = tuple(int(v) for v in s["vault"].split(","))
@@ -233,8 +337,10 @@ def one_raid(plan, mode, profile, coop_port=0):
             # Only full buys the mana upgrades, so only full casts at the upgraded rate.
             every = {"full": plan["cast_every_ticks"], "spells": plan["cast_every_ticks_plain"], "sloppy": plan["cast_every_ticks_plain"] * 2}[mode]
             cast = f"autocast {','.join(str(c) for c in plan['casts'])} {every}"
-        if joiner:
-            joiner.ask(f"fillmana\n{cast}\necho joiner-ready", "joiner-ready")
+        for other in joiners:
+            other.ask(f"fillmana\n{cast}\necho joiner-ready", "joiner-ready")
+        if plan.get("extra"):
+            game.send(plan["extra"])  # for diagnosis, such as herolog
         speed = "" if coop_port else f"speed {SPEED}"
         game.ask(f"gold {plan['gold_left']}\nwait 100\nfillmana\n{speed}\n{cast}\nraid\necho raid-sent", "raid-sent")
         started = time.time()
@@ -261,8 +367,8 @@ def one_raid(plan, mode, profile, coop_port=0):
         return dict(level=plan["level"], mode=mode, result="timeout", built=f"{built}/{want}", traps=traps_built, reach=reach, casts=casts)
     finally:
         game.stop()
-        if joiner:
-            joiner.stop()
+        for other in joiners:
+            other.stop()
 
 
 FIELDS = ["label", "level", "mode", "result", "ticks", "peakHeroes", "peakPartyLife", "partyLifeLeft", "heroesLeft", "keepStart", "keepEnd", "lordStart", "lordLow", "goldLost", "built", "traps", "reach", "casts", "trapFires", "trapsLeft"]
@@ -277,18 +383,20 @@ def main():
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--out", required=True)
     parser.add_argument("--label", default="")
-    parser.add_argument("--coop", action="store_true", help="host and joiner, on ports of their own")
+    parser.add_argument("--coop", type=int, default=0, metavar="MASTERS", help="a host and joiners, on ports of their own")
+    parser.add_argument("--campaign", action="store_true", help="play from raid 1 on real gold")
+    parser.add_argument("--difficulty", type=int, help="Easy 0, Normal 1, Hard 2")
     args = parser.parse_args()
     for mode in args.modes.split(","):
-        if mode not in MODES:
-            parser.error(f"unknown mode {mode}: choose from {', '.join(MODES)}")
+        if mode not in (CAMPAIGN_POLICIES if args.campaign else MODES):
+            parser.error(f"unknown mode {mode}")
     plans = {p["level"]: p for p in json.loads(Path(args.plan).read_text())}
     jobs = [(plans[int(level)], mode, run) for level in args.levels.split(",") for mode in args.modes.split(",") for run in range(args.runs)]
     profiles = collections.deque(f"bal{i}" for i in range(args.workers))
     lock = threading.Lock()
     new_file = not Path(args.out).exists()
     out = open(args.out, "a", newline="")
-    writer = csv.DictWriter(out, FIELDS, extrasaction="ignore")
+    writer = csv.DictWriter(out, ["label", "level", "policy", "result", "raids", "seconds", "trail"] if args.campaign else FIELDS, extrasaction="ignore")
     if new_file:
         writer.writeheader()
 
@@ -298,14 +406,17 @@ def main():
             profile = profiles.popleft()
         try:
             try:
-                row = one_raid(plan, mode, profile, COOP_PORT + int(profile[3:]) if args.coop else 0)
+                if args.campaign:
+                    row = campaign_run(plan, mode, profile, args.difficulty)
+                else:
+                    row = one_raid(plan, mode, profile, COOP_PORT + int(profile[3:]) if args.coop else 0, args.difficulty, args.coop or 1)
             except (RuntimeError, TimeoutError) as error:
-                row = dict(level=plan["level"], mode=mode, result=f"error:{error}".replace(",", ";"))
+                row = dict(level=plan["level"], mode=mode, policy=mode, result=f"error:{error}".replace(",", ";"))
             row["label"] = args.label
             with lock:
                 writer.writerow(row)
                 out.flush()
-                print(row["level"], row["mode"], row.get("result"), row.get("ticks"), row.get("peakPartyLife"), row.get("partyLifeLeft"), row.get("lordLow"), row.get("built"), flush=True)
+                print(row["level"], mode, row.get("result"), row.get("raids"), row.get("ticks"), row.get("trail"), flush=True)
         finally:
             with lock:
                 profiles.append(profile)

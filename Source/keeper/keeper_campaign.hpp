@@ -76,6 +76,8 @@ int HeroStrengthPercent();
 int CurrentLevelNumber();
 /** Scales a number by the level's own strength: prices, tribute, bounties, loot, traps and the Keep Lord. */
 int ScaleByHeroStrength(int value);
+/** A level's last raid brings champions, with this much life (percent). Nearly every lost level was lost there. */
+constexpr int ChampionLifePercent = 125;
 /** How many heroes raid `wave` brings. */
 int PartySizeForWave(int wave);
 

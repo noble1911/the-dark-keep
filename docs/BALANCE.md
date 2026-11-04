@@ -4,10 +4,138 @@ Tuned in two rounds: first by calculation, then against real raids run by a test
 played these numbers. Sections below "Measured raids" come from the paper model, recalibrated to the raids,
 and only compare levels with each other.
 
-**Not verified against newer features.** Every number here predates bot gear, the Monk, the block cap, thieves
-and the Golem (those made heroes stronger: in their own tests level 10 full support went from 7 of 12 raids
-held to 4 of 12, and level 20 from 9 of 12 to 6 of 12). It also predates raid types, difficulty, master scaling
-at 125-140%, interest and early call, level 1 tips and map changes. Expect the table to need another pass.
+"Final pass on the combined build" below is the current state. The sections after it are earlier rounds, kept for how they were reached, and predate the newer features.
+
+## Final pass on the combined build
+
+Measured on next3/balfinal, with bot gear, Monk, block cap, thieves, Golem, raid types, difficulty, master scaling, interest and early call in
+the game. This section replaces the rounds below wherever they disagree. No person has played these numbers. The earlier "not verified against
+newer features" warning no longer holds for what is listed here.
+
+The harness now has a second way to play, `--campaign`, which starts at raid 1 on the gold the game really pays, buys between raids and rolls on to
+the level's end, so interest, early call, raid types and thieves all count. It still doesn't use bait, locks, rally points or possession, and it
+never retries a lost raid. It always aims spells on a hero's tile.
+
+### Playing a level from raid 1
+
+Wins out of runs. Newbie: the army's main kind and a filler, few traps, spells at half the usual rate, no upgrades. Typical: a quarter of the gold on upgrades,
+a quarter on traps, spells at half the mana. Levels 7 to 20 are on the final constants. Levels 1 to 5 were measured before champions were softened and level 4's party
+was eased, so they should now be a little easier than shown.
+
+| Level | Newbie | Typical | Army only | Lord only |
+|---|---|---|---|---|
+| 1 | 6/6 | - | 5/6 | 0/3 bare, 0/6 with Lord upgrades (earlier table) |
+| 2 | 3/4 | 4/4 | - | - |
+| 3 | 2/4 | 4/4 | - | - |
+| 4 | 0/4 (before easing) | 2/4 (before easing) | - | - |
+| 5 | 3/4 | 4/4 | - | - |
+| 7 | 0/4 | 2/4 | - | - |
+| 10 | 0/4 | 4/4 | - | - |
+| 13 | 0/4 | 1/4 | - | - |
+| 16 | 0/4 | 2/4 | - | - |
+| 20 | 0/4 | 1/4 | - | - |
+
+Against the targets: level 1 is where it should be. From level 7 up a newbie wins nothing, typical play is uneven and below target on levels 13 to 20, and 4 runs a cell can't say more than that.
+This table is harder than last-raid tests, because real income is lower once thieves and runners take their share and because the Lord carries his wounds from raid to raid.
+
+Last raid only, before champions were softened: level 10 full 11/12, sloppy 3/12, army 0/12; level 20 full 9/12, sloppy 2/12, army 2/12. So those levels were not too easy once Nova was fixed, and neither
+strength nor bounties changed for them.
+
+### Spells, alone with the army on level 10
+
+Equal raises and mana, 6 raids each, unless noted.
+
+| Spell | Before | After | Change |
+|---|---|---|---|
+| Nova | 6/6, 97% life removed | 0/6, 58% | Now 4 of 36 balls can strike the target's tile (`NovaBallsStrikingTarget`), `NovaDamagePercent` 60 |
+| Wall | 4/6, 97%, raids up to 481s | 0/6, 42%, up to 126s | Engine level 1, so walls can't hold a party indefinitely |
+| Ring | 1/6, 90%, raids of 698-1954s | 0/6, 45%, up to 144s | Engine level 0, same reason |
+| Shock Wall | 0/6, 18% | 1/6, 13% | 35 mana, engine level 1. Still weak: see open items |
+| Fireball | 2/6, 75% | not re-run | |
+| Chain | 0/6, 73% | not re-run | |
+| Guardian | 0/6, 43% | not re-run | |
+| Golem | 0/6, 41% | not re-run | No cap: not the next Nova here. Its strength on a small first raid wasn't tested |
+| Wave | 0/6, 35% | not re-run | |
+| Inferno | 0/6, 34% | not re-run | |
+| Army alone | 0/6, 27%; 0/6, 24% | | Baseline |
+
+**Why Nova resisted cuts.** It wasn't stun or fear. Logs of each cast showed a bot on the target tile losing all 97 life within 2 seconds, while heroes a few tiles away lost 5-20; heroes were in hit recovery for few samples, and fleeing
+appeared in one run of five. All 36 balls of the ring could hit the hero standing where it burst, so wins came from removing one bot a cast before its potions mattered. Cutting damage to 20% barely moved that, and 10% made the spell
+useless. Now each cast does about 220 in all, spread over the party.
+
+### The Lord, and what monsters buy
+
+- With Lord upgrades only and no monsters, from raid 1 on level 1: 0/6 wins, but raids 1 to 4 held every time, losing 180 gold a raid to thieves. A bare Lord with no upgrades does the same. A level still can't be won without monsters, though the first few raids can.
+- Lord Life and Lord Damage now cost 300 + 150 a tier (150 + 100 before), and his life starts lower but grows a little more per level. The Lord does not fully heal between raids.
+
+### Monsters for their price
+
+Army alone at the same gold, 4 raids each, life removed. Slayers cost about half what they did and fielded about twice the number, and barely improved, so **this looks like how they fight, not what they cost.** The new prices are kept so that picking one costs less. Night Clan, unchanged, moved from 35% to 18% between the two sets, so read small differences here as noise.
+
+| Kind (level 18) | Before | After | Kind (level 10) | Before | After |
+|---|---|---|---|---|---|
+| Crypt Demon | 53% | 54% | Weaver | 45% | not re-run |
+| Doom Guard | 42% | not re-run | Night Clan | 35% | 18% |
+| Black Knight | 34% | 37% | Toad Demon | 24% | not re-run |
+| Balrog | 21% | 25% | Gargoyle | 20% | not re-run |
+| Slayer | 10% | 14% | Stalker | 18% | 22% |
+| Guardian | 10% | 17% | Unseen | 17% | 12% |
+
+### Difficulty and co-op
+
+Last raid, full support, on the final constants. Very small samples: sanity only.
+
+| Setting | Level | Wins | Notes |
+|---|---|---|---|
+| Easy | 1 | 3/3 | |
+| Easy | 10 | 3/3 | |
+| Hard | 1 | 3/3 | Lord down to 45% |
+| Hard | 10 | 3/3 | |
+| 2 masters | 10 | 2/2 | All 11 monsters still alive, Lord untouched |
+| 3 masters | 10 | 2/2 | 4 and 9 of 11 monsters alive, Lord down to 70% and 99% |
+
+Co-op looks clearly too easy at full support, with every master casting: the spells kill the party before most monsters are hurt. Those ran on port 6128, and netstat showed no connection to 6112 from those games. The harness can't tell Hard apart at full support in 6 raids, and its army doesn't shrink with Hard's different income because a last-raid plan comes from the model. Try Hard from raid 1 by hand.
+
+### Every constant changed in this pass
+
+| Where | Constant | Old | New |
+|---|---|---|---|
+| keeper_game.hpp | `NovaBallsStrikingTarget` (new) | 36 in effect | 4 |
+| keeper_game.cpp | `NovaDamagePercent` | 30 | 60 |
+| keeper_game.cpp | `SpellKinds` Wall engine level | 4 | 1 |
+| keeper_game.cpp | `SpellKinds` Ring engine level | 3 | 0 |
+| keeper_game.cpp | `SpellKinds` Shock Wall mana, engine level | 40, 0 | 35, 1 |
+| keeper_game.cpp | `BaseSupply` | 16 | 20 |
+| keeper_upgrades.cpp | Lord Life, Lord Damage base, step | 150, 100 | 300, 150 |
+| keeper_heroes.cpp | `LordLifeBase`, `LordLifePerLevel` | 600, 75 | 450, 80 |
+| keeper_campaign.hpp | `ChampionLifePercent` (new) | 150 in effect | 125 |
+| keeper_campaign.cpp | Level 1 strength, party growth | 90, 80 | 85, 45 |
+| keeper_campaign.cpp | Level 2 party growth | 80 | 45 |
+| keeper_campaign.cpp | Level 3 party growth | 85 | 60 |
+| keeper_campaign.cpp | Level 4 party growth | 85 | 55 |
+| keeper_campaign.cpp | Level 5 party growth | 90 | 70 |
+| keeper_campaign.cpp | Levels 6-11 party growth | 80, 80, 85, 90, 90, 95 | 70, 70, 75, 75, 75, 80 |
+| keeper_roster.cpp | Bones gold | 40 | 30 |
+| keeper_roster.cpp | Stalker rank, gold, Pop | 6, 150, 1 | 6, 100, 1 |
+| keeper_roster.cpp | Unseen rank, gold, Pop | 8, 205, 2 | 8, 140, 2 |
+| keeper_roster.cpp | Slayer rank, gold, Pop | 14, 665, 4 | 14, 350, 3 |
+| keeper_roster.cpp | Guardian rank, gold, Pop | 15, 765, 5 | 15, 420, 3 |
+| keeper_roster.cpp | Vortex Lord rank, gold, Pop | 16, 890, 5 | 16, 500, 4 |
+| keeper_roster.cpp | Balrog rank, gold, Pop | 18, 1060, 6 | 18, 650, 4 |
+
+One small engine edit goes with `NovaBallsStrikingTarget`, in `Source/missiles.cpp` (ProcessNovaBall and ProcessNovaCommon), marked `[DARK KEEP]`.
+
+### Open for after the first playthrough
+
+1. **Weaker players past level 5.** Newbie play wins nothing from level 7 up. Likely levers are bounties and `ChampionLifePercent`. Whether a person is nearer "newbie" or "typical" is the key thing to learn.
+2. **Late levels at typical play** (13: 1/4, 20: 1/4). Could be bad luck on 4 runs, or a real step up.
+3. **Slayers' and Hidden kinds' fighting.** Their cost isn't the problem. Someone should watch one fight. Hidden kinds and Unseen may simply wait too long to strike.
+4. **Shock Wall** is now weak on moving heroes (13-18%), though the coverage stream saw 1100+ on a standing one. Standing heroes may still make it strong.
+5. **Golem on a small early raid**, as reported on level 6. Measured only alongside a full army on level 10.
+6. **The Lord holding early raids alone.** He can't win a level alone, but monsters aren't needed for raids 1 to 4 on level 1, and thieves are the only cost. His wounds also carry over, which may or may not be meant.
+7. **Levels 1 to 5 after softening champions** weren't re-run. Level 1 may now be too easy.
+8. **Stall at 57,67-69** on level 1 traps: not seen on the combined build, in 3 traps-only raids and every level 1 run from raid 1. That is too few to call it fixed.
+9. **Co-op looks too easy** at 2 and 3 masters (4 of 4 wins, monsters barely touched), and Hard is unproven. Both have sanity checks only.
 
 ## Measured raids
 
