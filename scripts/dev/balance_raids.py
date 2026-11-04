@@ -245,7 +245,11 @@ def campaign_run(plan, policy, profile, difficulty=None):
                 cost = plan["upgrade_costs"][choice][tiers[choice]]
                 if cost > gold or upgrade_spent + cost > earned * upgrade_share:
                     break
-                game.ask(f"upgrade {choice}\nwait 30\necho upgrade-done", "upgrade-done")
+                lines = game.ask(f"upgrade {choice}\nwait 60\nmons\necho upgrade-done", "upgrade-done")
+                bought = re.findall(r"upgrades=([\d,]+)", "\n".join(lines))
+                # The game has the last word: a refused purchase ends the buying for now, not the run.
+                if not bought or int(bought[-1].split(",")[choice]) <= tiers[choice]:
+                    break
                 tiers[choice] += 1
                 upgrade_spent += cost
                 gold -= cost
@@ -395,8 +399,14 @@ def main():
     profiles = collections.deque(f"bal{i}" for i in range(args.workers))
     lock = threading.Lock()
     new_file = not Path(args.out).exists()
+    fields = ["label", "level", "policy", "result", "raids", "seconds", "trail"] if args.campaign else FIELDS
+    if not new_file:
+        with open(args.out, newline="") as existing:
+            header = next(csv.reader(existing), None)
+        if header and header != fields:
+            parser.error(f"{args.out} has other columns: use another --out for --campaign and last-raid runs")
     out = open(args.out, "a", newline="")
-    writer = csv.DictWriter(out, ["label", "level", "policy", "result", "raids", "seconds", "trail"] if args.campaign else FIELDS, extrasaction="ignore")
+    writer = csv.DictWriter(out, fields, extrasaction="ignore")
     if new_file:
         writer.writeheader()
 
