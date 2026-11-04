@@ -598,7 +598,7 @@ HeroBody MakeHeroBody(HeroClassKind cls, bool champion)
 	const HeroStatLine &stats = HeroStats[static_cast<size_t>(cls)];
 	int hp = stats.lifeBase + stats.lifePerRaid * wave;
 	if (champion)
-		hp = hp * 3 / 2;
+		hp = hp * ChampionLifePercent / 100;
 	HeroBody body {
 		ScaleHeroCombat(hp),
 		std::min(ScaleHeroCombat(stats.minDamageBase + HeroMinDamagePerTenRaids * wave / 10), 255),

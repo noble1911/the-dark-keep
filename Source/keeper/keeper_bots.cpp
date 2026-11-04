@@ -227,7 +227,7 @@ void ScaleBot(Player &bot, bool champion)
 	bot._pBaseMag += bonus;
 	bot._pMaxHPBase = bot.calculateBaseLife();
 	if (champion)
-		bot._pMaxHPBase = bot._pMaxHPBase * 3 / 2;
+		bot._pMaxHPBase = bot._pMaxHPBase * ChampionLifePercent / 100;
 	bot._pMaxHPBase = ScaleHeroCombat(bot._pMaxHPBase);
 	bot._pHPBase = bot._pMaxHPBase;
 	bot._pMaxManaBase = std::max(bot.calculateBaseMana(), 60 << 6);

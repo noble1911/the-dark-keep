@@ -106,7 +106,7 @@ constexpr RosterEntry Roster[] = {
 	{ MT_YFALLSD, "Kin Blade", FallenSwords, "Hits like a much larger demon. Scares like a small one." },
 	{ MT_BFALLSD, "Dark Blade", FallenSwords, "The finest swords the Fallen ever stole." },
 
-	{ MT_WSKELAX, "Bones", SkeletonAxes, "Skeleton axemen that hold the line.", 1, 40, 1 },
+	{ MT_WSKELAX, "Bones", SkeletonAxes, "Skeleton axemen that hold the line.", 1, 30, 1 },
 	{ MT_TSKELAX, "Corpse Axe", SkeletonAxes, "A sturdier skeleton with a heavier axe." },
 	{ MT_RSKELAX, "Burning Axe", SkeletonAxes, "Burning dead: faster on its feet than it looks." },
 	{ MT_XSKELAX, "Horror Axe", SkeletonAxes, "Black bones and a practised chop." },
@@ -127,8 +127,8 @@ constexpr RosterEntry Roster[] = {
 	{ MT_YSCAV, "Bone Gasher", Scavengers, "Crunches bones, then whoever left them." },
 
 	{ MT_SNEAK, "Hidden", Hidden, "Invisible until a hero is close. Heroes can't target it hidden." },
-	{ MT_STALKER, "Stalker", Hidden, "An invisible ambusher with heavy claws." },
-	{ MT_UNSEEN, "Unseen", Hidden, "Strikes from nowhere, then circles away." },
+	{ MT_STALKER, "Stalker", Hidden, "An invisible ambusher with heavy claws.", 6, 100, 1 },
+	{ MT_UNSEEN, "Unseen", Hidden, "Strikes from nowhere, then circles away.", 8, 140, 2 },
 	{ MT_ILLWEAV, "Weaver", Hidden, "An illusion weaver: can't be hit while it retreats." },
 
 	{ MT_NGOATMC, "Flesh Clan", GoatMaces, "Goat warriors that circle their prey." },
@@ -176,10 +176,10 @@ constexpr RosterEntry Roster[] = {
 	{ MT_BLOODCLW, "Blood Claw", Gargoyles, "Heavy claws, and it mends between fights." },
 	{ MT_DEATHW, "Death Wing", Gargoyles, "Kills fast, heals faster." },
 
-	{ MT_MEGA, "Slayer", Slayers, "A towering demon that breathes a wave of fire." },
-	{ MT_GUARD, "Guardian", Slayers, "Fire close up, a great blade closer." },
-	{ MT_VTEXLRD, "Vortex Lord", Slayers, "Its fire reaches further than heroes expect." },
-	{ MT_BALROG, "Balrog", Slayers, "Very few heroes have seen one twice." },
+	{ MT_MEGA, "Slayer", Slayers, "A towering demon that breathes a wave of fire.", 14, 350, 3 },
+	{ MT_GUARD, "Guardian", Slayers, "Fire close up, a great blade closer.", 15, 420, 3 },
+	{ MT_VTEXLRD, "Vortex Lord", Slayers, "Its fire reaches further than heroes expect.", 16, 500, 4 },
+	{ MT_BALROG, "Balrog", Slayers, "Very few heroes have seen one twice.", 18, 650, 4 },
 
 	{ MT_NSNAKE, "Cave Viper", Vipers, "Fast and winding, with a lunge at close range." },
 	{ MT_RSNAKE, "Fire Drake", Vipers, "A heavier lunge, and harder to pin down." },

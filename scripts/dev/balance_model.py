@@ -225,7 +225,7 @@ class Game:
                 "S": (15 + 6 * wave, 2 + wave, 5 + 2 * wave, 3 + wave),
             }[cls]
         if champion:
-            hp = hp * 3 // 2
+            hp = hp * self.heroes_c.get("ChampionLifePercent", 150) // 100
         return dict(cls=cls, bot=False, champion=champion, hp=self.scale(level, hp), min=min(self.scale(level, lo), 255), max=min(self.scale(level, hi), 255),
                     ac=min(self.scale_armor(level, ac), 255), ranged=cls in "RS", to_hit=60, period=HERO_SWING + ATTACK_PAUSE)
 
@@ -240,7 +240,7 @@ class Game:
         clvl = min(wave * 2 - 1, 30)
         hp = adj + lvl_life * clvl + chr_life * vit
         if champion:
-            hp = hp * 3 // 2
+            hp = hp * self.heroes_c.get("ChampionLifePercent", 150) // 100
         hp = self.scale(level, hp)
         clvl = min(clvl + c["LevelsPerCampaignLevel"] * (level - 1), c["MaxBotLevel"])
         potions = c.get("BotPotionsBase", 2) + wave // c.get("BotRaidsPerPotion", 2)
