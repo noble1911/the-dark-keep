@@ -200,7 +200,10 @@ class Game:
 
     def spell_engine_level(self, spell, raised):
         per = self.g.get("RaisesPerEngineSpellLevel", 1)
-        return spell["level"] + (raised - 1) // per
+        level = spell["level"] + (raised - 1) // per
+        if spell["name"] in ("Wall", "Ring", "Shock Wall") and "WallEngineLevelCap" in self.g:
+            level = min(level, self.g["WallEngineLevelCap"])
+        return level
 
     def mana_cost(self, spell, raised):
         base = spell["mana"]

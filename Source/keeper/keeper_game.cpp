@@ -44,13 +44,13 @@ namespace devilution::keeper {
 // Balance: name, missile, mana, engine spell level at level 1, cooldown, unlock rank, icon, flavour.
 const std::array<SpellKind, NumSpellKinds> SpellKinds { {
 	{ "Nova", MissileID::Nova, 35, 6, 20 * 6, 1, SpellID::Nova, "A ring of lightning bursts out around the target." },
-	{ "Wall", MissileID::FireWallControl, 25, 1, 20 * 4, 1, SpellID::FireWall, "A wall of fire across a corridor." },
+	{ "Wall", MissileID::FireWallControl, 25, 0, 20 * 6, 1, SpellID::FireWall, "A wall of fire across a corridor." },
 	{ "Guard", MissileID::Guardian, 30, 4, 20 * 8, 1, SpellID::Guardian, "Summons a guardian that spits fire at heroes for a while." },
 	{ "Stone", MissileID::StoneCurse, 20, 4, 20 * 5, 1, SpellID::StoneCurse, "Turns the hero nearest the target to stone for a few seconds." },
 	{ "Inferno", MissileID::InfernoControl, 15, 2, 20 * 2, 3, SpellID::Inferno, "A short jet of fire from the target towards the entrance." },
 	{ "Fireball", MissileID::Fireball, 20, 3, 20 * 3, 5, SpellID::Fireball, "An explosion at the target, burning everything close by." },
 	{ "Chain", MissileID::ChainLightning, 30, 3, 20 * 5, 8, SpellID::ChainLightning, "Lightning leaps from the target to every hero in reach." },
-	{ "Shock Wall", MissileID::LightningWallControl, 35, 1, 20 * 5, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
+	{ "Shock Wall", MissileID::LightningWallControl, 50, 0, 20 * 8, 10, SpellID::LightningWall, "A wall of lightning. Heroes don't see this one coming." },
 	{ "Wave", MissileID::FlameWaveControl, 25, 3, 20 * 4, 12, SpellID::FlameWave, "A wide wave of flame that rolls towards the entrance." },
 	{ "Ring", MissileID::RingOfFire, 40, 0, 20 * 8, 15, SpellID::RingOfFire, "A ring of fire around the target, hemming heroes in." },
 	{ "Apocalypse", MissileID::Apocalypse, 80, 1, 20 * 25, 18, SpellID::Apocalypse, "Fire falls on every hero within sight of the target." },
@@ -103,6 +103,11 @@ constexpr int ApocalypseDamagePerLevel = 8;
  * engine only this fraction of a spell level: Nova and Fireball grow 12.5% per engine level, compounding.
  */
 constexpr int RaisesPerEngineSpellLevel = 2;
+/**
+ * Walls' engine level sets only how long they last. Heroes won't walk into fire, so walls that outlast the time to
+ * cast the next one hold a party for minutes (measured, docs/BALANCE.md). Raises make these cheaper instead.
+ */
+constexpr int WallEngineLevelCap = 0;
 /** Nova and Fireball on a raise that gives no engine level take this much more damage instead (percent): half of 12.5% compounding. */
 constexpr int HalfEngineLevelDamagePercent = 6;
 /** Nova's damage, in percent. See NovaBallsStrikingTarget: the ring catches several heroes rather than killing one. */
@@ -2057,7 +2062,10 @@ int SpellManaCostScaled(size_t spell)
 
 int SpellEngineLevel(size_t spell)
 {
-	return SpellKinds[spell].spellLevel + (std::max<int>(State.spellLevels[spell], 1) - 1) / RaisesPerEngineSpellLevel;
+	const SpellKind &kind = SpellKinds[spell];
+	const int level = kind.spellLevel + (std::max<int>(State.spellLevels[spell], 1) - 1) / RaisesPerEngineSpellLevel;
+	const bool wall = kind.missile == MissileID::FireWallControl || kind.missile == MissileID::RingOfFire || kind.missile == MissileID::LightningWallControl;
+	return wall ? std::min(level, WallEngineLevelCap) : level;
 }
 
 int SpellManaCost(size_t spell)

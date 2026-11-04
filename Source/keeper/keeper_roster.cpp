@@ -48,7 +48,7 @@ constexpr int KindCostRoundTo = 5;
 /** A family's tier always costs at least this much more than the tier below it. */
 constexpr int TierMinCostStep = 10;
 /**
- * Pop = 1 + power / divisor, at most the maximum (which fits the first raid's cap of 16). Above 1 Pop, power
+ * Pop = 1 + power / divisor, at most the maximum (which fits the first raid's Pop cap, BaseSupply). Above 1 Pop, power
  * per Pop sets what a full keep is worth: this divisor is what makes higher tiers beat a swarm of low ones.
  */
 constexpr int KindPopPowerDivisor = 20;
