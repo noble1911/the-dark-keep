@@ -1298,7 +1298,7 @@ void DiabloInitScreen()
 
 void SetApplicationVersions()
 {
-	*BufCopy(gszProductName, "The Dark Keep (" PROJECT_NAME " v", PROJECT_VERSION, ")") = '\0'; // [DARK KEEP]
+	*BufCopy(gszProductName, "The Dark Keep v" KEEPER_VERSION " (built on " PROJECT_NAME ")") = '\0'; // [DARK KEEP]
 	*BufCopy(gszVersionNumber, "version ", PROJECT_VERSION) = '\0';
 }
 

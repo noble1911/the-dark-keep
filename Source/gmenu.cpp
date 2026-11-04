@@ -18,6 +18,8 @@
 #include <SDL.h>
 #endif
 
+#include <config.h>
+
 #include "DiabloUI/ui_flags.hpp"
 #include "appfat.h"
 #include "control/control.hpp"
@@ -249,6 +251,7 @@ void gmenu_draw(const Surface &out)
 		const int uiPositionY = GetUIRectangle().position.y;
 		// [DARK KEEP] The game's own name, where the Hellfire logo was.
 		DrawString(out, "The Dark Keep", { { 0, 48 + uiPositionY }, { gnScreenWidth, 54 } }, { .flags = UiFlags::FontSize46 | UiFlags::ColorGold | UiFlags::AlignCenter, .spacing = 4 });
+		DrawString(out, "v" KEEPER_VERSION, { { 0, 96 + uiPositionY }, { gnScreenWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhitegold | UiFlags::AlignCenter });
 		int y = 110 + uiPositionY;
 		TMenuItem *i = sgpCurrentMenu;
 		if (sgpCurrentMenu->fnMenu != nullptr) {

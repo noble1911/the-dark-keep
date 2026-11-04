@@ -78,6 +78,10 @@ project(DevilutionX
   LANGUAGES C CXX)
 set(PROJECT_VERSION_WITH_SUFFIX "${VERSION_PREFIX}${VERSION_SUFFIX}")
 
+# [DARK KEEP] The release players see. VERSION stays upstream's: it's the engine's own number.
+file(STRINGS "DARK_KEEP_VERSION" KEEPER_VERSION LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/DARK_KEEP_VERSION")
+
 # Platform definitions can override options and we want `cmake_dependent_option` to see the effects.
 # Note that a few options are still defined before this because they're needed by `VcPkgManifestFeatures.cmake`.
 include(Platforms)
