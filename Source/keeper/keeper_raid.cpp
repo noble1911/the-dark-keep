@@ -204,7 +204,7 @@ std::vector<SummaryLine> SummaryLines()
 	if (s.outcome == Phase::Victory && GoalsApply()) {
 		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
 			const bool earned = (FailedGoals() & (1U << goal)) == 0;
-			lines.push_back({ fmt::format("Goal: {}", GoalInfo(goal).name), earned ? "Medal!" : "Missed", earned ? UiFlags::ColorGold : UiFlags::ColorRed });
+			lines.push_back({ fmt::format("Goal: {}", GoalInfo(goal).name), earned ? "Star!" : "Missed", earned ? UiFlags::ColorGold : UiFlags::ColorRed });
 		}
 	}
 	return lines;

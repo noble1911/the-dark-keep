@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -55,7 +56,39 @@ struct ScreenItem {
 	UiFlags flags;
 	/** Locked rows stay reachable, so the player can read what lies ahead, but can't be chosen. */
 	bool selectable = true;
+	/** Stars earned, shown at the row's end out of NumLevelGoals. Negative: the row has no stars. */
+	int stars = -1;
 };
+
+/** Where a screen's list sits. The default suits centred rows; the campaign's need room for their stars too. */
+struct ListLayout {
+	int x = 305;
+	int width = 285;
+	UiFlags flags = UiFlags::AlignCenter;
+	int spacing = 1;
+};
+
+/** U+2605 and U+2606, drawn into the small font by scripts/dev/draw_star_glyphs.py: only that size has them. */
+constexpr std::string_view FilledStar = "\xE2\x98\x85";
+constexpr std::string_view HollowStar = "\xE2\x98\x86";
+constexpr std::string_view FilledStars = "\xE2\x98\x85\xE2\x98\x85\xE2\x98\x85";
+constexpr std::string_view HollowStars = "\xE2\x98\x86\xE2\x98\x86\xE2\x98\x86";
+static_assert(NumLevelGoals * FilledStar.size() == FilledStars.size());
+static_assert(NumLevelGoals * HollowStar.size() == HollowStars.size());
+
+/** The first `count` stars of a run of them. */
+std::string_view StarRun(std::string_view stars, size_t count)
+{
+	return stars.substr(0, count * FilledStar.size());
+}
+
+int CountStars(uint8_t medals)
+{
+	int count = 0;
+	for (size_t goal = 0; goal < NumLevelGoals; goal++)
+		count += (medals >> goal) & 1;
+	return count;
+}
 
 using DescribeFn = void (*)(int value);
 
@@ -99,7 +132,7 @@ void OnEsc()
 }
 
 /** Shows a list with a description panel. @return the chosen item's value, or NothingChosen. */
-int RunListScreen(const char *title, const char *heading, const std::vector<ScreenItem> &items, size_t initial, DescribeFn describeFn)
+int RunListScreen(const char *title, const char *heading, const std::vector<ScreenItem> &items, size_t initial, DescribeFn describeFn, const ListLayout &layout = {})
 {
 	LoadBackgroundArt("ui_art\\selgame");
 	LoadScrollBar();
@@ -125,9 +158,15 @@ int RunListScreen(const char *title, const char *heading, const std::vector<Scre
 
 	for (const ScreenItem &item : items) {
 		listItems.push_back(std::make_unique<UiListItem>(std::string_view(item.text), item.value, item.flags));
+		if (item.stars >= 0) {
+			const auto earned = static_cast<size_t>(item.stars);
+			listItems.back()->trailingFormat = "{}{}";
+			listItems.back()->trailingArgs.emplace_back(StarRun(FilledStars, earned), UiFlags::ColorUiGold);
+			listItems.back()->trailingArgs.emplace_back(StarRun(HollowStars, NumLevelGoals - earned), UiFlags::ColorUiSilverDark);
+		}
 		rowSelectable.push_back(item.selectable);
 	}
-	dialog.push_back(std::make_unique<UiList>(listItems, VisibleRows, ui.x + 305, ui.y + 255, 285, 26, UiFlags::AlignCenter | UiFlags::FontSize24));
+	dialog.push_back(std::make_unique<UiList>(listItems, VisibleRows, ui.x + layout.x, ui.y + 255, layout.width, 26, layout.flags | UiFlags::FontSize24, layout.spacing));
 
 	const SDL_Rect okRect = { (Sint16)(ui.x + 299), (Sint16)(ui.y + 427), 140, 35 };
 	dialog.push_back(std::make_unique<UiArtTextButton>("OK", &UiFocusNavigationSelect, okRect, UiFlags::AlignCenter | UiFlags::VerticalCenter | UiFlags::FontSize30 | UiFlags::ColorUiGold));
@@ -173,13 +212,17 @@ void DescribeCampaignLevel(int level)
 		return;
 	}
 	SetLabel(fmt::format("Level {}", level));
-	const std::string status = level > NextOpenLevel() ? fmt::format("Locked: clear level {} first", level - 1) : (level <= LevelsCleared() ? "Cleared *" : "Not yet cleared");
-	std::string medals;
-	for (size_t goal = 0; goal < NumLevelGoals; goal++) {
-		if ((ProfileMedals(level) & (1U << goal)) != 0)
-			medals += fmt::format("\n* {}", GoalInfo(goal).name);
+	const bool locked = level > NextOpenLevel();
+	const std::string status = locked ? fmt::format("Locked: clear level {} first", level - 1) : (level <= LevelsCleared() ? "Cleared" : "Not yet cleared");
+	std::string stars;
+	if (!locked) {
+		stars = fmt::format("\nStars: {} of {}", CountStars(ProfileMedals(level)), NumLevelGoals);
+		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
+			const bool earned = (ProfileMedals(level) & (1U << goal)) != 0;
+			stars += fmt::format("\n{} {}", earned ? FilledStar : HollowStar, GoalInfo(goal).name);
+		}
 	}
-	SetDescription(fmt::format("{}\n\nRaids to survive: {}\nStarting gold: {}\nHero strength: {}%\nDifficulty: {}\n{}{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, DifficultyName(ProfileDifficulty()), status, medals));
+	SetDescription(fmt::format("{}\n\nRaids to survive: {}\nStarting gold: {}\nHero strength: {}%\nDifficulty: {}\n{}{}", rules.name, rules.raids, rules.startingGold, rules.heroStrengthPercent, DifficultyName(ProfileDifficulty()), status, stars));
 }
 
 /** The files on the Custom Map screen. */
@@ -230,21 +273,24 @@ bool CampaignLevelSelect(bool offerContinue)
 	offeredResume = offerContinue ? ReadResumeFile() : std::nullopt;
 	const size_t firstRows = offeredResume ? 1 : 0;
 	if (offeredResume)
-		items.push_back({ "Continue", ContinueRow, UiFlags::ColorUiGold });
-	items.push_back({ "Keeper", 0, UiFlags::ColorUiSilver });
+		items.push_back({ "Continue", ContinueRow, UiFlags::ColorUiGold | UiFlags::AlignCenter });
+	items.push_back({ "Keeper", 0, UiFlags::ColorUiSilver | UiFlags::AlignCenter });
 	for (int level = 1; level <= NumCampaignLevels; level++) {
 		const std::string_view name = CampaignLevelRules(level).name;
+		const int stars = CountStars(ProfileMedals(level));
 		if (level > rank)
 			items.push_back({ fmt::format("{}. {}", level, name), level, UiFlags::ColorUiSilverDark, false });
 		else if (level <= cleared)
-			items.push_back({ fmt::format("{}. {} *", level, name), level, UiFlags::ColorUiSilver });
+			items.push_back({ fmt::format("{}. {}", level, name), level, UiFlags::ColorUiSilver, true, stars });
 		else
-			items.push_back({ fmt::format("{}. {}", level, name), level, UiFlags::ColorUiGold });
+			items.push_back({ fmt::format("{}. {}", level, name), level, UiFlags::ColorUiGold, true, stars });
 	}
 	size_t initial = offeredResume ? 0 : static_cast<size_t>(rank);
 	int level = NothingChosen;
+	// Left-aligned, so the stars line up in a column. Wider and tighter than other lists: the longest name still has to fit beside them.
+	const ListLayout campaignLayout { .x = 283, .width = 305, .flags = UiFlags::None, .spacing = 0 };
 	while (true) {
-		level = RunListScreen("Campaign", "Select Level", items, initial, DescribeCampaignLevel);
+		level = RunListScreen("Campaign", "Select Level", items, initial, DescribeCampaignLevel, campaignLayout);
 		if (level != 0)
 			break;
 		UiKeeperScreen();

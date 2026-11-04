@@ -369,6 +369,9 @@ public:
 	// private:
 	StringOrView m_text;
 	std::vector<DrawStringFormatArg> args;
+	/** If not empty, small text at the row's right end: the format's values, each in its own colour. */
+	std::string_view trailingFormat;
+	std::vector<DrawStringFormatArg> trailingArgs;
 	int m_value;
 	UiFlags uiFlags;
 };

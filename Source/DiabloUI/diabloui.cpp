@@ -941,6 +941,8 @@ void Render(const UiList &uiList)
 		} else {
 			DrawStringWithColors(out, text, item.args, rectangle, { .flags = uiFlags, .spacing = uiList.GetSpacing() });
 		}
+		if (!item.trailingArgs.empty())
+			DrawStringWithColors(out, item.trailingFormat, item.trailingArgs, rectangle, { .flags = UiFlags::AlignRight | UiFlags::VerticalCenter | UiFlags::FontSize12, .spacing = 0 });
 	}
 }
 

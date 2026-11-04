@@ -497,7 +497,7 @@ void DrawCharacter(const Surface &out, const Rectangle &area, Point mouse)
 	    { "Raids survived", stats.raidsSurvived },
 	    { "Heroes slain", stats.heroesSlain },
 	    { "Monsters lost", stats.monstersLost },
-	    { "Medals won", ProfileMedalCount() },
+	    { "Stars won", ProfileMedalCount() },
 	} };
 	for (const auto &[label, value] : lines) {
 		DrawString(out, label, { { x, y }, { inner, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });

@@ -214,7 +214,7 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::stri
 	const std::array<std::tuple<std::string_view, std::string, UiFlags>, 5> stats { {
 		{ "Raids survived", fmt::format("{} of {}", raids, NumWaves()), won ? UiFlags::ColorGold : UiFlags::ColorWhite },
 		{ "Heroes slain", std::to_string(totals.slain), UiFlags::ColorGold },
-		// Separately: only an escape costs the No escapes medal.
+		// Separately: only an escape costs the No escapes star.
 		{ "Heroes escaped", totals.fled > 0 ? fmt::format("{}, and {} fled", totals.escaped, totals.fled) : std::to_string(totals.escaped), totals.escaped > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "Gold carried off", std::to_string(totals.goldCarriedOff), totals.goldCarriedOff > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
 		{ "Your monsters lost", std::to_string(totals.monstersLost), totals.monstersLost > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite },
@@ -256,7 +256,7 @@ void DrawMapSummary(const Surface &out, Point mouse, const std::vector<std::stri
 		for (size_t goal = 0; goal < NumLevelGoals; goal++) {
 			const bool earned = (FailedGoals() & (1U << goal)) == 0;
 			DrawString(out, GoalInfo(goal).name, { { x, y }, { inner, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-			DrawString(out, earned ? "Medal!" : "Missed", { { x, y }, { inner, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (earned ? UiFlags::ColorGold : UiFlags::ColorRed) });
+			DrawString(out, earned ? "Star!" : "Missed", { { x, y }, { inner, LineHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (earned ? UiFlags::ColorGold : UiFlags::ColorRed) });
 			y += LineHeight;
 		}
 		y += 4;
