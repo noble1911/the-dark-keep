@@ -81,6 +81,8 @@ void AddHeroMonsterTypes();
 /** A keep's lair kinds are listed at level load, but only loaded when one first spawns (EnsureMonsterTypeLoaded). */
 bool IsDeferredMonsterType(size_t typeIndex);
 void ClearDeferredMonsterTypes();
+/** The level monster type a class's monster heroes are, which also draws a slain bot hero's body. */
+std::optional<size_t> HeroTypeIndexFor(HeroClassKind cls);
 
 /** Called whenever a monster is (re)initialised on any client: applies wave stats to heroes, remembers homes. */
 void OnMonsterInit(Monster &monster);

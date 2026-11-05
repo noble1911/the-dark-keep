@@ -12,6 +12,7 @@
 
 #include <fmt/format.h>
 
+#include "dead.h"
 #include "engine/path.h"
 #include "engine/random.hpp"
 #include "items.h"
@@ -195,6 +196,13 @@ void RemoveBot(Player &bot)
 {
 	if (!bot.plractive)
 		return;
+	// The engine draws a dead player only while it is in the game. The body stays, drawn as its class's
+	// monster hero lying where it fell: drawn only, so a client that drops it at another moment can't
+	// change what scavengers or doors do.
+	if (bot.hasNoLife() && bot.isOnActiveLevel()) {
+		if (const std::optional<size_t> type = HeroTypeIndexFor(Bots[SlotOf(bot)].cls))
+			AddBodyOfType(bot.position.tile, *type, bot._pdir);
+	}
 	ClearBotFromMap(bot);
 	ClrPlrPath(bot);
 	bot.destAction = ACTION_NONE;
