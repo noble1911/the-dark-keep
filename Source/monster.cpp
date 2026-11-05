@@ -1531,10 +1531,7 @@ void MonsterDeath(Monster &monster)
 		if (monster.var1 == 140)
 			PrepDoEnding();
 	} else if (monster.animInfo.isLastFrame()) {
-		if (monster.isUnique())
-			AddCorpse(monster.position.tile, monster.corpseId, monster.direction);
-		else
-			AddCorpse(monster.position.tile, monster.type().corpseId, monster.direction);
+		AddMonsterCorpse(monster); // [DARK KEEP] was AddCorpse with its corpse id
 
 		dMonster[monster.position.tile.x][monster.position.tile.y] = 0;
 		monster.isInvalid = true;
@@ -3706,7 +3703,7 @@ void EnsureMonsterTypeLoaded(size_t typeIndex) // [DARK KEEP]
 		result = InitMonsterGFX(monsterType);
 	if (!result.has_value())
 		app_fatal(result.error());
-	monsterType.corpseId = AddCorpseType(monsterType);
+	// No corpse id: its bodies are drawn by type (AddMonsterCorpse).
 }
 
 void WeakenNaKrul()
@@ -4488,7 +4485,7 @@ tl::expected<void, std::string> SyncMonsterAnim(Monster &monster)
 #ifdef _DEBUG
 	// fix for saves with debug monsters having type originally not on the level
 	CMonster &monsterType = LevelMonsterTypes[monster.levelType];
-	if (monsterType.corpseId == 0) {
+	if (monsterType.corpseId == 0 && !keeper::IsDeferredMonsterType(monster.levelType)) { // [DARK KEEP] those have no corpse id
 		RETURN_IF_ERROR(InitMonsterGFX(monsterType));
 		monsterType.corpseId = 1;
 	}
