@@ -881,13 +881,8 @@ void DeltaLoadMonsters(const DLevel &deltaLevel)
 			continue;
 
 		M_ClearSquares(monster);
-		if (monster.ai != MonsterAIID::Diablo) {
-			if (monster.isUnique()) {
-				AddCorpse(monster.position.tile, monster.corpseId, monster.direction);
-			} else {
-				AddCorpse(monster.position.tile, monster.type().corpseId, monster.direction);
-			}
-		}
+		if (monster.ai != MonsterAIID::Diablo)
+			AddMonsterCorpse(monster); // [DARK KEEP] was AddCorpse with its corpse id
 		monster.isInvalid = true;
 		M_UpdateRelations(monster);
 	}

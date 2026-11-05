@@ -1803,6 +1803,11 @@ void StartWave(uint8_t wave)
 	spawnCooldown = 0;
 }
 
+std::optional<size_t> HeroTypeIndexFor(HeroClassKind cls)
+{
+	return FindLevelMonsterType(HeroMonsterIds[static_cast<size_t>(cls)]);
+}
+
 RaidStatus UpdateRaid()
 {
 	if (!pendingParty.empty()) {

@@ -6,6 +6,7 @@
 #include "dead.h"
 
 #include <cstdint>
+#include <cstring>
 
 #include "diablo.h"
 #include "headless_mode.hpp"
@@ -19,6 +20,7 @@ namespace devilution {
 
 Corpse Corpses[MaxCorpses];
 int8_t stonendx;
+uint16_t dCorpseType[MAXDUNX][MAXDUNY]; // [DARK KEEP]
 
 namespace {
 void InitDeadAnimationFromMonster(Corpse &corpse, const CMonster &mon)
@@ -47,21 +49,10 @@ void MoveLightToCorpse(Monster &monster)
 }
 } // namespace
 
-/** [DARK KEEP] The next free slot in Corpses. */
-int8_t nextCorpse = 0;
-
-int8_t AddCorpseType(const CMonster &monsterType)
-{
-	if (static_cast<unsigned>(nextCorpse) >= MaxCorpses)
-		return 0; // corpse ids are 5 bits: this type just leaves no corpse
-	InitDeadAnimationFromMonster(Corpses[nextCorpse], monsterType);
-	Corpses[nextCorpse].translationPaletteIndex = 0;
-	return ++nextCorpse;
-}
-
 void InitCorpses()
 {
 	int8_t mtypes[MaxMonsters] = {};
+	memset(dCorpseType, 0, sizeof(dCorpseType)); // [DARK KEEP]
 
 	int8_t nd = 0;
 
@@ -101,14 +92,55 @@ void InitCorpses()
 	}
 
 	assert(static_cast<unsigned>(nd) <= MaxCorpses);
-	nextCorpse = nd; // [DARK KEEP]
 }
 
 void AddCorpse(Point tilePosition, int8_t dv, Direction ddir)
 {
-	if (dv == 0) // [DARK KEEP] a type past the end of the corpse table
+	if (dv == 0) // [DARK KEEP] no corpse id: AddMonsterCorpse handles those
 		return;
 	dCorpse[tilePosition.x][tilePosition.y] = (dv & 0x1F) + (static_cast<int>(ddir) << 5);
+	dCorpseType[tilePosition.x][tilePosition.y] = 0; // [DARK KEEP] this body covers any drawn from there
+}
+
+// [DARK KEEP] A keep's lair kinds come after the level's first 31 corpse ids: those are drawn by type.
+// The marker in dCorpse doesn't depend on which types a client has loaded, or in what order, so
+// scavengers and doors see the same bodies on every client (and in headless mode).
+void AddMonsterCorpse(const Monster &monster)
+{
+	const Point tile = monster.position.tile;
+	const int8_t id = monster.isUnique() && monster.corpseId != 0 ? monster.corpseId : monster.type().corpseId;
+	if (id != 0) {
+		AddCorpse(tile, id, monster.direction);
+		return;
+	}
+	dCorpse[tile.x][tile.y] = CorpseByTypeMarker + (static_cast<int>(monster.direction) << 5);
+	dCorpseType[tile.x][tile.y] = static_cast<uint16_t>((monster.levelType + 1) | (static_cast<unsigned>(monster.direction) << 8));
+}
+
+void AddBodyOfType(Point tilePosition, size_t typeIndex, Direction ddir)
+{
+	if (!InDungeonBounds(tilePosition) || typeIndex >= LevelMonsterTypeCount)
+		return;
+	dCorpseType[tilePosition.x][tilePosition.y] = static_cast<uint16_t>((typeIndex + 1) | (static_cast<unsigned>(ddir) << 8) | BodyWithoutMarker);
+}
+
+void ClearCorpseAt(Point tilePosition)
+{
+	if (!InDungeonBounds(tilePosition))
+		return;
+	dCorpse[tilePosition.x][tilePosition.y] = 0;
+	dCorpseType[tilePosition.x][tilePosition.y] = 0;
+}
+
+std::optional<size_t> CorpseTypeAt(Point tilePosition)
+{
+	const uint16_t body = dCorpseType[tilePosition.x][tilePosition.y];
+	const size_t type = body & 0xFF;
+	if (type == 0 || type > LevelMonsterTypeCount)
+		return std::nullopt;
+	if ((body & BodyWithoutMarker) == 0 && dCorpse[tilePosition.x][tilePosition.y] == 0)
+		return std::nullopt; // eaten
+	return type - 1;
 }
 
 void MoveLightsToCorpses()

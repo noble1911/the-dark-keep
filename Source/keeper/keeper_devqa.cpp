@@ -315,7 +315,13 @@ void FinishKind()
 		type = &LevelMonsterTypes[*index];
 	const KindImage image = MakeKindImage(kind, 64, 64);
 	std::string corpse = "none";
-	if (type != nullptr && type->corpseId > 0) {
+	if (type != nullptr && type->corpseId == 0 && check.deathTicks >= 0) {
+		// Drawn by type (dCorpseType): which type lies on the death tile, and whether it can be drawn.
+		const std::optional<size_t> atTile = CorpseTypeAt(check.deathTile);
+		const AnimStruct &anim = type->getAnimData(MonsterGraphic::Death);
+		const OptionalClxSpriteList sprites = anim.spritesForDirection(check.deathDir);
+		corpse = fmt::format("bytype/tile{}/frame{}of{}", atTile ? static_cast<int>(*atTile) : -1, anim.frames - 1, sprites ? static_cast<int>(sprites->numSprites()) : 0);
+	} else if (type != nullptr && type->corpseId > 0) {
 		const Corpse &entry = Corpses[type->corpseId - 1];
 		const int atTile = check.deathTicks >= 0 ? dCorpse[check.deathTile.x][check.deathTile.y] & 0x1F : -1;
 		const int frames = entry.sprites ? static_cast<int>(entry.spritesForDirection(check.deathDir).numSprites()) : 0;

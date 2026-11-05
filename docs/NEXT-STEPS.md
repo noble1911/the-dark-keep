@@ -25,7 +25,11 @@ hand: all testing so far was automated and invisible.
   with thieves as the only cost. A maxed Nova or Chain with all mana is unmeasured. Hard is unproven.
 - **Wall spells:** raises now only make Wall, Ring and Shock Wall cheaper. Damage and duration don't grow.
 - **Hero AI:** the two-unreachable-targets fix was never reproduced live, so it's verified by code only.
-- **UI:** only about 24 lair kinds per level leave corpses. Three trap types share an icon. Card bar
+- **Bodies:** every lair kind, monster hero and slain bot hero now leaves a body (drawn by monster type,
+  `dCorpseType` in dead.cpp), and bodies stay for the whole level. A resumed keep starts with a clean
+  floor: the resume file doesn't keep bodies. There is no blood art to splash on floors: vanilla's blood
+  spatter corpse slot and BloodHit missile have no sprite file.
+- **UI:** three trap types share an icon. Card bar
   slots differ between games as unlocks grow. The 1-point Lord life gap between clients at raid end is
   unexplained.
 - **Startup crashes:** nine early crashes on one build look like a stale incremental build. A clean ASan

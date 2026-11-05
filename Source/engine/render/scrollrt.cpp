@@ -824,7 +824,16 @@ void DrawDungeon(const Surface &out, const Lightmap &lightmap, Point tilePositio
 		DrawMissile(out, tilePosition, targetBufferPosition, true, lightTableIndex);
 	}
 
-	if (lightTableIndex < LightsMax && bDead != 0) {
+	// [DARK KEEP] a body drawn by monster type (see dCorpseType)
+	const std::optional<size_t> bodyType = lightTableIndex < LightsMax ? CorpseTypeAt(tilePosition) : std::nullopt;
+	if (bodyType) {
+		const AnimStruct &anim = LevelMonsterTypes[*bodyType].getAnimData(MonsterGraphic::Death);
+		const OptionalClxSpriteList sprites = anim.spritesForDirection(static_cast<Direction>((dCorpseType[tilePosition.x][tilePosition.y] >> 8) & 7));
+		if (sprites && anim.frames > 0 && sprites->numSprites() >= static_cast<uint32_t>(anim.frames)) {
+			const Point position { targetBufferPosition.x - CalculateSpriteTileCenterX(anim.width), targetBufferPosition.y };
+			ClxDrawLight(out, position, (*sprites)[anim.frames - 1], lightTableIndex);
+		}
+	} else if (lightTableIndex < LightsMax && bDead != 0 && Corpses[(bDead & 0x1F) - 1].sprites) { // [DARK KEEP] a marker whose type list is gone draws nothing
 		const Corpse &corpse = Corpses[(bDead & 0x1F) - 1];
 		const Point position { targetBufferPosition.x - CalculateSpriteTileCenterX(corpse.width), targetBufferPosition.y };
 		const ClxSprite sprite = corpse.spritesForDirection(static_cast<Direction>((bDead >> 5) & 7))[corpse.frame];
