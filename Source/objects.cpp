@@ -3741,6 +3741,8 @@ tl::expected<void, std::string> InitObjectGFX()
 			filesWidths[objectData.ofindex] = objectData.animWidth;
 		}
 	}
+	// [DARK KEEP] the keep's props, as far as pObjCels has room once the level's own files are counted in
+	keeper::AddMapObjectGraphics(filesWidths, std::min<size_t>(ObjMasterLoadList.size(), std::size(filesWidths)), std::size(pObjCels));
 
 	return LoadLevelObjects(filesWidths);
 }

@@ -7,10 +7,12 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <expected.hpp>
@@ -47,22 +49,86 @@ enum class MapTileset : uint8_t {
 };
 constexpr size_t NumMapTilesets = 6;
 
-/** Stored in the file; don't renumber. */
+/**
+ * Stored in the file; don't renumber. Version 1 files hold only the first three. The rest are props
+ * (version 2): scenery that never does anything. See MapObjectFlags and docs/MAP-FORMAT.md.
+ */
 enum class MapObjectKind : uint8_t {
 	Barrel = 0,
 	Chest = 1,
-	/** Cathedral only: its graphics aren't loaded elsewhere. */
+	/** Cathedral only. */
 	Brazier = 2,
+	Candle = 3,
+	SkullFire = 4,
+	/** On a wall, facing the floor in front of it. */
+	WallTorch = 5,
+	Banner = 6,
+	SkullPile = 7,
+	CrucifiedSkeleton = 8,
+	BookStand = 9,
+	/** On the floor with its back to a wall. */
+	Bookcase = 10,
+	WeaponRack = 11,
+	ArmourStand = 12,
+	HeadlessBody = 13,
+	TorturedBody = 14,
+	/** On a wall, facing the floor in front of it. */
+	ImpaledBody = 15,
+	BloodFountain = 16,
+	/** Crypt only. */
+	CryptCandle = 17,
+	AngelStatue = 18,
 };
-constexpr size_t NumMapObjectKinds = 3;
-constexpr size_t MaxMapObjects = 64;
+constexpr size_t NumMapObjectKinds = 19;
+/** Barrel, chest and brazier: all a version 1 file can hold, placed exactly as they always were. */
+constexpr size_t NumLegacyMapObjectKinds = 3;
+constexpr size_t MaxMapObjectsV1 = 64;
+constexpr size_t MaxMapObjects = 80;
+/**
+ * Doors and stored objects together, when the level is built: the rest of MAXOBJECTS (127) is for what the
+ * game adds while it runs, Barricades above all. Props past this are left out.
+ */
+constexpr int MaxLevelObjectsAtLoad = 95;
 /** A map travels in the join packet, whose frame limit is 64 KiB including its headers. */
 constexpr size_t MaxMapBytes = 60000;
 
+/** Where a kind stands. */
+enum class MapObjectPlacement : uint8_t {
+	/** On open floor. */
+	Floor,
+	/** On a wall tile, with open floor in front of it. */
+	OnWall,
+	/** On open floor, with a wall right behind it. */
+	AgainstWall,
+};
+
+/** What a kind is like in play, for the editor, the docs and an automatic dressing pass. */
+struct MapObjectTraits {
+	MapObjectPlacement placement = MapObjectPlacement::Floor;
+	/** Heroes walk round it. Missiles always pass props. */
+	bool solid = true;
+	/** A light source (AddObjectLight). */
+	bool light = false;
+	/** Something a player can use: only the barrel and the chest. Props are made inert. */
+	bool interactive = false;
+	/** Looks: MapObject::variant's low bits run from 0 to this minus 1. */
+	uint8_t styles = 1;
+};
+
+/** For OnWall and AgainstWall kinds, this bit of MapObject::variant: the floor is at +y, not +x. */
+constexpr uint8_t MapObjectFacesY = 0x80;
+constexpr uint8_t MapObjectStyleMask = 0x7F;
+
 struct MapObject {
 	MapObjectKind kind = MapObjectKind::Barrel;
-	/** World tile. */
+	/** World tile. For an OnWall kind, the wall tile. */
 	Point position;
+	/** Style in the low bits, and MapObjectFacesY. Always 0 for the legacy kinds. */
+	uint8_t variant = 0;
+
+	[[nodiscard]] uint8_t style() const { return variant & MapObjectStyleMask; }
+	[[nodiscard]] bool facesY() const { return (variant & MapObjectFacesY) != 0; }
+	bool operator==(const MapObject &other) const { return kind == other.kind && position == other.position && variant == other.variant; }
 };
 
 constexpr int MapMaxName = 40;
@@ -96,10 +162,17 @@ struct KeepMap {
 
 std::string_view MapTilesetName(MapTileset tileset);
 std::string_view MapObjectName(MapObjectKind kind);
+MapObjectTraits GetMapObjectTraits(MapObjectKind kind);
+constexpr bool IsLegacyMapObject(MapObjectKind kind)
+{
+	return static_cast<size_t>(kind) < NumLegacyMapObjectKinds;
+}
 /** Doors exist in this tileset's art and object lists. */
 bool MapTilesetHasDoors(MapTileset tileset);
 bool MapTilesetHasArches(MapTileset tileset);
 bool MapObjectFitsTileset(MapObjectKind kind, MapTileset tileset);
+/** The kinds that fit a tileset and whose art the game data has, in palette order. */
+std::vector<MapObjectKind> MapObjectPalette(MapTileset tileset);
 
 /** Footprint of a staircase in megatiles (what it reshapes). */
 Size MapStairsSize(MapTileset tileset, bool entrance);
@@ -169,6 +242,25 @@ struct MapProblem {
 /** Checks against the level as it stands, so ApplyLayoutToLevel + InitObjects must have run. */
 std::vector<MapProblem> ValidateMap(const KeepMap &map);
 
+// ---- props ----------------------------------------------------------------------------------------
+
+/**
+ * Where a prop of this kind would go for a click on `tile`, on the level as it stands: a wall kind snaps
+ * to the wall beside the floor clicked (or takes the wall clicked) and gets its facing. Nothing if there's
+ * no such wall. Other kinds come back as they are. Keeps `style`.
+ */
+std::optional<MapObject> SnapMapObject(MapObjectKind kind, Point tile, uint8_t style);
+/**
+ * Whether a prop may stand there, on the level as it stands (other objects included): nothing for yes,
+ * or why not. The rules (docs/MAP-FORMAT.md): a solid prop never changes where heroes can get to, never
+ * leaves a way through narrower than two tiles, and keeps off the stairs; a wall prop needs a straight
+ * wall with floor in front. The legacy kinds aren't judged: they go anywhere on the floor, as in version 1.
+ * The game judges each prop like this when it builds the level, and leaves out any that fail.
+ */
+std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapObject &object);
+/** Props InitObjects left out of the level on screen, and why: for ValidateMap and the editor. */
+const std::vector<std::pair<MapObject, std::string>> &LeftOutMapObjects();
+
 /** The editor's map is built live instead of from a file while this is set. */
 void SetLiveMap(const KeepMap *map, const bool *decorate);
 
@@ -178,6 +270,11 @@ void PrepareMapLevel();
 bool BuildMapLevel();
 /** InitObjects: @return true if a map placed the level's objects. */
 bool InitMapObjects();
+/**
+ * InitObjectGFX, on the keep level: adds the art of every prop the level's tileset can have to the files to
+ * load (`filesWidths`, `fileCount` long), as long as no more than `maxFiles` are loaded in all.
+ */
+void AddMapObjectGraphics(uint16_t *filesWidths, size_t fileCount, size_t maxFiles);
 /** OnLevelLoaded: says so on screen if the map couldn't be used. */
 void NoteMapLevelLoaded();
 /** True if the level on screen was built from a map rather than generated. */

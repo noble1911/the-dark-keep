@@ -18,6 +18,7 @@
 #include "engine/load_file.hpp"
 #include "engine/path.h"
 #include "engine/random.hpp"
+#include "headless_mode.hpp"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_editor.hpp"
@@ -35,6 +36,7 @@
 #include "objects.h"
 #include "player.h"
 #include "plrmsg.h"
+#include "tables/objdat.h"
 #include "utils/endian_swap.hpp"
 #include "utils/file_util.h"
 #include "utils/log.hpp"
@@ -314,10 +316,259 @@ bool HasDoorObject(Point cell)
 	return false;
 }
 
+// ---- objects and props -----------------------------------------------------------------------
+
+constexpr uint8_t TilesetBit(MapTileset tileset)
+{
+	return static_cast<uint8_t>(1U << static_cast<unsigned>(tileset));
+}
+constexpr uint8_t InCathedral = TilesetBit(MapTileset::Cathedral);
+constexpr uint8_t InCatacombs = TilesetBit(MapTileset::Catacombs);
+constexpr uint8_t InCaves = TilesetBit(MapTileset::Caves);
+constexpr uint8_t InHell = TilesetBit(MapTileset::Hell);
+constexpr uint8_t InNest = TilesetBit(MapTileset::Nest);
+constexpr uint8_t InCrypt = TilesetBit(MapTileset::Crypt);
+constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest | InCrypt;
+
+constexpr size_t MaxPropStyles = 8;
+
+/**
+ * One kind of object a map can hold. The research behind the choices is in docs/MAP-FORMAT.md: these are
+ * the vanilla and Hellfire decorations that can be made to do nothing, and the tilesets whose art they suit.
+ */
+struct PropSpec {
+	std::string_view name;
+	MapObjectTraits traits;
+	/** The object for each style (for a wall kind, facing +x). */
+	std::array<_object_id, MaxPropStyles> types;
+	/** A wall kind facing +y. */
+	std::array<_object_id, MaxPropStyles> typesY;
+	/** The frame each style shows; 0 leaves the object's own. */
+	std::array<uint8_t, MaxPropStyles> frames;
+	uint8_t tilesets;
+	/** On a wall facing +x, the art is drawn from the floor tile in front of the wall, not the wall's own. */
+	bool standsInFrontFacingX = false;
+};
+
+constexpr MapObjectTraits Solid { MapObjectPlacement::Floor, true, false, false, 1 };
+constexpr MapObjectTraits SolidLight { MapObjectPlacement::Floor, true, true, false, 1 };
+constexpr MapObjectTraits Styles(uint8_t styles)
+{
+	return { MapObjectPlacement::Floor, true, false, false, styles };
+}
+
+// clang-format off
+const std::array<PropSpec, NumMapObjectKinds> Props = { {
+	{ "Barrel", { MapObjectPlacement::Floor, true, false, true, 1 }, { OBJ_BARREL }, {}, {}, InAll },
+	{ "Chest", { MapObjectPlacement::Floor, true, false, true, 1 }, { OBJ_CHEST1 }, {}, {}, InAll },
+	{ "Brazier", SolidLight, { OBJ_L1LIGHT }, {}, {}, InCathedral },
+	{ "Candles", SolidLight, { OBJ_CANDLE2 }, {}, {}, InAll },
+	{ "Skull fire", SolidLight, { OBJ_SKFIRE }, {}, {}, InAll },
+	// The Nest's walls are never straight.
+	{ "Wall torch", { MapObjectPlacement::OnWall, false, true, false, 1 }, { OBJ_TORCHL }, { OBJ_TORCHR }, {}, InAll & ~InNest },
+	{ "Banner", Styles(3), { OBJ_BANNERL, OBJ_BANNERM, OBJ_BANNERR }, {}, {}, InCathedral | InCatacombs | InHell | InCrypt },
+	{ "Skull pile", Solid, { OBJ_SKPILE }, {}, {}, InAll },
+	{ "Crucified skeleton", Styles(3), { OBJ_CRUX1, OBJ_CRUX2, OBJ_CRUX3 }, {}, {}, InAll },
+	{ "Book stand", Styles(2), { OBJ_BOOKSTAND, OBJ_BOOKSTAND }, {}, { 1, 3 }, InCathedral | InCatacombs | InCrypt },
+	{ "Bookcase", { MapObjectPlacement::AgainstWall, true, false, false, 1 }, { OBJ_BOOKCASEL }, { OBJ_BOOKCASER }, {}, InCathedral | InCatacombs | InCrypt },
+	{ "Weapon rack", Styles(2), { OBJ_WEAPONRACKN, OBJ_WEAPONRACKN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
+	{ "Armour stand", Styles(2), { OBJ_ARMORSTANDN, OBJ_ARMORSTANDN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
+	{ "Headless body", Styles(8), { OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP }, {}, { 1, 2, 3, 4, 5, 6, 7, 8 }, InAll },
+	{ "Tortured body", Styles(7), { OBJ_TNUDEM1, OBJ_TNUDEM2, OBJ_TNUDEM3, OBJ_TNUDEM4, OBJ_TNUDEW1, OBJ_TNUDEW2, OBJ_TNUDEW3 }, {}, {}, InAll },
+	{ "Impaled body", { MapObjectPlacement::OnWall, false, false, false, 2 }, { OBJ_TORTURE1, OBJ_TORTURE2 }, { OBJ_TORTURE3, OBJ_TORTURE4 }, {}, InAll & ~InNest, true },
+	{ "Blood fountain", Solid, { OBJ_BLOODFTN }, {}, {}, InAll },
+	{ "Crypt candles", SolidLight, { OBJ_L5CANDLE }, {}, {}, InCrypt },
+	{ "Angel statue", Solid, { OBJ_ANGEL }, {}, {}, InCathedral | InCatacombs | InCrypt },
+} };
+// clang-format on
+
+const PropSpec &Spec(MapObjectKind kind)
+{
+	return Props[static_cast<size_t>(kind)];
+}
+
+_object_id PropObjectType(const MapObject &object)
+{
+	const PropSpec &spec = Spec(object.kind);
+	const size_t style = std::min<size_t>(object.style(), spec.traits.styles - 1U);
+	return spec.traits.placement != MapObjectPlacement::Floor && object.facesY() ? spec.typesY[style] : spec.types[style];
+}
+
+/** Where the object goes in the level: the stored tile, or for some wall art the floor in front. */
+Point PropObjectTile(const MapObject &object)
+{
+	const PropSpec &spec = Spec(object.kind);
+	if (spec.traits.placement == MapObjectPlacement::OnWall && spec.standsInFrontFacingX && !object.facesY())
+		return object.position + Displacement { 1, 0 };
+	return object.position;
+}
+
+/** Every object type a kind can become. */
+std::vector<_object_id> PropObjectTypes(MapObjectKind kind)
+{
+	const PropSpec &spec = Spec(kind);
+	std::vector<_object_id> types;
+	for (size_t style = 0; style < spec.traits.styles; style++) {
+		types.push_back(spec.types[style]);
+		if (spec.traits.placement != MapObjectPlacement::Floor)
+			types.push_back(spec.typesY[style]);
+	}
+	return types;
+}
+
+/** The game data has the kind's art. Hellfire's, or the full game's, may be missing. */
+bool IsPropArtInstalled(MapObjectKind kind)
+{
+	static std::array<std::optional<bool>, NumMapObjectKinds> known;
+	std::optional<bool> &installed = known[static_cast<size_t>(kind)];
+	if (!installed) {
+		installed = true;
+		for (const _object_id type : PropObjectTypes(kind)) {
+			const std::string &file = ObjMasterLoadList[AllObjects[type].ofindex];
+			if (!FindAsset(fmt::format("objects\\{}.cel", file)).ok() && !FindAsset(fmt::format("objects\\{}.clx", file)).ok())
+				installed = false;
+		}
+	}
+	return *installed;
+}
+
+/** Which kinds InitObjectGFX loaded the art for, on the keep level as it stands. */
+std::array<bool, NumMapObjectKinds> propArtLoaded {};
+
+std::vector<std::pair<MapObject, std::string>> leftOutObjects;
+
+constexpr Displacement Facing(const MapObject &object)
+{
+	return object.facesY() ? Displacement { 0, 1 } : Displacement { 1, 0 };
+}
+
+/** Along the wall: across the facing. */
+constexpr Displacement Along(const MapObject &object)
+{
+	return object.facesY() ? Displacement { 1, 0 } : Displacement { 0, 1 };
+}
+
+bool IsDoorTile(Point tile)
+{
+	const Object *object = FindObjectAtPosition(tile);
+	return object != nullptr && object->isDoor();
+}
+
+/** Floor a prop can stand on or face: walkable and nothing standing on it. */
+bool IsBareFloor(Point tile)
+{
+	return InDungeonBounds(tile) && IsTileNotSolid(tile) && dObject[tile.x][tile.y] == 0;
+}
+
+/** A straight wall: the tile and its neighbours along it are solid, and none of them is a door. */
+bool IsStraightWall(Point tile, Displacement along)
+{
+	for (const Point at : { tile, tile + along, tile - along }) {
+		if (!InDungeonBounds(at) || !IsTileSolid(at) || IsDoorTile(at))
+			return false;
+	}
+	return true;
+}
+
+bool IsNearStairs(const KeepMap &map, Point tile)
+{
+	for (const bool entrance : { true, false }) {
+		const Point stairs = entrance ? map.entrance : map.vault;
+		if (!HasPosition(stairs))
+			continue;
+		const Size size = MapStairsSize(map.tileset, entrance);
+		const Point first = stairs.megaToWorld() - Displacement { 1, 1 };
+		if (InRect(tile, first, 2 * size.width + 2, 2 * size.height + 2))
+			return true;
+	}
+	return false;
+}
+
+/**
+ * Heroes could still get everywhere they could before, if `tile` were blocked: every tile round it that
+ * they can stand on still reaches the others without it, by the same steps BuildField takes. Then any
+ * way through the tile has a way round within one step of it.
+ */
+bool KeepsConnectivity(Point tile)
+{
+	constexpr std::array<Displacement, 8> Ring { { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 } } };
+	std::array<bool, 8> open {};
+	int openCount = 0;
+	for (size_t i = 0; i < Ring.size(); i++) {
+		open[i] = IsPassable(tile + Ring[i]);
+		openCount += open[i] ? 1 : 0;
+	}
+	if (openCount == 0)
+		return true;
+	std::array<bool, 8> reached {};
+	std::array<size_t, 8> queue {};
+	size_t head = 0;
+	size_t tail = 0;
+	for (size_t i = 0; i < Ring.size() && tail == 0; i++) {
+		if (open[i]) {
+			reached[i] = true;
+			queue[tail++] = i;
+		}
+	}
+	int reachedCount = 1;
+	while (head < tail) {
+		const size_t from = queue[head++];
+		const Point a = tile + Ring[from];
+		for (size_t to = 0; to < Ring.size(); to++) {
+			if (!open[to] || reached[to])
+				continue;
+			const Point b = tile + Ring[to];
+			const Displacement step = b - a;
+			if (std::abs(step.deltaX) > 1 || std::abs(step.deltaY) > 1 || !CanStepDiagonal(a, step))
+				continue;
+			reached[to] = true;
+			queue[tail++] = to;
+			reachedCount++;
+		}
+	}
+	return reachedCount == openCount;
+}
+
+/** Tiles heroes could walk in a straight line from `tile`, not counting it, up to two. */
+int OpenRun(Point tile, Displacement step)
+{
+	int run = 0;
+	for (Point at = tile + step; run < 2 && IsPassable(at) && !IsDoorTile(at); at += step)
+		run++;
+	return run;
+}
+
+/** Blocking `tile` leaves a way two tiles wide beside it, across both axes. */
+bool LeavesWideWay(Point tile)
+{
+	for (const Displacement axis : { Displacement { 1, 0 }, Displacement { 0, 1 } }) {
+		if (std::max(OpenRun(tile, axis), OpenRun(tile, -axis)) < 2)
+			return false;
+	}
+	return true;
+}
+
+/** A prop goes in as scenery: nobody can use it, break it or shoot through it, so it never changes a fight. */
+void MakeInert(Object &object, const MapObject &placed)
+{
+	const PropSpec &spec = Spec(placed.kind);
+	object.selectionRegion = SelectionRegion::None;
+	object._oBreak = 0;
+	object._oTrapFlag = false;
+	object._oMissFlag = true;
+	object._oSolidFlag = spec.traits.solid;
+	const uint8_t frame = spec.frames[std::min<size_t>(placed.style(), MaxPropStyles - 1)];
+	if (frame != 0) {
+		object._oAnimFlag = false;
+		object._oAnimFrame = frame;
+	}
+}
+
 // ---- the file --------------------------------------------------------------------------------
 
 constexpr std::array<char, 4> FileMagic { 'D', 'K', 'M', 'P' };
-constexpr uint16_t FileVersion = 1;
+/** The newest version this reader knows. A map that needs nothing newer is still written as version 1. */
+constexpr uint16_t FileVersion = 2;
 constexpr uint16_t FlagPlayable = 1;
 constexpr size_t HeaderSize = 16;
 /** Well over any v1 file; stops a bogus size asking for gigabytes. */
@@ -549,15 +800,12 @@ std::string_view MapTilesetName(MapTileset tileset)
 
 std::string_view MapObjectName(MapObjectKind kind)
 {
-	switch (kind) {
-	case MapObjectKind::Barrel:
-		return "Barrel";
-	case MapObjectKind::Chest:
-		return "Chest";
-	case MapObjectKind::Brazier:
-		return "Brazier";
-	}
-	return "";
+	return Spec(kind).name;
+}
+
+MapObjectTraits GetMapObjectTraits(MapObjectKind kind)
+{
+	return Spec(kind).traits;
 }
 
 bool MapTilesetHasDoors(MapTileset tileset)
@@ -572,7 +820,18 @@ bool MapTilesetHasArches(MapTileset tileset)
 
 bool MapObjectFitsTileset(MapObjectKind kind, MapTileset tileset)
 {
-	return kind != MapObjectKind::Brazier || tileset == MapTileset::Cathedral;
+	return (Spec(kind).tilesets & TilesetBit(tileset)) != 0;
+}
+
+std::vector<MapObjectKind> MapObjectPalette(MapTileset tileset)
+{
+	std::vector<MapObjectKind> kinds;
+	for (size_t i = 0; i < NumMapObjectKinds; i++) {
+		const auto kind = static_cast<MapObjectKind>(i);
+		if (MapObjectFitsTileset(kind, tileset) && (IsLegacyMapObject(kind) || IsPropArtInstalled(kind)))
+			kinds.push_back(kind);
+	}
+	return kinds;
 }
 
 Size MapStairsSize(MapTileset tileset, bool entrance)
@@ -602,12 +861,19 @@ std::vector<std::byte> SerializeMap(const KeepMap &map)
 	out.u32(map.decorSeed);
 	out.text(std::string_view(map.name).substr(0, MapMaxName));
 	out.text(std::string_view(map.author).substr(0, MapMaxAuthor));
-	const size_t objectCount = std::min(map.objects.size(), MaxMapObjects);
+	// Version 1 whenever it can hold the map, so a map without props still opens in an older game.
+	const bool needsProps = map.objects.size() > MaxMapObjectsV1 || std::any_of(map.objects.begin(), map.objects.end(), [](const MapObject &object) {
+		return !IsLegacyMapObject(object.kind) || object.variant != 0;
+	});
+	const uint16_t version = needsProps ? 2 : 1;
+	const size_t objectCount = std::min(map.objects.size(), needsProps ? MaxMapObjects : MaxMapObjectsV1);
 	out.u16(static_cast<uint16_t>(objectCount));
 	for (size_t i = 0; i < objectCount; i++) {
 		out.u8(static_cast<uint8_t>(map.objects[i].kind));
 		out.u8(static_cast<uint8_t>(map.objects[i].position.x));
 		out.u8(static_cast<uint8_t>(map.objects[i].position.y));
+		if (version >= 2)
+			out.u8(map.objects[i].variant);
 	}
 	for (int y = 0; y < DMAXY; y++) {
 		for (int x = 0; x < DMAXX; x++)
@@ -628,7 +894,7 @@ std::vector<std::byte> SerializeMap(const KeepMap &map)
 	ByteWriter headerOut(header);
 	for (const char c : FileMagic)
 		headerOut.u8(static_cast<uint8_t>(c));
-	headerOut.u16(FileVersion);
+	headerOut.u16(version);
 	headerOut.u16(map.playable ? FlagPlayable : 0);
 	headerOut.u32(static_cast<uint32_t>(payloadSize));
 	headerOut.u32(crc);
@@ -676,16 +942,22 @@ tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size)
 	map.name = in.text(MapMaxName);
 	map.author = in.text(MapMaxAuthor);
 	const size_t objectCount = in.u16();
-	if (objectCount > MaxMapObjects)
+	if (objectCount > (version >= 2 ? MaxMapObjects : MaxMapObjectsV1))
 		return tl::make_unexpected("it has too many objects");
 	for (size_t i = 0; i < objectCount; i++) {
 		MapObject object;
 		const uint8_t kind = in.u8();
 		const uint8_t x = in.u8();
 		const uint8_t y = in.u8();
-		if (kind >= NumMapObjectKinds)
+		const uint8_t variant = version >= 2 ? in.u8() : 0;
+		if (kind >= (version >= 2 ? NumMapObjectKinds : NumLegacyMapObjectKinds))
 			return tl::make_unexpected("it has an unknown object");
 		object.kind = static_cast<MapObjectKind>(kind);
+		object.variant = variant;
+		const MapObjectTraits traits = GetMapObjectTraits(object.kind);
+		const bool facingAllowed = traits.placement != MapObjectPlacement::Floor;
+		if (object.style() >= traits.styles || (object.facesY() && !facingAllowed))
+			return tl::make_unexpected("it has an unknown object");
 		object.position = { x, y };
 		if (x < 16 || y < 16 || x >= 16 + 2 * DMAXX || y >= 16 + 2 * DMAXY)
 			return tl::make_unexpected("it has an object off the map");
@@ -1009,10 +1281,14 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 	if (unavailableOpenings > 0)
 		problems.push_back({ fmt::format("{} door(s) can't be shown in {}: they'll be plain wall", unavailableOpenings, MapTilesetName(map.tileset)), false });
 	for (const MapObject &object : map.objects) {
-		if (!MapObjectFitsTileset(object.kind, map.tileset)) {
+		if (IsLegacyMapObject(object.kind) && !MapObjectFitsTileset(object.kind, map.tileset)) {
 			problems.push_back({ fmt::format("{} won't appear in {}", MapObjectName(object.kind), MapTilesetName(map.tileset)), false });
 			break;
 		}
+	}
+	if (!leftOutObjects.empty()) {
+		const auto &[first, why] = leftOutObjects.front();
+		problems.push_back({ fmt::format("{} prop(s) left out. {} at {},{}: {}", leftOutObjects.size(), MapObjectName(first.kind), first.position.x, first.position.y, why), false });
 	}
 	return problems;
 }
@@ -1102,6 +1378,7 @@ bool BuildMapLevel()
 
 bool InitMapObjects()
 {
+	leftOutObjects.clear();
 	if (!levelFromMap || !IsKeepLevel())
 		return false;
 	const KeepMap *map = liveMap != nullptr && IsSetupEditor() ? liveMap : (fileMap ? &*fileMap : nullptr);
@@ -1125,21 +1402,158 @@ bool InitMapObjects()
 		break;
 	}
 	for (const MapObject &placed : map->objects) {
-		if (!MapObjectFitsTileset(placed.kind, map->tileset) || !IsTileNotSolid(placed.position) || IsObjectAtPosition(placed.position))
+		if (IsLegacyMapObject(placed.kind)) {
+			// Exactly as version 1 always placed them, so its maps play as they did.
+			if (!MapObjectFitsTileset(placed.kind, map->tileset) || !IsTileNotSolid(placed.position) || IsObjectAtPosition(placed.position))
+				continue;
+			AddObject(PropObjectType(placed), placed.position);
 			continue;
-		switch (placed.kind) {
-		case MapObjectKind::Barrel:
-			AddObject(OBJ_BARREL, placed.position);
-			break;
-		case MapObjectKind::Chest:
-			AddObject(OBJ_CHEST1, placed.position);
-			break;
-		case MapObjectKind::Brazier:
-			AddObject(OBJ_L1LIGHT, placed.position);
-			break;
 		}
+		std::optional<std::string> why = WhyMapObjectCantStand(*map, placed);
+		if (!why && ActiveObjectCount >= MaxLevelObjectsAtLoad)
+			why = fmt::format("a level holds {} objects with its doors", MaxLevelObjectsAtLoad);
+		if (!why && !HeadlessMode && !propArtLoaded[static_cast<size_t>(placed.kind)])
+			why = "its art isn't loaded";
+		if (why) {
+			leftOutObjects.emplace_back(placed, std::move(*why));
+			continue;
+		}
+		if (Object *object = AddObject(PropObjectType(placed), PropObjectTile(placed)); object != nullptr)
+			MakeInert(*object, placed);
 	}
 	return true;
+}
+
+void AddMapObjectGraphics(uint16_t *filesWidths, size_t fileCount, size_t maxFiles)
+{
+	propArtLoaded.fill(false);
+	if (!IsKeepLevel())
+		return;
+	const auto found = std::find_if(Tilesets.begin(), Tilesets.end(), [](const TilesetInfo &info) { return info.levelType == leveltype; });
+	if (found == Tilesets.end())
+		return;
+	const auto tileset = static_cast<MapTileset>(std::distance(Tilesets.begin(), found));
+	// LoadLevelObjects adds the level type's own files (doors, the Cathedral's braziers) after this.
+	std::vector<bool> levelTypeFile(fileCount);
+	for (const ObjectData &data : AllObjects) {
+		if (data.olvltype == leveltype && data.ofindex < fileCount)
+			levelTypeFile[data.ofindex] = true;
+	}
+	const auto filesUsed = [&]() {
+		size_t used = 0;
+		for (size_t i = 0; i < fileCount; i++)
+			used += filesWidths[i] != 0 || levelTypeFile[i] ? 1 : 0;
+		return used;
+	};
+	for (const MapObjectKind kind : MapObjectPalette(tileset)) {
+		if (IsLegacyMapObject(kind))
+			continue;
+		// The engine holds so many object files a level: a kind whose files don't all fit stays out.
+		const std::vector<_object_id> types = PropObjectTypes(kind);
+		size_t extra = 0;
+		for (const _object_id type : types) {
+			const uint8_t file = AllObjects[type].ofindex;
+			if (file >= fileCount) {
+				extra = maxFiles + 1; // can't be loaded at all
+				break;
+			}
+			if (filesWidths[file] == 0 && !levelTypeFile[file] && std::none_of(types.begin(), types.end(), [&](_object_id other) { return other < type && AllObjects[other].ofindex == file; }))
+				extra++;
+		}
+		if (filesUsed() + extra > maxFiles) {
+			LogError("Dark Keep: no room to load the art for {}", MapObjectName(kind));
+			continue;
+		}
+		for (const _object_id type : types)
+			filesWidths[AllObjects[type].ofindex] = AllObjects[type].animWidth;
+		propArtLoaded[static_cast<size_t>(kind)] = true;
+	}
+}
+
+std::optional<MapObject> SnapMapObject(MapObjectKind kind, Point tile, uint8_t style)
+{
+	MapObject object { kind, tile, static_cast<uint8_t>(style & MapObjectStyleMask) };
+	const MapObjectPlacement placement = GetMapObjectTraits(kind).placement;
+	if (placement == MapObjectPlacement::Floor)
+		return object;
+	if (!InDungeonBounds(tile))
+		return std::nullopt;
+	// A wall faces the floor on its +x or +y side: the two walls seen from the room, in the game's view.
+	for (const bool facesY : { false, true }) {
+		MapObject candidate = object;
+		if (facesY)
+			candidate.variant |= MapObjectFacesY;
+		const Displacement facing = Facing(candidate);
+		const Displacement along = Along(candidate);
+		if (placement == MapObjectPlacement::OnWall && IsStraightWall(tile, along) && IsBareFloor(tile + facing))
+			return candidate; // clicked the wall itself
+		// Clicked the floor near it: a wall's own megatile can have a strip of floor in front.
+		const bool onWall = placement == MapObjectPlacement::OnWall;
+		for (int back = 1; back <= 2; back++) {
+			const Point floor = tile - facing * (back - 1);
+			if (!IsBareFloor(floor))
+				break;
+			const Point wall = tile - facing * back;
+			if (IsStraightWall(wall, along)) {
+				candidate.position = onWall ? wall : floor;
+				return candidate;
+			}
+		}
+	}
+	return std::nullopt;
+}
+
+std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapObject &object)
+{
+	if (!MapObjectFitsTileset(object.kind, map.tileset))
+		return fmt::format("{} isn't available in {}", MapObjectName(object.kind), MapTilesetName(map.tileset));
+	if (!IsLegacyMapObject(object.kind) && !IsPropArtInstalled(object.kind))
+		return fmt::format("The game data here has no {}", MapObjectName(object.kind));
+	const Point tile = object.position;
+	if (!InRect(tile, { 16, 16 }, 2 * DMAXX, 2 * DMAXY))
+		return "That's off the map";
+	if (IsLegacyMapObject(object.kind)) {
+		if (!IsTileNotSolid(tile))
+			return "Objects go on the floor";
+		if (IsObjectAtPosition(tile))
+			return "Something already stands there";
+		return std::nullopt;
+	}
+	if (dObject[tile.x][tile.y] != 0)
+		return "Something already stands there";
+	if (IsNearStairs(map, tile))
+		return "Too close to the stairs";
+	const MapObjectTraits traits = GetMapObjectTraits(object.kind);
+	const Displacement facing = Facing(object);
+	const Displacement along = Along(object);
+	switch (traits.placement) {
+	case MapObjectPlacement::OnWall:
+		if (!IsStraightWall(tile, along))
+			return "It needs a straight stretch of wall";
+		if (!IsBareFloor(tile + facing) || IsDoorTile(tile + facing))
+			return "It needs open floor in front";
+		return std::nullopt;
+	case MapObjectPlacement::AgainstWall:
+		if (!IsStraightWall(tile - facing, along))
+			return "It needs a straight stretch of wall behind it";
+		break;
+	case MapObjectPlacement::Floor:
+		break;
+	}
+	if (!IsTileNotSolid(tile))
+		return "Props go on the floor";
+	if (traits.solid) {
+		if (!KeepsConnectivity(tile))
+			return "It would block the way";
+		if (!LeavesWideWay(tile))
+			return "It would leave the way past less than two tiles wide";
+	}
+	return std::nullopt;
+}
+
+const std::vector<std::pair<MapObject, std::string>> &LeftOutMapObjects()
+{
+	return leftOutObjects;
 }
 
 void NoteMapLevelLoaded()
