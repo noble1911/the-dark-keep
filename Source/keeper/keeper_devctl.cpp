@@ -25,6 +25,7 @@
 
 #include "controls/control_mode.hpp"
 #include "cursor.h"
+#include "dead.h"
 #include "diablo.h"
 #include "engine/dx.h"
 #include "engine/surface.hpp"
@@ -516,6 +517,48 @@ void WriteMonsters()
 }
 
 /** The floor plan, for choosing where to build. # solid, . floor. */
+/** Bodies on the floor: by corpse id, by type, and bot heroes' (drawn only). Then the tile with most bodies near it. */
+void WriteBodies()
+{
+	int byId = 0;
+	int byType = 0;
+	int drawnOnly = 0;
+	Point busiest {};
+	int most = 0;
+	for (int x = 0; x < MAXDUNX; x++) {
+		for (int y = 0; y < MAXDUNY; y++) {
+			const std::optional<size_t> type = CorpseTypeAt({ x, y });
+			if (type && (dCorpseType[x][y] & BodyWithoutMarker) != 0)
+				drawnOnly++;
+			else if (type)
+				byType++;
+			else if (dCorpse[x][y] != 0)
+				byId++;
+			else
+				continue;
+			int near = 0;
+			for (int dx = -4; dx <= 4; dx++) {
+				for (int dy = -4; dy <= 4; dy++) {
+					const Point tile { x + dx, y + dy };
+					if (InDungeonBounds(tile) && (dCorpse[tile.x][tile.y] != 0 || CorpseTypeAt(tile)))
+						near++;
+				}
+			}
+			if (near > most) {
+				most = near;
+				busiest = { x, y };
+			}
+		}
+	}
+	Output(fmt::format("bodies byId={} byType={} heroBodies={} busiest={},{} near={}", byId, byType, drawnOnly, busiest.x, busiest.y, most));
+	for (int x = 0; x < MAXDUNX; x++) {
+		for (int y = 0; y < MAXDUNY; y++) {
+			if ((dCorpseType[x][y] & BodyWithoutMarker) != 0 && CorpseTypeAt({ x, y }))
+				Output(fmt::format("herobody {},{} type={}", x, y, *CorpseTypeAt({ x, y })));
+		}
+	}
+}
+
 void WriteMap()
 {
 	for (int i = 0; i < ActiveObjectCount; i++) {
@@ -774,6 +817,8 @@ void Execute(const std::string &line)
 		WriteMonsters();
 	} else if (command == "map") {
 		WriteMap();
+	} else if (command == "bodies") {
+		WriteBodies();
 	} else if (command == "log") {
 		in >> a;
 		logEvery = a;
