@@ -11,6 +11,7 @@
 
 #include <fmt/format.h>
 
+#include "dead.h"
 #include "engine/direction.hpp"
 #include "engine/path.h"
 #include "gamemenu.h"
@@ -928,6 +929,9 @@ void ApplyDoorLocked(uint8_t slot, Point doorPosition)
 		Object *door = FindObjectAtPosition(doorPosition);
 		if (door == nullptr || !door->isDoor())
 			return;
+		// A body in the doorway would stop it shutting (vanilla doors won't close on one). Bodies lie
+		// where each client saw a fight end, so they can differ between clients: the lock mustn't.
+		ClearCorpseAt(door->position);
 		if (!KeeperIsDoorClosed(*door))
 			KeeperOperateDoor(*door, false); // every client closes it locally
 	}
