@@ -134,8 +134,10 @@ constexpr int KiteCooldownTicks = 40;
 constexpr int MonkHealCooldownTicks = 100;
 /** Ticks a hero who has just been caught in a floor hazard keeps clear of all of them, not only the fire it can see coming. */
 constexpr int HazardWaryTicks = 100;
-/** One short line in the event log, if nobody spoke a moment ago. @return true if it was said. */
-bool HeroSay(std::string_view who, std::string_view line);
+/** What a hero said, for its voice (keeper_sound.hpp). */
+enum class HeroLine : uint8_t;
+/** One short line in the event log, if nobody spoke a moment ago, and the class voice that fits it. @return true if it was said. */
+bool HeroSay(std::string_view who, std::string_view line, HeroClassKind cls, Point tile, HeroLine voice);
 /** A Rogue close to the vault stops fighting and goes for the gold. */
 bool IsThiefDashing(HeroClassKind cls, int carried, bool fleeing, Point tile);
 

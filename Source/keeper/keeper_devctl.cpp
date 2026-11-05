@@ -44,6 +44,7 @@
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_resume.hpp"
+#include "keeper/keeper_sound.hpp"
 #include "keeper/keeper_tutorial.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
@@ -936,6 +937,12 @@ void Execute(const std::string &line)
 		Output(DevLightAt({ a, b }));
 	} else if (command == "raid") {
 		RequestStartRaid();
+	} else if (command == "sounds") {
+		// `sounds reset [tiles]` starts the counts again, hearing monsters that far from the camera (0: as in play).
+		in >> word >> a;
+		Output(DevSoundReport());
+		if (word == "reset")
+			DevSoundReset(a);
 	} else if (command == "perf") {
 		WritePerf();
 	} else if (command == "retry") {

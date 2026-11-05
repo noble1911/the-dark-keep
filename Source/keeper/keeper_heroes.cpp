@@ -27,6 +27,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_sound.hpp"
 #include "keeper/keeper_upgrades.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
@@ -1270,7 +1271,7 @@ void HeroAi(Monster &monster)
 	}
 	if (hero.cls == HeroClassKind::Monk && heroClock >= hero.healReady && HealWoundedAlly(monster.position.tile)) {
 		hero.healReady = heroClock + MonkHealCooldownTicks;
-		if ((hero.said & 2) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "Hold fast! I have you."))
+		if ((hero.said & 2) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "Hold fast! I have you.", hero.cls, monster.position.tile, HeroLine::Healing))
 			hero.said |= 2;
 	}
 
@@ -1301,7 +1302,7 @@ void HeroAi(Monster &monster)
 
 	// Thieves don't stop to fight: loot in hand, or the vault in reach. FightIfBlocked is for when they must.
 	const bool thieving = !State.bossDown && (hero.carried != 0 || IsThiefDashing(hero.cls, hero.carried, hero.fleeing, monster.position.tile));
-	if (thieving && hero.carried == 0 && (hero.said & 1) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "The vault! That gold is mine!"))
+	if (thieving && hero.carried == 0 && (hero.said & 1) == 0 && HeroSay(fmt::format("A {}", ClassName(hero)), "The vault! That gold is mine!", hero.cls, monster.position.tile, HeroLine::Vault))
 		hero.said |= 1;
 
 	if (!hero.fleeing && !thieving && (monster.flags & MFLAG_NO_ENEMY) == 0 && (monster.flags & MFLAG_TARGETS_MONSTER) != 0) {
@@ -1720,12 +1721,13 @@ void TickHeroClock()
 		heroSpeechQuiet--;
 }
 
-bool HeroSay(std::string_view who, std::string_view line)
+bool HeroSay(std::string_view who, std::string_view line, HeroClassKind cls, Point tile, HeroLine voice)
 {
 	if (heroSpeechQuiet > 0)
 		return false;
 	heroSpeechQuiet = HeroSpeechQuietTicks;
 	Announce(fmt::format("{}: \"{}\"", who, line), UiFlags::ColorWhite);
+	PlayHeroVoice(cls, tile, voice);
 	return true;
 }
 

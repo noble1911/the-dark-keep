@@ -26,6 +26,7 @@
 #include "keeper/keeper_editor.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_profile.hpp"
+#include "keeper/keeper_sound.hpp"
 #include "keeper/keeper_tutorial.hpp"
 #include "keeper/keeper_ui.hpp"
 #include "monster.h"
@@ -288,6 +289,7 @@ std::vector<HeroMark> LivingHeroMarks()
 
 void AlertsOnLevelLoaded()
 {
+	SoundsOnLevelLoaded();
 	banner = {};
 	alerts.clear();
 	alertRects.clear();
@@ -365,6 +367,7 @@ void AlertsTick()
 	}
 	lastBossDown = State.bossDown;
 	UpdateAlerts(heroes);
+	SoundsTick();
 }
 
 int DrawBanner(const Surface &out, int left, int width, int y)

@@ -21,6 +21,7 @@
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_raid.hpp"
+#include "keeper/keeper_sound.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "lighting.h"
@@ -105,9 +106,9 @@ constexpr uint8_t SaidProtect = 32;
 constexpr uint8_t SaidFallBack = 64;
 constexpr uint8_t SaidTrap = 128;
 
-void SayOnce(const Player &bot, BotState &state, uint8_t bit, std::string_view line)
+void SayOnce(const Player &bot, BotState &state, uint8_t bit, std::string_view line, HeroLine voice)
 {
-	if ((state.said & bit) == 0 && HeroSay(bot._pName, line))
+	if ((state.said & bit) == 0 && HeroSay(bot._pName, line, state.cls, bot.position.tile, voice))
 		state.said |= bit;
 }
 
@@ -307,7 +308,7 @@ bool StepOutOfHazard(Player &bot, BotState &state)
 			continue;
 		bot.destAction = ACTION_NONE;
 		state.hazardWaryUntil = HeroClock() + HazardWaryTicks;
-		SayOnce(bot, state, SaidHazard, "It burns! Get clear!");
+		SayOnce(bot, state, SaidHazard, "It burns! Get clear!", HeroLine::Burning);
 		return true;
 	}
 	return false;
@@ -371,7 +372,7 @@ bool StepBack(Player &bot, BotState &state, const Monster &threat)
 		bot.destAction = ACTION_NONE;
 		state.kiteCooldown = KiteCooldownTicks;
 		if (state.cls == HeroClassKind::Sorcerer)
-			SayOnce(bot, state, SaidKite, "Keep them off me!");
+			SayOnce(bot, state, SaidKite, "Keep them off me!", HeroLine::Kiting);
 		return true;
 	}
 	return false;
@@ -407,7 +408,7 @@ void Attack(Player &bot, BotState &state, const Monster &target)
 			return;
 		if (const std::optional<SpellID> spell = SpellAgainst(target); spell && distance <= SorcererRange && clearShot) {
 			if (*spell != SpellID::Firebolt)
-				SayOnce(bot, state, SaidElement, "Fire won't touch it. Lightning, then!");
+				SayOnce(bot, state, SaidElement, "Fire won't touch it. Lightning, then!", HeroLine::WrongElement);
 			ClrPlrPath(bot);
 			QueueSpell(bot, *spell);
 			bot.destAction = ACTION_SPELLMON;
@@ -428,9 +429,9 @@ void Attack(Player &bot, BotState &state, const Monster &target)
 		break;
 	case HeroClassKind::Warrior:
 		if (IsBoss(target))
-			SayOnce(bot, state, SaidLord, "Face me, Lord of this keep!");
+			SayOnce(bot, state, SaidLord, "Face me, Lord of this keep!", HeroLine::FacingLord);
 		else if (IsOnSofterFriend(target))
-			SayOnce(bot, state, SaidProtect, "To me! Stand behind me!");
+			SayOnce(bot, state, SaidProtect, "To me! Stand behind me!", HeroLine::Protecting);
 		break;
 	case HeroClassKind::Monk:
 		break;
@@ -554,7 +555,7 @@ void RogueCheckTraps(const Player &bot, BotState &state)
 			if (!HoldsBotAlive(bot))
 				DisarmTrap(i, SlotOf(bot));
 		} else {
-			SayOnce(bot, state, SaidTrap, "A trap! Mind your step.");
+			SayOnce(bot, state, SaidTrap, "A trap! Mind your step.", HeroLine::Trap);
 		}
 	}
 }
@@ -628,7 +629,7 @@ bool TryFallBack(Player &bot, BotState &state)
 			return false;
 		state.fellBack = true;
 		state.fallBackThinks = FallBackMaxThinks;
-		SayOnce(bot, state, SaidFallBack, "I'm hurt! Falling back!");
+		SayOnce(bot, state, SaidFallBack, "I'm hurt! Falling back!", HeroLine::FallingBack);
 	}
 	const std::optional<Point> ally = NearestHealthyHero(bot.position.tile, FallBackAllyRange);
 	if (!ally || bot.position.tile.WalkingDistance(*ally) <= FallBackArriveDistance) {
@@ -675,13 +676,13 @@ void Think(Player &bot, BotState &state)
 
 	if (state.cls == HeroClassKind::Monk && state.healCooldown == 0 && HealWoundedAlly(position)) {
 		state.healCooldown = MonkHealCooldownTicks;
-		SayOnce(bot, state, SaidProtect, "Hold fast! I have you.");
+		SayOnce(bot, state, SaidProtect, "Hold fast! I have you.", HeroLine::Healing);
 	}
 
 	// Thieves don't stop to fight: loot in hand, or the vault in reach.
 	const bool thieving = !State.bossDown && (state.carried != 0 || IsThiefDashing(state.cls, state.carried, state.fleeing, position));
 	if (thieving && state.carried == 0)
-		SayOnce(bot, state, SaidDash, "The vault! That gold is mine!");
+		SayOnce(bot, state, SaidDash, "The vault! That gold is mine!", HeroLine::Vault);
 	const bool running = state.fleeing || thieving || (State.bossDown && PortalPosition());
 	if (!State.bossDown && TryFallBack(bot, state))
 		return;
