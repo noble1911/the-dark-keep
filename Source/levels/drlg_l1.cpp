@@ -1414,6 +1414,8 @@ void KeeperL1Build(Point stairsUp, Point stairsDown, const uint8_t openings[DMAX
 void KeeperL1Pass3()
 {
 	Pass3();
+	if (leveltype == DTYPE_CRYPT)
+		PlaceCryptLights(); // [DARK KEEP] the lava's glow, as a generated level has
 }
 
 } // namespace devilution
