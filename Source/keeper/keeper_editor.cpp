@@ -88,7 +88,7 @@ constexpr std::array<ToolInfo, NumEditTools> Tools { {
 	{ "Arch", "7", "An open archway: click a straight wall with floor on both sides. Right-click: back to wall." },
 	{ "Entrance", "8", "Click to place the heroes' stairs. It clears the floor it needs. Right-click: remove." },
 	{ "Vault", "9", "Click to place the vault. It clears the floor it needs. Right-click: remove." },
-	{ "Object", "0", "Click floor to place one; click this tool again to change what. Right-click: remove." },
+	{ "Object", "0", "Click floor to place one; click this tool again to pick another. Click one to change its look. Right-click: remove." },
 	{ "Erase", "E", "Drag to remove doors, arches, objects and stairs. Paints nothing." },
 } };
 
@@ -123,6 +123,7 @@ enum class Modal : uint8_t {
 	Author,
 	LoadList,
 	TilesetList,
+	PropList,
 	ConfirmNew,
 };
 
@@ -135,13 +136,7 @@ struct Snapshot {
 
 	bool operator==(const Snapshot &other) const
 	{
-		if (tileset != other.tileset || cells != other.cells || entrance != other.entrance || vault != other.vault || objects.size() != other.objects.size())
-			return false;
-		for (size_t i = 0; i < objects.size(); i++) {
-			if (objects[i].kind != other.objects[i].kind || objects[i].position != other.objects[i].position)
-				return false;
-		}
-		return true;
+		return tileset == other.tileset && cells == other.cells && entrance == other.entrance && vault == other.vault && objects == other.objects;
 	}
 };
 
@@ -166,6 +161,8 @@ EditTool tool = EditTool::Floor;
 int brushSize = 1;
 MapObjectKind objectKind = MapObjectKind::Barrel;
 std::vector<MapProblem> problems;
+/** The kinds in the prop list, as it was opened. */
+std::vector<MapObjectKind> propListKinds;
 std::vector<Snapshot> undoStack;
 std::vector<Snapshot> redoStack;
 
@@ -347,6 +344,8 @@ void ChangeTileset(MapTileset tileset)
 	}
 	PushUndo(TakeSnapshot());
 	model.tileset = tileset;
+	if (!MapObjectFitsTileset(objectKind, tileset))
+		objectKind = MapObjectKind::Barrel;
 	if (model.entrance.x >= 0 && !MapStairsFit(tileset, true, model.entrance))
 		model.entrance = NoMapPosition;
 	if (model.vault.x >= 0 && !MapStairsFit(tileset, false, model.vault))
@@ -617,9 +616,49 @@ void PlaceOpening(Point cell, MapCell kind, bool remove)
 	SetCell(cell.x, cell.y, kind);
 }
 
-void PlaceObject(Point tile, bool remove)
+/** The object a click on `tile` means: one standing there, or a wall prop on the wall beside it. */
+std::vector<MapObject>::iterator FindObjectForClick(Point tile)
 {
 	const auto found = std::find_if(model.objects.begin(), model.objects.end(), [&](const MapObject &object) { return object.position == tile; });
+	if (found != model.objects.end())
+		return found;
+	return std::find_if(model.objects.begin(), model.objects.end(), [&](const MapObject &object) {
+		const MapObjectPlacement placement = GetMapObjectTraits(object.kind).placement;
+		if (placement == MapObjectPlacement::Floor)
+			return false;
+		// SnapMapObject's reach: a wall prop up to two tiles back, a prop against the wall one.
+		const Displacement facing = object.facesY() ? Displacement { 0, 1 } : Displacement { 1, 0 };
+		return object.position == tile - facing || (placement == MapObjectPlacement::OnWall && object.position == tile - facing * 2);
+	});
+}
+
+/** A look for a new prop: varied by where it goes, the same every time for the same spot. */
+uint8_t DefaultStyle(MapObjectKind kind, Point tile)
+{
+	const uint8_t styles = GetMapObjectTraits(kind).styles;
+	return static_cast<uint8_t>((tile.x * 7 + tile.y * 3) % styles);
+}
+
+/** Where a click would put the selected kind, and why it can't go there if it can't. */
+std::pair<std::optional<MapObject>, std::string> ObjectForClick(Point tile)
+{
+	const std::optional<MapObject> snapped = SnapMapObject(objectKind, tile, DefaultStyle(objectKind, tile));
+	if (!snapped) {
+		const bool behind = GetMapObjectTraits(objectKind).placement == MapObjectPlacement::AgainstWall;
+		return { std::nullopt, behind ? "It goes on the floor with its back to a straight wall" : "It goes on a straight wall, beside the floor" };
+	}
+	if (!InDungeonBounds(snapped->position) || (!IsTileNotSolid(snapped->position) && GetMapObjectTraits(objectKind).placement != MapObjectPlacement::OnWall))
+		return { snapped, "Objects go on the floor" };
+	if (std::optional<std::string> why = WhyMapObjectCantStand(model, *snapped); why)
+		return { snapped, *why };
+	return { snapped, {} };
+}
+
+void PlaceObject(Point tile, bool remove)
+{
+	if (levelStale)
+		RefreshLevel(); // the rules look at the level, which has to be this model's
+	const auto found = FindObjectForClick(tile);
 	if (remove) {
 		if (found != model.objects.end()) {
 			model.objects.erase(found);
@@ -627,22 +666,56 @@ void PlaceObject(Point tile, bool remove)
 		}
 		return;
 	}
-	if (found != model.objects.end())
+	if (found != model.objects.end()) {
+		// Click one again for its next look.
+		const uint8_t styles = GetMapObjectTraits(found->kind).styles;
+		if (found->kind == objectKind && styles > 1) {
+			found->variant = static_cast<uint8_t>((found->variant & MapObjectFacesY) | ((found->style() + 1) % styles));
+			levelStale = dirty = true;
+		}
 		return;
+	}
 	if (model.objects.size() >= MaxMapObjects) {
 		SetFeedback(fmt::format("A map can hold {} objects", MaxMapObjects), true);
 		return;
 	}
-	if (!MapObjectFitsTileset(objectKind, model.tileset)) {
-		SetFeedback(fmt::format("{} isn't available in {}", MapObjectName(objectKind), MapTilesetName(model.tileset)), true);
+	if (!IsLegacyMapObject(objectKind) && ActiveObjectCount >= MaxLevelObjectsAtLoad) {
+		SetFeedback(fmt::format("A level holds {} objects with its doors", MaxLevelObjectsAtLoad), true);
 		return;
 	}
-	if (!InDungeonBounds(tile) || !IsTileNotSolid(tile)) {
-		SetFeedback("Objects go on the floor", true);
+	const auto [object, why] = ObjectForClick(tile);
+	if (!why.empty()) {
+		SetFeedback(why, true);
 		return;
 	}
-	model.objects.push_back({ objectKind, tile });
+	model.objects.push_back(*object);
 	levelStale = dirty = true;
+}
+
+void OpenPropList()
+{
+	modal = Modal::PropList;
+	propListKinds = MapObjectPalette(model.tileset);
+	modalList.clear();
+	modalRow = 0;
+	for (size_t i = 0; i < propListKinds.size(); i++) {
+		const MapObjectKind kind = propListKinds[i];
+		const MapObjectTraits traits = GetMapObjectTraits(kind);
+		std::string label(MapObjectName(kind));
+		if (traits.light)
+			label += ", light";
+		if (traits.placement == MapObjectPlacement::OnWall)
+			label += ", on a wall";
+		if (traits.placement == MapObjectPlacement::AgainstWall)
+			label += ", against a wall";
+		if (traits.styles > 1)
+			label += fmt::format(", {} looks", traits.styles);
+		modalList.push_back(std::move(label));
+		if (kind == objectKind)
+			modalRow = static_cast<int>(i);
+	}
+	modalScroll = std::clamp(modalRow - ModalRows + 1, 0, std::max(0, static_cast<int>(modalList.size()) - ModalRows));
+	modalNote.clear();
 }
 
 void FinishStroke()
@@ -788,7 +861,7 @@ void SelectTool(EditTool next)
 	if (stroke.active)
 		FinishStroke(); // it finishes as the tool it began with
 	if (next == EditTool::Object && tool == EditTool::Object)
-		objectKind = static_cast<MapObjectKind>((static_cast<size_t>(objectKind) + 1) % NumMapObjectKinds);
+		OpenPropList();
 	tool = next;
 	if (next == EditTool::Corridor && brushSize < 2)
 		brushSize = 2;
@@ -940,7 +1013,7 @@ Rectangle ModalRect()
 {
 	const int uiWidth = gnScreenWidth / UiPixelScale();
 	int height = 86;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList)
+	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList)
 		height = 44 + ModalRows * ModalRowHeight;
 	return { { (uiWidth - ModalWidth) / 2, std::max(10, PanelTop() - height - 10) }, { ModalWidth, height } };
 }
@@ -956,6 +1029,8 @@ std::string_view ModalTitle()
 		return "Load a map";
 	case Modal::TilesetList:
 		return "Tileset";
+	case Modal::PropList:
+		return "Object";
 	case Modal::ConfirmNew:
 		return "Start a new map?";
 	case Modal::None:
@@ -966,7 +1041,7 @@ std::string_view ModalTitle()
 
 std::optional<size_t> ModalRowAt(Point mouse)
 {
-	if (modal != Modal::LoadList && modal != Modal::TilesetList)
+	if (modal != Modal::LoadList && modal != Modal::TilesetList && modal != Modal::PropList)
 		return std::nullopt;
 	const Rectangle box = ModalRect();
 	const Rectangle rows { box.position + Displacement { 8, 24 }, { box.size.width - 16, ModalRows * ModalRowHeight } };
@@ -1011,7 +1086,11 @@ void DrawModal(const Surface &out)
 		const Point at = text + Displacement { 0, 18 + row * ModalRowHeight };
 		if (hovered ? *hovered == index : index == static_cast<size_t>(modalRow))
 			FillRect(out, at.x, at.y, width, ModalRowHeight, PAL16_RED + 12);
-		const bool current = modal == Modal::TilesetList ? index == static_cast<size_t>(model.tileset) : modalList[index] == fileName;
+		bool current = modalList[index] == fileName;
+		if (modal == Modal::TilesetList)
+			current = index == static_cast<size_t>(model.tileset);
+		else if (modal == Modal::PropList)
+			current = index < propListKinds.size() && propListKinds[index] == objectKind;
 		DrawString(out, modalList[index], { at + Displacement { 4, 1 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | (current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 	if (!modalNote.empty())
@@ -1094,6 +1173,8 @@ void ClickModalRow(size_t row)
 		LoadMapNamed(name);
 	} else if (kind == Modal::TilesetList) {
 		ChangeTileset(static_cast<MapTileset>(row));
+	} else if (kind == Modal::PropList && row < propListKinds.size()) {
+		objectKind = propListKinds[row];
 	}
 }
 
@@ -1157,6 +1238,24 @@ void DrawCellOutline(const Surface &out, Point cell, uint8_t color, int maxY)
 	DrawWorldLine(out, d.top, d.right, color, maxY);
 	DrawWorldLine(out, d.right, d.bottom, color, maxY);
 	DrawWorldLine(out, d.bottom, d.left, color, maxY);
+}
+
+/** One world tile's diamond. */
+void DrawTileOutline(const Surface &out, Point tile, uint8_t color, int maxY)
+{
+	const int zoom = IsViewZoomed() ? 2 : 1;
+	const Point half = GetScreenPosition(tile) + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT / 2 };
+	const Point centre { half.x * zoom, half.y * zoom };
+	const int hw = TILE_WIDTH / 2 * zoom;
+	const int hh = TILE_HEIGHT / 2 * zoom;
+	const Point top = centre + Displacement { 0, -hh };
+	const Point right = centre + Displacement { hw, 0 };
+	const Point bottom = centre + Displacement { 0, hh };
+	const Point left = centre + Displacement { -hw, 0 };
+	DrawWorldLine(out, left, top, color, maxY);
+	DrawWorldLine(out, top, right, color, maxY);
+	DrawWorldLine(out, right, bottom, color, maxY);
+	DrawWorldLine(out, bottom, left, color, maxY);
 }
 
 void DrawRectOutline(const Surface &out, Point topLeft, Size size, uint8_t color, int maxY)
@@ -1341,7 +1440,7 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	if (modal != Modal::None) {
 		if (key == SDLK_ESCAPE)
 			modal = Modal::None;
-		if ((modal == Modal::LoadList || modal == Modal::TilesetList) && !modalList.empty()) {
+		if ((modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList) && !modalList.empty()) {
 			const int last = static_cast<int>(modalList.size()) - 1;
 			if (key == SDLK_DOWN || key == SDLK_UP) {
 				modalRow = std::clamp(modalRow + (key == SDLK_DOWN ? 1 : -1), 0, last);
@@ -1481,7 +1580,7 @@ bool EditorOnMouseWheel(int deltaY)
 {
 	if (levelReloading)
 		return true;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList) {
+	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList) {
 		const int maxScroll = std::max(0, static_cast<int>(modalList.size()) - ModalRows);
 		modalScroll = std::clamp(modalScroll + (deltaY > 0 ? -1 : 1), 0, maxScroll);
 		return true;
@@ -1550,9 +1649,13 @@ void EditorDrawWorld(const Surface &out)
 	case EditTool::Erase:
 		DrawCellOutline(out, *hovered, tool == EditTool::Erase ? PAL16_RED + 2 : PAL16_ORANGE + 4, maxY);
 		break;
-	case EditTool::Object:
-		DrawCellOutline(out, *hovered, PAL16_YELLOW + 6, maxY);
+	case EditTool::Object: {
+		const auto [object, why] = ObjectForClick(cursPosition);
+		const Point at = object ? object->position : cursPosition;
+		const bool onExisting = FindObjectForClick(cursPosition) != model.objects.end();
+		DrawTileOutline(out, at, why.empty() || onExisting ? PAL16_YELLOW + 6 : PAL16_RED + 2, maxY);
 		break;
+	}
 	}
 }
 
@@ -1590,6 +1693,10 @@ void EditorDrawUi(const Surface &out)
 		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
 	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
 		hint += fmt::format("  Size {}", brushSize);
+	if (tool == EditTool::Object && !IsMouseOverPanel()) {
+		if (const std::string why = ObjectForClick(cursPosition).second; !why.empty() && FindObjectForClick(cursPosition) == model.objects.end())
+			hint = fmt::format("{}: {}", MapObjectName(objectKind), why);
+	}
 	DrawString(out, WordWrapString(hint, leftWidth), { { 6, contentBottom + 5 }, { leftWidth, out.h() - contentBottom - 6 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 
 	// Right column: the map and what's wrong with it.
@@ -1640,7 +1747,7 @@ bool IsTextModal()
 
 bool IsListModal()
 {
-	return modal == Modal::LoadList || modal == Modal::TilesetList;
+	return modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList;
 }
 
 Rectangle ModalRowRect(int row)
