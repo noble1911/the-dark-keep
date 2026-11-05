@@ -37,6 +37,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
 #include "keeper/keeper_game.hpp"
+#include "keeper/keeper_lighting.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_pad.hpp"
 #include "levels/gendung.h"
@@ -245,9 +246,14 @@ void PushUndo(const Snapshot &snapshot)
 void RefreshLevel()
 {
 	levelStale = false;
+	LightingBeforeLevelRebuild();
 	ApplyLayoutToLevel(model, decorPreview);
 	std::memset(dObject, 0, sizeof(dObject));
 	InitObjects();
+	// The stairs' own spots, roughly: the triggers that would say exactly aren't rebuilt here.
+	const Point entrance = model.entrance != NoMapPosition ? MapSpawnTile(model) : NoMapPosition;
+	const Point vault = model.vault != NoMapPosition ? model.vault.megaToWorld() + Displacement { 1, 1 } : NoMapPosition;
+	LightingAfterLevelRebuild(entrance, vault);
 	problems = ValidateMap(model);
 }
 
