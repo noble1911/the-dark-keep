@@ -2291,6 +2291,7 @@ void KeeperL3Build(Point stairsUp, Point stairsDown, const uint8_t gates[DMAXX][
 void KeeperL3Pass3()
 {
 	Pass3();
+	PlaceLights(); // [DARK KEEP] the lava's and the hive's glow, as a generated level has
 }
 
 void LoadPreL3Dungeon(const char *path)

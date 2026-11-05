@@ -88,6 +88,7 @@
 #include "keeper/keeper_tutorial.hpp" // [DARK KEEP]
 #ifdef KEEPER_DEVCTL
 #include "keeper/keeper_devctl.hpp" // [DARK KEEP]
+#include "keeper/keeper_lighting.hpp" // [DARK KEEP]
 #endif
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
@@ -792,7 +793,7 @@ void DrawMonsterHelper(const Surface &out, Point tilePosition, Point targetBuffe
 	if (mi == pcursmonst) {
 		ClxDrawOutlineSkipColorZero(out, OutlineColorsMonster, monsterRenderPosition, sprite);
 	}
-	DrawMonster(out, tilePosition, monsterRenderPosition, monster, lightTableIndex);
+	DrawMonster(out, tilePosition, monsterRenderPosition, monster, keeper::MonsterLightIndex(lightTableIndex)); // [DARK KEEP] units stand out of the dark
 	keeper::NoteMonsterDrawn(monster, monsterRenderPosition, sprite.width()); // [DARK KEEP] health bars
 }
 

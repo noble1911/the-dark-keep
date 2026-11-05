@@ -5,6 +5,7 @@
  */
 #include "gmenu.h"
 #include "keeper/keeper_devctl.hpp"
+#include "keeper/keeper_lighting.hpp"
 
 #include <algorithm>
 #include <array>
@@ -923,6 +924,16 @@ void Execute(const std::string &line)
 	} else if (command == "portal") {
 		const PortalSyncState portal = GetPortalSyncState();
 		Output(fmt::format("portal open={} at={},{} channel={} bot={} caster={} bossDown={}", portal.open, portal.position.x, portal.position.y, portal.channel, portal.botSlot, portal.casterMonster, State.bossDown));
+	} else if (command == "ambient") {
+		// The keep's darkness away from lights, prep then raid (0 lit .. 15 black, -1 = the tileset's own).
+		in >> a >> b;
+		DevSetAmbient(a, b);
+		Output(DevLightingReport());
+	} else if (command == "lighting") {
+		Output(DevLightingReport());
+	} else if (command == "lightat") {
+		in >> a >> b;
+		Output(DevLightAt({ a, b }));
 	} else if (command == "raid") {
 		RequestStartRaid();
 	} else if (command == "perf") {
