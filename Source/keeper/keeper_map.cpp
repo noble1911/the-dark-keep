@@ -52,6 +52,11 @@ namespace {
  * How a staircase reshapes the layout so its generator's miniset sits properly: `rows` (top to
  * bottom, '.' floor, '#' rock) replaces the painted cells before the walls are joined. These mirror
  * the `search` patterns of the minisets in levels/drlg_l*.cpp, crypt.cpp.
+ *
+ * Full rows of rock at the top, or full columns at the left, mean the stairs are built into a wall
+ * (the walls the camera sees), as the generator only ever places them: see StairsWallProblem(). The
+ * Cathedral's up stairs are L5STAIRSUP, the set piece Diablo's own Cathedral uses, which backs onto
+ * solid rock; STAIRSUP needs a room behind the wall too, which a keep's outer rooms haven't got.
  */
 struct StairsShape {
 	int width;
@@ -77,7 +82,7 @@ struct TilesetInfo {
 // clang-format off
 const std::array<TilesetInfo, NumMapTilesets> Tilesets = { {
 	{ "Cathedral", DTYPE_CATHEDRAL, "levels\\l1data\\l1.til",
-		{ 4, 4, "....####........", { 3, 4 } },
+		{ 4, 4, "########........", { 3, 4 } },
 		{ 4, 3, "............", { 3, 3 } },
 		{ 128, 114, 0, 0 }, true, true },
 	{ "Catacombs", DTYPE_CATACOMBS, "levels\\l2data\\l2.til",
@@ -972,6 +977,126 @@ bool MapStairsFit(MapTileset tileset, bool entrance, Point position)
 	return IsPaintableCell(position.x, position.y) && IsPaintableCell(position.x + size.width - 1, position.y + size.height - 1);
 }
 
+namespace {
+
+/** How deep into rock a staircase is built: full rock rows at its top (a top-right wall) or columns at its left (top-left). */
+struct StairsWall {
+	int rows = 0;
+	int columns = 0;
+};
+
+StairsWall WallOf(const StairsShape &shape)
+{
+	const auto rock = [&](int column, int row) { return shape.rows[row * shape.width + column] == '#'; };
+	const auto rockRow = [&](int row) {
+		for (int column = 0; column < shape.width; column++) {
+			if (!rock(column, row))
+				return false;
+		}
+		return true;
+	};
+	const auto rockColumn = [&](int column) {
+		for (int row = 0; row < shape.height; row++) {
+			if (!rock(column, row))
+				return false;
+		}
+		return true;
+	};
+	StairsWall wall;
+	while (wall.rows < shape.height && rockRow(wall.rows))
+		wall.rows++;
+	while (wall.columns < shape.width && rockColumn(wall.columns))
+		wall.columns++;
+	return wall;
+}
+
+/** The outer ring and anything past it count as rock, as they always are. */
+bool IsPaintedRock(const KeepMap &map, int x, int y)
+{
+	return !IsPaintableCell(x, y) || map.cell(x, y) == MapCell::Rock;
+}
+
+} // namespace
+
+bool MapStairsNeedWall(MapTileset tileset, bool entrance)
+{
+	const StairsWall wall = WallOf(Shape(tileset, entrance));
+	return wall.rows > 0 || wall.columns > 0;
+}
+
+std::string MapStairsWallHint(MapTileset tileset, bool entrance)
+{
+	const StairsWall wall = WallOf(Shape(tileset, entrance));
+	const std::string_view what = entrance ? "The entrance's stairs" : "The vault's stairs";
+	if (wall.rows > 0)
+		return fmt::format("{} are built into a room's top-right wall: put them along one, with rock {} deep behind", what, wall.rows);
+	return fmt::format("{} are built into a room's top-left wall: put them along one, with rock {} deep behind", what, wall.columns);
+}
+
+std::optional<std::string> MapStairsWallProblem(const KeepMap &map, bool entrance, Point position)
+{
+	if (!HasPosition(position))
+		return std::nullopt;
+	const StairsShape &shape = Shape(map.tileset, entrance);
+	const StairsWall wall = WallOf(shape);
+	if (wall.rows == 0 && wall.columns == 0)
+		return std::nullopt; // these stand free in a room, as the generator's do
+	// Along the wall, a cell to either side of the stairs; across it, the wall's depth and then the floor in front.
+	const bool rowsBehind = wall.rows > 0;
+	const int along = rowsBehind ? shape.width : shape.height;
+	const int across = rowsBehind ? shape.height : shape.width;
+	const int depth = rowsBehind ? wall.rows : wall.columns;
+	const auto at = [&](int a, int b) { return rowsBehind ? Point { position.x + a, position.y + b } : Point { position.x + b, position.y + a }; };
+	bool behind = true;
+	bool sides = true;
+	bool front = true;
+	for (int b = 0; b < across; b++) {
+		for (int a = -1; a <= along; a++) {
+			const Point cell = at(a, b);
+			const bool inside = a >= 0 && a < along;
+			if (b < depth) {
+				if (!IsPaintedRock(map, cell.x, cell.y))
+					(inside ? behind : sides) = false;
+			} else if (inside && (!IsPaintableCell(cell.x, cell.y) || map.cell(cell.x, cell.y) != MapCell::Floor)) {
+				front = false;
+			}
+		}
+	}
+	if (behind && sides && front)
+		return std::nullopt;
+	const std::string_view what = entrance ? "The entrance" : "The vault";
+	const std::string_view wallName = rowsBehind ? "top-right" : "top-left";
+	if (!behind)
+		return fmt::format("{} stands out from the wall: set its stairs into a {} wall, with rock {} deep behind", what, wallName, depth);
+	if (!sides)
+		return fmt::format("{} is in a stub of wall: the wall behind its stairs must run on past both sides", what);
+	return fmt::format("{} needs open floor in front of its stairs", what);
+}
+
+std::optional<Point> FindMapStairsSpot(const KeepMap &map, bool entrance, Point wanted, int radius)
+{
+	const Size size = MapStairsSize(map.tileset, entrance);
+	const Point other = entrance ? map.vault : map.entrance;
+	const Size otherSize = MapStairsSize(map.tileset, !entrance);
+	std::optional<Point> best;
+	int bestDistance = 0;
+	for (int dy = -radius; dy <= radius; dy++) {
+		for (int dx = -radius; dx <= radius; dx++) {
+			const Point at = wanted + Displacement { dx, dy };
+			const int distance = dx * dx + dy * dy;
+			if (best && distance >= bestDistance)
+				continue;
+			if (!MapStairsFit(map.tileset, entrance, at) || MapStairsWallProblem(map, entrance, at))
+				continue;
+			if (HasPosition(other) && at.x < other.x + otherSize.width && other.x < at.x + size.width && at.y < other.y + otherSize.height && other.y < at.y + size.height)
+				continue;
+			best = at;
+			bestDistance = distance;
+		}
+	}
+	return best;
+}
+
 // ---- files -----------------------------------------------------------------------------------------
 
 std::vector<std::byte> SerializeMap(const KeepMap &map)
@@ -1404,6 +1529,11 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 					problems.push_back({ "Some floor around the entrance can't reach the vault: heroes could appear there" });
 			}
 		}
+	}
+	// Only a warning: maps saved before the rule still play, they just look odd.
+	for (const bool entrance : { true, false }) {
+		if (std::optional<std::string> why = MapStairsWallProblem(map, entrance, entrance ? map.entrance : map.vault); why)
+			problems.push_back({ std::move(*why), false });
 	}
 	if (!TriggerCountIsSafe(map))
 		problems.push_back({ "Too many staircases" });
