@@ -40,7 +40,11 @@ struct Ambient {
 constexpr Ambient CathedralAmbient { 6, 8 };
 constexpr Ambient CatacombsAmbient { 4, 6 };
 constexpr Ambient CavesAmbient { 4, 6 };
-constexpr Ambient HellAmbient { 5, 7 };
+/**
+ * Hell's floor art is flat and bright, and its walls' red tops glow whatever the light: at 7 a torch's pool
+ * didn't show at all. Darker, the torches and skull fires read, and so do the heroes' lights.
+ */
+constexpr Ambient HellAmbient { 7, 10 };
 /** Their light tables never go fully dark, and lava stays bright. */
 constexpr Ambient CryptAmbient { 6, 8 };
 constexpr Ambient NestAmbient { 5, 7 };
