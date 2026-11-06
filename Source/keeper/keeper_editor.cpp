@@ -88,8 +88,8 @@ constexpr std::array<ToolInfo, NumEditTools> Tools { {
 	{ "Hall", "5", "Drag from one end to the other. Shift: turn the other way. [ ]: width." },
 	{ "Door", "6", "Click a straight wall with floor on both sides. Right-click: back to wall." },
 	{ "Arch", "7", "An open archway: click a straight wall with floor on both sides. Right-click: back to wall." },
-	{ "Entrance", "8", "Click to place the heroes' stairs. It clears the floor it needs. Right-click: remove." },
-	{ "Vault", "9", "Click to place the vault. It clears the floor it needs. Right-click: remove." },
+	{ "Entrance", "8", "Click to place the heroes' stairs. Stairs built into a wall snap to the nearest one. Right-click: remove." },
+	{ "Vault", "9", "Click to place the vault. Stairs built into a wall snap to the nearest one. Right-click: remove." },
 	{ "Object", "0", "Click floor to place one; click this tool again to pick another. Click one to change its look. Right-click: remove." },
 	{ "Erase", "E", "Drag to remove doors, arches, objects and stairs. Paints nothing." },
 	{ "Stamp", "T", "Click in a room for a themed group of props (Drag: a rectangle). Click this tool again to pick another. [ ]: next stamp." },
@@ -426,6 +426,13 @@ void LoadMapNamed(const std::string &name)
 	undoStack.clear();
 	redoStack.clear();
 	SetFeedback(fmt::format("Loaded {}", name));
+	// Maps from before the stairs had to go in a wall still play: say so, and leave moving them to the author.
+	for (const bool entrance : { true, false }) {
+		if (const std::optional<std::string> why = MapStairsWallProblem(model, entrance, entrance ? model.entrance : model.vault); why) {
+			SetFeedback(fmt::format("Loaded {}. {}", name, *why), true);
+			break;
+		}
+	}
 	if (sameTileset) {
 		levelStale = true;
 		CenterCamera(MapSpawnTile(model));
@@ -532,6 +539,40 @@ Point StairsPositionAt(Point cell, bool entrance)
 		std::clamp(cell.x - size.width / 2, 1, DMAXX - 1 - size.width),
 		std::clamp(cell.y - size.height / 2, 1, DMAXY - 1 - size.height),
 	};
+}
+
+/** How far a click may be from the wall stairs that need one snap to. */
+constexpr int StairsSnapRadius = 5;
+
+/**
+ * Where a click with the Entrance or Vault tool puts the stairs: centred on the click, or for stairs built into a
+ * wall, the nearest spot in a wall, as the generator would only put them. Nothing if there's no wall near.
+ */
+std::optional<Point> StairsSpotFor(Point cell, bool entrance)
+{
+	const Point wanted = StairsPositionAt(cell, entrance);
+	if (!MapStairsNeedWall(model.tileset, entrance))
+		return wanted;
+	return FindMapStairsSpot(model, entrance, wanted, StairsSnapRadius);
+}
+
+void PlaceStairs(Point cell, bool entrance, bool remove)
+{
+	Point &stairs = entrance ? model.entrance : model.vault;
+	if (remove) {
+		stairs = NoMapPosition;
+		levelStale = dirty = true;
+		return;
+	}
+	const std::optional<Point> spot = StairsSpotFor(cell, entrance);
+	if (!spot) {
+		SetFeedback(MapStairsWallHint(model.tileset, entrance), true);
+		return;
+	}
+	if (*spot != StairsPositionAt(cell, entrance))
+		SetFeedback(entrance ? "The entrance went into the nearest wall" : "The vault went into the nearest wall");
+	stairs = *spot;
+	levelStale = dirty = true;
 }
 
 /** Cells a drag would change (Wall, Room, Corridor), as a list. */
@@ -1093,12 +1134,8 @@ void BeginStroke(bool right)
 		PlaceOpening(*cell, MapCell::Arch, right);
 		break;
 	case EditTool::Entrance:
-		model.entrance = right ? NoMapPosition : StairsPositionAt(*cell, true);
-		levelStale = dirty = true;
-		break;
 	case EditTool::Vault:
-		model.vault = right ? NoMapPosition : StairsPositionAt(*cell, false);
-		levelStale = dirty = true;
+		PlaceStairs(*cell, tool == EditTool::Entrance, right);
 		break;
 	case EditTool::Object:
 		PlaceObject(cursPosition, right);
@@ -2066,7 +2103,9 @@ void EditorDrawWorld(const Surface &out)
 	case EditTool::Entrance:
 	case EditTool::Vault: {
 		const bool entrance = tool == EditTool::Entrance;
-		DrawRectOutline(out, StairsPositionAt(*hovered, entrance), MapStairsSize(model.tileset, entrance), entrance ? PAL16_BLUE + 4 : PAL16_YELLOW + 4, maxY);
+		// Where a click would put them (the nearest wall, for those built into one), or red: no wall near.
+		const std::optional<Point> spot = StairsSpotFor(*hovered, entrance);
+		DrawRectOutline(out, spot.value_or(StairsPositionAt(*hovered, entrance)), MapStairsSize(model.tileset, entrance), !spot ? PAL16_RED + 2 : (entrance ? PAL16_BLUE + 4 : PAL16_YELLOW + 4), maxY);
 		break;
 	}
 	case EditTool::Door:
