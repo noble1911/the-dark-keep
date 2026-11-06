@@ -23,6 +23,7 @@
 
 namespace devilution {
 
+struct Object;
 struct Player;
 struct TCmd;
 
@@ -51,7 +52,7 @@ constexpr size_t NumMapTilesets = 6;
 
 /**
  * Stored in the file; don't renumber. Version 1 files hold only the first three. The rest are props
- * (version 2): scenery that never does anything. See MapObjectFlags and docs/MAP-FORMAT.md.
+ * (version 2 to AngelStatue, version 3 after): scenery that never does anything. See docs/MAP-FORMAT.md.
  */
 enum class MapObjectKind : uint8_t {
 	Barrel = 0,
@@ -78,11 +79,47 @@ enum class MapObjectKind : uint8_t {
 	/** Crypt only. */
 	CryptCandle = 17,
 	AngelStatue = 18,
+	// Version 3: more scenery. Every one is as inert as the props above, whatever its vanilla object does.
+	/** Small, medium and large, shut: OBJ_CHEST1 to 3. Not the Chest above, which opens. */
+	ClosedChest = 19,
+	/** Two tiles: the stored one and the one at -y. */
+	Sarcophagus = 20,
+	CryptSarcophagus = 21,
+	/** On the floor with its back to a wall. */
+	Shrine = 22,
+	GoatShrine = 23,
+	/** Four tiles: the stored one and those at -x, -y and both. */
+	LargeFountain = 24,
+	TearFountain = 25,
+	Pedestal = 26,
+	Lectern = 27,
+	StoryBook = 28,
+	Lever = 29,
+	SkullSwitch = 30,
+	CryptLever = 31,
+	CryptBookStand = 32,
+	Altar = 33,
+	StaffStand = 34,
+	RockStand = 35,
+	/** Painted on the floor: walked over. */
+	MagicCircle = 36,
+	BurningCross = 37,
+	HangingBody = 38,
+	/** On the floor with its back to a wall. */
+	Bookshelf = 39,
+	/** Four tiles, as the large fountain. */
+	MushroomPatch = 40,
+	Urn = 41,
+	Pod = 42,
+	Cauldron = 43,
 };
-constexpr size_t NumMapObjectKinds = 19;
+constexpr size_t NumMapObjectKinds = 44;
+/** Kinds 0 to this minus 1 are all a version 2 file can hold. */
+constexpr size_t NumMapObjectKindsV2 = 19;
 /** Barrel, chest and brazier: all a version 1 file can hold, placed exactly as they always were. */
 constexpr size_t NumLegacyMapObjectKinds = 3;
 constexpr size_t MaxMapObjectsV1 = 64;
+/** Version 2 and 3 alike. */
 constexpr size_t MaxMapObjects = 80;
 /**
  * Doors and stored objects together, when the level is built: the rest of MAXOBJECTS (127) is for what the
@@ -102,6 +139,17 @@ enum class MapObjectPlacement : uint8_t {
 	AgainstWall,
 };
 
+/** The editor's prop list is grouped by these. Not stored. */
+enum class MapObjectGroup : uint8_t {
+	Light,
+	Wall,
+	Furniture,
+	Bodies,
+	Clutter,
+	SetPieces,
+};
+constexpr size_t NumMapObjectGroups = 6;
+
 /** What a kind is like in play, for the editor, the docs and an automatic dressing pass. */
 struct MapObjectTraits {
 	MapObjectPlacement placement = MapObjectPlacement::Floor;
@@ -113,6 +161,9 @@ struct MapObjectTraits {
 	bool interactive = false;
 	/** Looks: MapObject::variant's low bits run from 0 to this minus 1. */
 	uint8_t styles = 1;
+	MapObjectGroup group = MapObjectGroup::Clutter;
+	/** Tiles it stands on, the stored one included (MapObjectFootprint says which). */
+	uint8_t tiles = 1;
 };
 
 /** For OnWall and AgainstWall kinds, this bit of MapObject::variant: the floor is at +y, not +x. */
@@ -162,7 +213,20 @@ struct KeepMap {
 
 std::string_view MapTilesetName(MapTileset tileset);
 std::string_view MapObjectName(MapObjectKind kind);
+/**
+ * A stable name for scripts and stamps: lower case with underscores ("wall_torch", "closed_chest"). It never
+ * changes once released, unlike the name shown, which may be reworded.
+ */
+std::string_view MapObjectId(MapObjectKind kind);
+/** By MapObjectId or MapObjectName, any case. */
+std::optional<MapObjectKind> MapObjectKindNamed(std::string_view name);
+std::string_view MapObjectGroupName(MapObjectGroup group);
 MapObjectTraits GetMapObjectTraits(MapObjectKind kind);
+/**
+ * The tiles a kind blocks or covers, as offsets from its stored tile ({ 0, 0 } first). One tile for most; a
+ * sarcophagus is two, a large fountain four. The engine's own footprints (AddSarcophagus, AddLargeFountain).
+ */
+std::vector<Displacement> MapObjectFootprint(MapObjectKind kind);
 constexpr bool IsLegacyMapObject(MapObjectKind kind)
 {
 	return static_cast<size_t>(kind) < NumLegacyMapObjectKinds;
@@ -258,6 +322,30 @@ std::optional<MapObject> SnapMapObject(MapObjectKind kind, Point tile, uint8_t s
  * The game judges each prop like this when it builds the level, and leaves out any that fail.
  */
 std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapObject &object);
+/**
+ * True for an object a map placed as a prop, on the keep level: it does nothing at all, whatever its type does
+ * elsewhere. The engine's operate, break and update paths check this, so a shrine or chest can't be used, a
+ * burning cross doesn't burn and a magic circle doesn't take anyone anywhere, however the request comes.
+ */
+bool IsInertMapProp(const Object &object);
+
+/** Object sprite files the engine holds for a level (pObjCels). */
+constexpr size_t MaxLevelObjectFiles = 40;
+/**
+ * Object sprite files a level built from this map loads: the keep's own and its tileset's, and the props'
+ * (with `extra` too, if given). Over MaxLevelObjectFiles, kinds past what fits are left out.
+ */
+size_t MapObjectFileCount(const KeepMap &map, std::optional<MapObjectKind> extra = std::nullopt);
+/** InitObjectGFX loaded this kind's art for the level on screen. */
+bool IsMapObjectArtLoaded(MapObjectKind kind);
+/**
+ * The map uses a kind whose art the level on screen didn't ask for (the editor loads art when the level is
+ * built): reloading the level would load it. Never true twice for the same kinds, so no reload loop.
+ */
+bool MapNeedsArtReload(const KeepMap &map);
+/** The editor's chosen kind: its art is loaded with the level's, room permitting, so it shows when placed. */
+void SetWantedMapObjectArt(std::optional<MapObjectKind> kind);
+
 /** Props InitObjects left out of the level on screen, and why: for ValidateMap and the editor. */
 const std::vector<std::pair<MapObject, std::string>> &LeftOutMapObjects();
 
@@ -271,8 +359,9 @@ bool BuildMapLevel();
 /** InitObjects: @return true if a map placed the level's objects. */
 bool InitMapObjects();
 /**
- * InitObjectGFX, on the keep level: adds the art of every prop the level's tileset can have to the files to
- * load (`filesWidths`, `fileCount` long), as long as no more than `maxFiles` are loaded in all.
+ * InitObjectGFX, on the keep level: adds the art of the props the level's map uses to the files to load
+ * (`filesWidths`, `fileCount` long), as long as no more than `maxFiles` are loaded in all. In the editor, the
+ * chosen kind's and then the rest of the tileset's, while there's room, so most can be placed without a reload.
  */
 void AddMapObjectGraphics(uint16_t *filesWidths, size_t fileCount, size_t maxFiles);
 /** OnLevelLoaded: says so on screen if the map couldn't be used. */

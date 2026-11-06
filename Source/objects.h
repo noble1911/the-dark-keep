@@ -343,6 +343,11 @@ void SetMapObjects(const uint16_t *dunData, int startx, int starty);
  * @param objPos tile coordinates
  */
 Object *AddObject(_object_id objType, Point objPos);
+/**
+ * [DARK KEEP] An object as scenery: set up and lit as AddObject does, without its type's own setup (no shrine
+ * picked, no skeleton in a sarcophagus or barrel, no items in a chest, no random frame). For the keep's props.
+ */
+Object *AddSceneryObject(_object_id objType, Point objPos);
 bool UpdateTrapState(Object &trap);
 void OperateTrap(Object &trap);
 void ProcessObjects();

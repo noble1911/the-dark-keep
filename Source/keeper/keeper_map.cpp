@@ -332,12 +332,23 @@ constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest 
 
 constexpr size_t MaxPropStyles = 8;
 
+/** The tiles a kind takes, as the engine's own AddXxx marks them in dObject. */
+enum class Footprint : uint8_t {
+	One,
+	/** The stored tile and the one at -y: AddSarcophagus. */
+	TwoY,
+	/** The stored tile and those at -x, -y and both: AddLargeFountain, AddMushPatch. */
+	Square,
+};
+
 /**
  * One kind of object a map can hold. The research behind the choices is in docs/MAP-FORMAT.md: these are
  * the vanilla and Hellfire decorations that can be made to do nothing, and the tilesets whose art they suit.
  */
 struct PropSpec {
 	std::string_view name;
+	/** MapObjectId: never changes. */
+	std::string_view id;
 	MapObjectTraits traits;
 	/** The object for each style (for a wall kind, facing +x). */
 	std::array<_object_id, MaxPropStyles> types;
@@ -348,39 +359,81 @@ struct PropSpec {
 	uint8_t tilesets;
 	/** On a wall facing +x, the art is drawn from the floor tile in front of the wall, not the wall's own. */
 	bool standsInFrontFacingX = false;
+	Footprint footprint = Footprint::One;
+	/**
+	 * Placed without its type's own setup (AddSceneryObject): no shrine picked, no skeleton hidden in a
+	 * sarcophagus, no items in a chest. Every version 3 kind is; the older ones keep AddObject, so maps
+	 * already made look exactly as they did.
+	 */
+	bool scenery = false;
+	/** Drawn under anyone standing on its tile (_oPreFlag), as vanilla does bodies and magic circles. */
+	bool underUnits = false;
 };
 
-constexpr MapObjectTraits Solid { MapObjectPlacement::Floor, true, false, false, 1 };
-constexpr MapObjectTraits SolidLight { MapObjectPlacement::Floor, true, true, false, 1 };
-constexpr MapObjectTraits Styles(uint8_t styles)
+constexpr MapObjectTraits Kind(MapObjectGroup group, uint8_t styles = 1, MapObjectPlacement placement = MapObjectPlacement::Floor, bool solid = true, bool light = false)
 {
-	return { MapObjectPlacement::Floor, true, false, false, styles };
+	return { placement, solid, light, false, styles, group };
 }
+constexpr MapObjectTraits Solid { MapObjectPlacement::Floor, true, false, false, 1, MapObjectGroup::Clutter };
+constexpr MapObjectTraits SolidLight { MapObjectPlacement::Floor, true, true, false, 1, MapObjectGroup::Light };
+constexpr MapObjectTraits Styles(uint8_t styles, MapObjectGroup group)
+{
+	return { MapObjectPlacement::Floor, true, false, false, styles, group };
+}
+using G = MapObjectGroup;
+constexpr uint8_t NotNest = InAll & ~InNest;
+constexpr uint8_t Stone = InCathedral | InCatacombs | InHell | InCrypt;
 
 // clang-format off
 const std::array<PropSpec, NumMapObjectKinds> Props = { {
-	{ "Barrel", { MapObjectPlacement::Floor, true, false, true, 1 }, { OBJ_BARREL }, {}, {}, InAll },
-	{ "Chest", { MapObjectPlacement::Floor, true, false, true, 1 }, { OBJ_CHEST1 }, {}, {}, InAll },
-	{ "Brazier", SolidLight, { OBJ_L1LIGHT }, {}, {}, InCathedral },
-	{ "Candles", SolidLight, { OBJ_CANDLE2 }, {}, {}, InAll },
-	{ "Skull fire", SolidLight, { OBJ_SKFIRE }, {}, {}, InAll },
+	{ "Barrel", "barrel", { MapObjectPlacement::Floor, true, false, true, 1, G::Clutter }, { OBJ_BARREL }, {}, {}, InAll },
+	{ "Chest", "chest", { MapObjectPlacement::Floor, true, false, true, 1, G::Furniture }, { OBJ_CHEST1 }, {}, {}, InAll },
+	{ "Brazier", "brazier", SolidLight, { OBJ_L1LIGHT }, {}, {}, InCathedral },
+	{ "Candles", "candles", SolidLight, { OBJ_CANDLE2 }, {}, {}, InAll },
+	{ "Skull fire", "skull_fire", SolidLight, { OBJ_SKFIRE }, {}, {}, InAll },
 	// The Nest's walls are never straight. On the wall tile, the art that hangs on the walls the camera sees:
 	// vanilla's AddL2Torches puts TORCHL2 and TORCHR2 there. TORCHL and TORCHR are for the near walls, from
 	// the floor in front, and drawn on these walls they float clear of the wall or stand on top of it.
-	{ "Wall torch", { MapObjectPlacement::OnWall, false, true, false, 1 }, { OBJ_TORCHL2 }, { OBJ_TORCHR2 }, {}, InAll & ~InNest },
-	{ "Banner", Styles(3), { OBJ_BANNERL, OBJ_BANNERM, OBJ_BANNERR }, {}, {}, InCathedral | InCatacombs | InHell | InCrypt },
-	{ "Skull pile", Solid, { OBJ_SKPILE }, {}, {}, InAll },
-	{ "Crucified skeleton", Styles(3), { OBJ_CRUX1, OBJ_CRUX2, OBJ_CRUX3 }, {}, {}, InAll },
-	{ "Book stand", Styles(2), { OBJ_BOOKSTAND, OBJ_BOOKSTAND }, {}, { 1, 3 }, InCathedral | InCatacombs | InCrypt },
-	{ "Bookcase", { MapObjectPlacement::AgainstWall, true, false, false, 1 }, { OBJ_BOOKCASEL }, { OBJ_BOOKCASER }, {}, InCathedral | InCatacombs | InCrypt },
-	{ "Weapon rack", Styles(2), { OBJ_WEAPONRACKN, OBJ_WEAPONRACKN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
-	{ "Armour stand", Styles(2), { OBJ_ARMORSTANDN, OBJ_ARMORSTANDN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
-	{ "Headless body", Styles(8), { OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP }, {}, { 1, 2, 3, 4, 5, 6, 7, 8 }, InAll },
-	{ "Tortured body", Styles(7), { OBJ_TNUDEM1, OBJ_TNUDEM2, OBJ_TNUDEM3, OBJ_TNUDEM4, OBJ_TNUDEW1, OBJ_TNUDEW2, OBJ_TNUDEW3 }, {}, {}, InAll },
-	{ "Impaled body", { MapObjectPlacement::OnWall, false, false, false, 2 }, { OBJ_TORTURE1, OBJ_TORTURE2 }, { OBJ_TORTURE3, OBJ_TORTURE4 }, {}, InAll & ~InNest, true },
-	{ "Blood fountain", Solid, { OBJ_BLOODFTN }, {}, {}, InAll },
-	{ "Crypt candles", SolidLight, { OBJ_L5CANDLE }, {}, {}, InCrypt },
-	{ "Angel statue", Solid, { OBJ_ANGEL }, {}, {}, InCathedral | InCatacombs | InCrypt },
+	{ "Wall torch", "wall_torch", { MapObjectPlacement::OnWall, false, true, false, 1, G::Light }, { OBJ_TORCHL2 }, { OBJ_TORCHR2 }, {}, NotNest },
+	{ "Banner", "banner", Styles(3, G::Furniture), { OBJ_BANNERL, OBJ_BANNERM, OBJ_BANNERR }, {}, {}, Stone },
+	{ "Skull pile", "skull_pile", Solid, { OBJ_SKPILE }, {}, {}, InAll },
+	{ "Crucified skeleton", "crucified_skeleton", Styles(3, G::Bodies), { OBJ_CRUX1, OBJ_CRUX2, OBJ_CRUX3 }, {}, {}, InAll },
+	{ "Book stand", "book_stand", Styles(2, G::Furniture), { OBJ_BOOKSTAND, OBJ_BOOKSTAND }, {}, { 1, 3 }, InCathedral | InCatacombs | InCrypt },
+	{ "Bookcase", "bookcase", Kind(G::Furniture, 1, MapObjectPlacement::AgainstWall), { OBJ_BOOKCASEL }, { OBJ_BOOKCASER }, {}, InCathedral | InCatacombs | InCrypt },
+	{ "Weapon rack", "weapon_rack", Styles(2, G::Furniture), { OBJ_WEAPONRACKN, OBJ_WEAPONRACKN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
+	{ "Armour stand", "armour_stand", Styles(2, G::Furniture), { OBJ_ARMORSTANDN, OBJ_ARMORSTANDN }, {}, { 1, 2 }, InCatacombs | InCaves | InHell | InCrypt },
+	{ "Headless body", "headless_body", Styles(8, G::Bodies), { OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP, OBJ_DECAP }, {}, { 1, 2, 3, 4, 5, 6, 7, 8 }, InAll },
+	{ "Tortured body", "tortured_body", Styles(7, G::Bodies), { OBJ_TNUDEM1, OBJ_TNUDEM2, OBJ_TNUDEM3, OBJ_TNUDEM4, OBJ_TNUDEW1, OBJ_TNUDEW2, OBJ_TNUDEW3 }, {}, {}, InAll },
+	{ "Impaled body", "impaled_body", { MapObjectPlacement::OnWall, false, false, false, 2, G::Wall }, { OBJ_TORTURE1, OBJ_TORTURE2 }, { OBJ_TORTURE3, OBJ_TORTURE4 }, {}, NotNest, true },
+	{ "Blood fountain", "blood_fountain", Kind(G::SetPieces), { OBJ_BLOODFTN }, {}, {}, InAll },
+	{ "Crypt candles", "crypt_candles", SolidLight, { OBJ_L5CANDLE }, {}, {}, InCrypt },
+	{ "Angel statue", "angel_statue", Kind(G::SetPieces), { OBJ_ANGEL }, {}, {}, InCathedral | InCatacombs | InCrypt },
+	// ---- version 3: all placed as scenery, whatever the vanilla object does ----
+	{ "Closed chest", "closed_chest", Styles(3, G::Furniture), { OBJ_CHEST1, OBJ_CHEST2, OBJ_CHEST3 }, {}, { 1, 1, 1 }, InAll, false, Footprint::One, true },
+	{ "Sarcophagus", "sarcophagus", Kind(G::SetPieces), { OBJ_SARC }, {}, { 1 }, Stone, false, Footprint::TwoY, true },
+	{ "Crypt sarcophagus", "crypt_sarcophagus", Kind(G::SetPieces), { OBJ_L5SARC }, {}, { 1 }, InCrypt | InHell, false, Footprint::TwoY, true },
+	{ "Shrine", "shrine", Kind(G::SetPieces, 1, MapObjectPlacement::AgainstWall), { OBJ_SHRINEL }, { OBJ_SHRINER }, { 1 }, NotNest, false, Footprint::One, true },
+	{ "Goat shrine", "goat_shrine", Kind(G::SetPieces), { OBJ_GOATSHRINE }, {}, {}, InAll, false, Footprint::One, true },
+	{ "Large fountain", "large_fountain", Kind(G::SetPieces, 2), { OBJ_PURIFYINGFTN, OBJ_MURKYFTN }, {}, {}, InAll, false, Footprint::Square, true },
+	{ "Tear fountain", "tear_fountain", Kind(G::SetPieces), { OBJ_TEARFTN }, {}, {}, InAll, false, Footprint::One, true },
+	{ "Pedestal", "pedestal", Kind(G::Furniture, 4), { OBJ_PEDESTAL, OBJ_PEDESTAL, OBJ_PEDESTAL, OBJ_PEDESTAL }, {}, { 1, 2, 3, 4 }, NotNest, false, Footprint::One, true },
+	{ "Lectern", "lectern", Kind(G::Furniture, 3), { OBJ_BOOKLVR, OBJ_BOOKLVR, OBJ_BOOKLVR }, {}, { 1, 2, 3 }, NotNest, false, Footprint::One, true },
+	{ "Story book", "story_book", Kind(G::Furniture, 6), { OBJ_STORYBOOK, OBJ_STORYBOOK, OBJ_STORYBOOK, OBJ_STORYBOOK, OBJ_STORYBOOK, OBJ_STORYBOOK }, {}, { 1, 2, 3, 4, 5, 6 }, NotNest, false, Footprint::One, true },
+	{ "Lever", "lever", Kind(G::Furniture, 2), { OBJ_LEVER, OBJ_LEVER }, {}, { 1, 2 }, NotNest, false, Footprint::One, true },
+	{ "Skull switch", "skull_switch", Kind(G::Furniture, 2), { OBJ_SWITCHSKL, OBJ_SWITCHSKL }, {}, { 1, 2 }, InHell, false, Footprint::One, true },
+	{ "Crypt lever", "crypt_lever", Kind(G::Furniture, 2), { OBJ_L5LEVER, OBJ_L5LEVER }, {}, { 1, 2 }, InCrypt, false, Footprint::One, true },
+	{ "Crypt book stand", "crypt_book_stand", Kind(G::Furniture, 6), { OBJ_L5BOOKS, OBJ_L5BOOKS, OBJ_L5BOOKS, OBJ_L5BOOKS, OBJ_L5BOOKS, OBJ_L5BOOKS }, {}, { 1, 2, 3, 4, 5, 6 }, InCrypt, false, Footprint::One, true },
+	{ "Altar", "altar", Kind(G::SetPieces), { OBJ_ALTBOY }, {}, { 1 }, InAll, false, Footprint::One, true },
+	{ "Staff stand", "staff_stand", Kind(G::SetPieces, 2), { OBJ_LAZSTAND, OBJ_LAZSTAND }, {}, { 1, 2 }, InAll, false, Footprint::One, true },
+	{ "Rock stand", "rock_stand", Kind(G::Furniture), { OBJ_STAND }, {}, { 1 }, InAll, false, Footprint::One, true },
+	{ "Magic circle", "magic_circle", Kind(G::SetPieces, 4, MapObjectPlacement::Floor, false), { OBJ_MCIRCLE1, OBJ_MCIRCLE1, OBJ_MCIRCLE1, OBJ_MCIRCLE1 }, {}, { 1, 2, 3, 4 }, InAll, false, Footprint::One, true, true },
+	{ "Burning cross", "burning_cross", Kind(G::SetPieces, 1, MapObjectPlacement::Floor, true, true), { OBJ_TBCROSS }, {}, {}, InAll, false, Footprint::One, true },
+	{ "Hanging body", "hanging_body", Kind(G::Bodies), { OBJ_NUDEW2R }, {}, {}, InAll, false, Footprint::One, true },
+	{ "Bookshelf", "bookshelf", Kind(G::Furniture, 1, MapObjectPlacement::AgainstWall), { OBJ_BOOKSHELF }, { OBJ_BOOKSHELFR }, {}, InCathedral | InCatacombs | InCrypt, false, Footprint::One, true },
+	{ "Mushroom patch", "mushroom_patch", Kind(G::Clutter), { OBJ_MUSHPATCH }, {}, { 1 }, InCaves | InNest, false, Footprint::Square, true },
+	{ "Urn", "urn", Kind(G::Clutter), { OBJ_URN }, {}, { 1 }, InCrypt, false, Footprint::One, true },
+	{ "Pod", "pod", Kind(G::Clutter), { OBJ_POD }, {}, { 1 }, InNest, false, Footprint::One, true },
+	{ "Cauldron", "cauldron", Kind(G::SetPieces), { OBJ_CAULDRON }, {}, { 1 }, InAll, false, Footprint::One, true },
 } };
 // clang-format on
 
@@ -418,6 +471,18 @@ std::vector<_object_id> PropObjectTypes(MapObjectKind kind)
 	return types;
 }
 
+/** The sprite files a kind's art is in, each once. */
+std::vector<uint8_t> PropFiles(MapObjectKind kind)
+{
+	std::vector<uint8_t> files;
+	for (const _object_id type : PropObjectTypes(kind)) {
+		const uint8_t file = AllObjects[type].ofindex;
+		if (std::find(files.begin(), files.end(), file) == files.end())
+			files.push_back(file);
+	}
+	return files;
+}
+
 /** The game data has the kind's art. Hellfire's, or the full game's, may be missing. */
 bool IsPropArtInstalled(MapObjectKind kind)
 {
@@ -436,6 +501,27 @@ bool IsPropArtInstalled(MapObjectKind kind)
 
 /** Which kinds InitObjectGFX loaded the art for, on the keep level as it stands. */
 std::array<bool, NumMapObjectKinds> propArtLoaded {};
+/** Which kinds it was asked for, fitting or not: MapNeedsArtReload asks again only for others. */
+std::array<bool, NumMapObjectKinds> propArtAsked {};
+/** The editor's chosen kind, loaded with the level's own. */
+std::optional<MapObjectKind> wantedArt;
+/** Objects[] slots holding a map's props: IsInertMapProp. */
+std::array<bool, MAXOBJECTS> inertSlots {};
+/** InitMapObjects filled inertSlots since the last level load. */
+bool propsMarked = false;
+
+std::vector<Displacement> FootprintOf(MapObjectKind kind)
+{
+	switch (Spec(kind).footprint) {
+	case Footprint::TwoY:
+		return { { 0, 0 }, { 0, -1 } };
+	case Footprint::Square:
+		return { { 0, 0 }, { -1, 0 }, { 0, -1 }, { -1, -1 } };
+	case Footprint::One:
+		break;
+	}
+	return { { 0, 0 } };
+}
 
 std::vector<std::pair<MapObject, std::string>> leftOutObjects;
 
@@ -486,66 +572,66 @@ bool IsNearStairs(const KeepMap &map, Point tile)
 	return false;
 }
 
-/**
- * Heroes could still get everywhere they could before, if `tile` were blocked: every tile round it that
- * they can stand on still reaches the others without it, by the same steps BuildField takes. Then any
- * way through the tile has a way round within one step of it.
- */
-bool KeepsConnectivity(Point tile)
+bool InFootprint(const std::vector<Point> &tiles, Point tile)
 {
-	constexpr std::array<Displacement, 8> Ring { { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 } } };
-	std::array<bool, 8> open {};
-	int openCount = 0;
-	for (size_t i = 0; i < Ring.size(); i++) {
-		open[i] = IsPassable(tile + Ring[i]);
-		openCount += open[i] ? 1 : 0;
-	}
-	if (openCount == 0)
-		return true;
-	std::array<bool, 8> reached {};
-	std::array<size_t, 8> queue {};
-	size_t head = 0;
-	size_t tail = 0;
-	for (size_t i = 0; i < Ring.size() && tail == 0; i++) {
-		if (open[i]) {
-			reached[i] = true;
-			queue[tail++] = i;
+	return std::find(tiles.begin(), tiles.end(), tile) != tiles.end();
+}
+
+/**
+ * Heroes could still get everywhere they could before, if `tiles` were blocked: every tile round them that
+ * they can stand on still reaches the others without them, by the same steps BuildField takes. Then any
+ * way through them has a way round within one step.
+ */
+bool KeepsConnectivity(const std::vector<Point> &tiles)
+{
+	// The ring: every tile next to the footprint (diagonals too) that isn't in it.
+	std::vector<Point> ring;
+	for (const Point tile : tiles) {
+		for (int dy = -1; dy <= 1; dy++) {
+			for (int dx = -1; dx <= 1; dx++) {
+				const Point at = tile + Displacement { dx, dy };
+				if (!InFootprint(tiles, at) && !InFootprint(ring, at) && IsPassable(at))
+					ring.push_back(at);
+			}
 		}
 	}
-	int reachedCount = 1;
-	while (head < tail) {
-		const size_t from = queue[head++];
-		const Point a = tile + Ring[from];
-		for (size_t to = 0; to < Ring.size(); to++) {
-			if (!open[to] || reached[to])
+	if (ring.empty())
+		return true;
+	std::vector<bool> reached(ring.size());
+	std::vector<size_t> queue { 0 };
+	reached[0] = true;
+	for (size_t head = 0; head < queue.size(); head++) {
+		const Point a = ring[queue[head]];
+		for (size_t to = 0; to < ring.size(); to++) {
+			if (reached[to])
 				continue;
-			const Point b = tile + Ring[to];
-			const Displacement step = b - a;
+			const Displacement step = ring[to] - a;
 			if (std::abs(step.deltaX) > 1 || std::abs(step.deltaY) > 1 || !CanStepDiagonal(a, step))
 				continue;
 			reached[to] = true;
-			queue[tail++] = to;
-			reachedCount++;
+			queue.push_back(to);
 		}
 	}
-	return reachedCount == openCount;
+	return queue.size() == ring.size();
 }
 
-/** Tiles heroes could walk in a straight line from `tile`, not counting it, up to two. */
-int OpenRun(Point tile, Displacement step)
+/** Tiles heroes could walk in a straight line from `tile`, not counting it or the footprint, up to two. */
+int OpenRun(Point tile, Displacement step, const std::vector<Point> &tiles)
 {
 	int run = 0;
-	for (Point at = tile + step; run < 2 && IsPassable(at) && !IsDoorTile(at); at += step)
+	for (Point at = tile + step; run < 2 && IsPassable(at) && !IsDoorTile(at) && !InFootprint(tiles, at); at += step)
 		run++;
 	return run;
 }
 
-/** Blocking `tile` leaves a way two tiles wide beside it, across both axes. */
-bool LeavesWideWay(Point tile)
+/** Blocking `tiles` leaves a way two tiles wide beside each of them, across both axes. */
+bool LeavesWideWay(const std::vector<Point> &tiles)
 {
-	for (const Displacement axis : { Displacement { 1, 0 }, Displacement { 0, 1 } }) {
-		if (std::max(OpenRun(tile, axis), OpenRun(tile, -axis)) < 2)
-			return false;
+	for (const Point tile : tiles) {
+		for (const Displacement axis : { Displacement { 1, 0 }, Displacement { 0, 1 } }) {
+			if (std::max(OpenRun(tile, axis, tiles), OpenRun(tile, -axis, tiles)) < 2)
+				return false;
+		}
 	}
 	return true;
 }
@@ -559,18 +645,24 @@ void MakeInert(Object &object, const MapObject &placed)
 	object._oTrapFlag = false;
 	object._oMissFlag = true;
 	object._oSolidFlag = spec.traits.solid;
-	const uint8_t frame = spec.frames[std::min<size_t>(placed.style(), MaxPropStyles - 1)];
+	if (spec.scenery)
+		object._oPreFlag = spec.underUnits;
+	uint8_t frame = spec.frames[std::min<size_t>(placed.style(), MaxPropStyles - 1)];
+	// A frame past the end of the file's art would draw garbage: the first instead.
+	if (frame != 0 && object._oAnimData && frame > object._oAnimData->numSprites())
+		frame = 1;
 	if (frame != 0) {
 		object._oAnimFlag = false;
 		object._oAnimFrame = frame;
 	}
+	inertSlots[object.GetId()] = true;
 }
 
 // ---- the file --------------------------------------------------------------------------------
 
 constexpr std::array<char, 4> FileMagic { 'D', 'K', 'M', 'P' };
-/** The newest version this reader knows. A map that needs nothing newer is still written as version 1. */
-constexpr uint16_t FileVersion = 2;
+/** The newest version this reader knows. A map is written as the oldest version that holds it. */
+constexpr uint16_t FileVersion = 3;
 constexpr uint16_t FlagPlayable = 1;
 constexpr size_t HeaderSize = 16;
 /** Well over any v1 file; stops a bogus size asking for gigabytes. */
@@ -805,9 +897,41 @@ std::string_view MapObjectName(MapObjectKind kind)
 	return Spec(kind).name;
 }
 
+std::string_view MapObjectId(MapObjectKind kind)
+{
+	return Spec(kind).id;
+}
+
+std::optional<MapObjectKind> MapObjectKindNamed(std::string_view name)
+{
+	const auto same = [](std::string_view a, std::string_view b) {
+		return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+			return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+		});
+	};
+	for (size_t i = 0; i < NumMapObjectKinds; i++) {
+		if (same(Props[i].id, name) || same(Props[i].name, name))
+			return static_cast<MapObjectKind>(i);
+	}
+	return std::nullopt;
+}
+
+std::string_view MapObjectGroupName(MapObjectGroup group)
+{
+	constexpr std::array<std::string_view, NumMapObjectGroups> Names { "Light", "Wall", "Furniture", "Bodies", "Clutter", "Set pieces" };
+	return Names[static_cast<size_t>(group)];
+}
+
 MapObjectTraits GetMapObjectTraits(MapObjectKind kind)
 {
-	return Spec(kind).traits;
+	MapObjectTraits traits = Spec(kind).traits;
+	traits.tiles = static_cast<uint8_t>(FootprintOf(kind).size());
+	return traits;
+}
+
+std::vector<Displacement> MapObjectFootprint(MapObjectKind kind)
+{
+	return FootprintOf(kind);
 }
 
 bool MapTilesetHasDoors(MapTileset tileset)
@@ -863,11 +987,15 @@ std::vector<std::byte> SerializeMap(const KeepMap &map)
 	out.u32(map.decorSeed);
 	out.text(std::string_view(map.name).substr(0, MapMaxName));
 	out.text(std::string_view(map.author).substr(0, MapMaxAuthor));
-	// Version 1 whenever it can hold the map, so a map without props still opens in an older game.
+	// The oldest version that holds the map, so it still opens in an older game: version 1 without props,
+	// version 2 with only its props, version 3 for the newer kinds. Each reads back and writes back the same.
 	const bool needsProps = map.objects.size() > MaxMapObjectsV1 || std::any_of(map.objects.begin(), map.objects.end(), [](const MapObject &object) {
 		return !IsLegacyMapObject(object.kind) || object.variant != 0;
 	});
-	const uint16_t version = needsProps ? 2 : 1;
+	const bool needsV3 = std::any_of(map.objects.begin(), map.objects.end(), [](const MapObject &object) {
+		return static_cast<size_t>(object.kind) >= NumMapObjectKindsV2;
+	});
+	const uint16_t version = needsV3 ? 3 : (needsProps ? 2 : 1);
 	const size_t objectCount = std::min(map.objects.size(), needsProps ? MaxMapObjects : MaxMapObjectsV1);
 	out.u16(static_cast<uint16_t>(objectCount));
 	for (size_t i = 0; i < objectCount; i++) {
@@ -952,7 +1080,8 @@ tl::expected<KeepMap, std::string> ParseMap(const std::byte *data, size_t size)
 		const uint8_t x = in.u8();
 		const uint8_t y = in.u8();
 		const uint8_t variant = version >= 2 ? in.u8() : 0;
-		if (kind >= (version >= 2 ? NumMapObjectKinds : NumLegacyMapObjectKinds))
+		const size_t knownKinds = version >= 3 ? NumMapObjectKinds : (version == 2 ? NumMapObjectKindsV2 : NumLegacyMapObjectKinds);
+		if (kind >= knownKinds)
 			return tl::make_unexpected("it has an unknown object");
 		object.kind = static_cast<MapObjectKind>(kind);
 		object.variant = variant;
@@ -1288,6 +1417,8 @@ std::vector<MapProblem> ValidateMap(const KeepMap &map)
 			break;
 		}
 	}
+	if (const size_t files = MapObjectFileCount(map); files > MaxLevelObjectFiles)
+		problems.push_back({ fmt::format("Too many kinds of prop: their art needs {} sprite files, and a level holds {}", files, MaxLevelObjectFiles), false });
 	if (!leftOutObjects.empty()) {
 		const auto &[first, why] = leftOutObjects.front();
 		problems.push_back({ fmt::format("{} prop(s) left out. {} at {},{}: {}", leftOutObjects.size(), MapObjectName(first.kind), first.position.x, first.position.y, why), false });
@@ -1381,6 +1512,8 @@ bool BuildMapLevel()
 bool InitMapObjects()
 {
 	leftOutObjects.clear();
+	inertSlots.fill(false);
+	propsMarked = true;
 	if (!levelFromMap || !IsKeepLevel())
 		return false;
 	const KeepMap *map = liveMap != nullptr && IsSetupEditor() ? liveMap : (fileMap ? &*fileMap : nullptr);
@@ -1420,15 +1553,58 @@ bool InitMapObjects()
 			leftOutObjects.emplace_back(placed, std::move(*why));
 			continue;
 		}
-		if (Object *object = AddObject(PropObjectType(placed), PropObjectTile(placed)); object != nullptr)
-			MakeInert(*object, placed);
+		const Point at = PropObjectTile(placed);
+		Object *object = Spec(placed.kind).scenery ? AddSceneryObject(PropObjectType(placed), at) : AddObject(PropObjectType(placed), at);
+		if (object == nullptr)
+			continue;
+		MakeInert(*object, placed);
+		// The rest of a big one's footprint, marked as AddSarcophagus and AddLargeFountain do.
+		for (const Displacement offset : FootprintOf(placed.kind)) {
+			if (offset != Displacement { 0, 0 })
+				dObject[at.x + offset.deltaX][at.y + offset.deltaY] = -(static_cast<int8_t>(object->GetId()) + 1);
+		}
 	}
 	return true;
+}
+
+namespace {
+
+/** A level loaded from its saved copy has the props, but not the note of which slots they're in. */
+void MarkLoadedPropsInert()
+{
+	inertSlots.fill(false);
+	if (!IsKeepLevel())
+		return;
+	const KeepMap *map = liveMap != nullptr && IsSetupEditor() ? liveMap : (fileMap ? &*fileMap : nullptr);
+	if (map == nullptr)
+		return;
+	for (const MapObject &placed : map->objects) {
+		if (IsLegacyMapObject(placed.kind))
+			continue;
+		const Point at = PropObjectTile(placed);
+		if (!InDungeonBounds(at) || dObject[at.x][at.y] <= 0)
+			continue;
+		// A version 1 object went down first, so one on the same tile is that, and the prop was left out.
+		if (std::any_of(map->objects.begin(), map->objects.end(), [&](const MapObject &other) { return IsLegacyMapObject(other.kind) && other.position == at; }))
+			continue;
+		const Object &object = Objects[dObject[at.x][at.y] - 1];
+		if (object._otype == PropObjectType(placed) && object.position == at)
+			inertSlots[object.GetId()] = true;
+	}
+}
+
+} // namespace
+
+bool IsInertMapProp(const Object &object)
+{
+	const unsigned id = object.GetId();
+	return id < inertSlots.size() && inertSlots[id] && IsKeepLevel();
 }
 
 void AddMapObjectGraphics(uint16_t *filesWidths, size_t fileCount, size_t maxFiles)
 {
 	propArtLoaded.fill(false);
+	propArtAsked.fill(false);
 	if (!IsKeepLevel())
 		return;
 	const auto found = std::find_if(Tilesets.begin(), Tilesets.end(), [](const TilesetInfo &info) { return info.levelType == leveltype; });
@@ -1441,35 +1617,106 @@ void AddMapObjectGraphics(uint16_t *filesWidths, size_t fileCount, size_t maxFil
 		if (data.olvltype == leveltype && data.ofindex < fileCount)
 			levelTypeFile[data.ofindex] = true;
 	}
+	const auto isLoaded = [&](size_t file) { return filesWidths[file] != 0 || levelTypeFile[file]; };
 	const auto filesUsed = [&]() {
 		size_t used = 0;
 		for (size_t i = 0; i < fileCount; i++)
-			used += filesWidths[i] != 0 || levelTypeFile[i] ? 1 : 0;
+			used += isLoaded(i) ? 1 : 0;
 		return used;
 	};
-	for (const MapObjectKind kind : MapObjectPalette(tileset)) {
-		if (IsLegacyMapObject(kind))
+	// Only what the map uses: the engine holds 40 files a level, and every kind there is would need more. The
+	// editor's level is rebuilt without reloading art, so it loads the chosen kind and then the rest, room
+	// permitting, after the map's own (MapNeedsArtReload covers what's left).
+	const KeepMap *map = liveMap != nullptr && IsSetupEditor() ? liveMap : (fileMap ? &*fileMap : nullptr);
+	std::vector<std::pair<MapObjectKind, bool>> order; // and whether it must be asked for
+	const auto want = [&](MapObjectKind kind, bool asked) {
+		if (IsLegacyMapObject(kind) || std::any_of(order.begin(), order.end(), [&](const auto &entry) { return entry.first == kind; }))
+			return;
+		order.emplace_back(kind, asked);
+	};
+	if (map != nullptr) {
+		for (const MapObject &placed : map->objects)
+			want(placed.kind, true);
+	}
+	if (liveMap != nullptr && IsSetupEditor()) {
+		if (wantedArt)
+			want(*wantedArt, true);
+		for (const MapObjectKind kind : MapObjectPalette(tileset))
+			want(kind, false);
+	}
+	for (const auto &[kind, asked] : order) {
+		if (!MapObjectFitsTileset(kind, tileset) || !IsPropArtInstalled(kind))
 			continue;
-		// The engine holds so many object files a level: a kind whose files don't all fit stays out.
-		const std::vector<_object_id> types = PropObjectTypes(kind);
+		propArtAsked[static_cast<size_t>(kind)] = propArtAsked[static_cast<size_t>(kind)] || asked;
+		// A kind whose files don't all fit stays out.
 		size_t extra = 0;
-		for (const _object_id type : types) {
-			const uint8_t file = AllObjects[type].ofindex;
+		for (const uint8_t file : PropFiles(kind)) {
 			if (file >= fileCount) {
 				extra = maxFiles + 1; // can't be loaded at all
 				break;
 			}
-			if (filesWidths[file] == 0 && !levelTypeFile[file] && std::none_of(types.begin(), types.end(), [&](_object_id other) { return other < type && AllObjects[other].ofindex == file; }))
-				extra++;
+			extra += isLoaded(file) ? 0 : 1;
 		}
 		if (filesUsed() + extra > maxFiles) {
-			LogError("Dark Keep: no room to load the art for {}", MapObjectName(kind));
+			if (asked)
+				LogError("Dark Keep: no room to load the art for {}", MapObjectName(kind));
 			continue;
 		}
-		for (const _object_id type : types)
+		for (const _object_id type : PropObjectTypes(kind))
 			filesWidths[AllObjects[type].ofindex] = AllObjects[type].animWidth;
 		propArtLoaded[static_cast<size_t>(kind)] = true;
 	}
+}
+
+size_t MapObjectFileCount(const KeepMap &map, std::optional<MapObjectKind> extra)
+{
+	const dungeon_type levelType = Info(map.tileset).levelType;
+	std::vector<bool> files(ObjMasterLoadList.size());
+	// What InitObjectGFX loads on the keep level before the props: by level range (barrels, chests, the
+	// sarcophagus, traps but not in Hell, as it says) and the level type's own. The keep has no themes or quests.
+	for (size_t id = 0; id < AllObjects.size(); id++) {
+		const ObjectData &data = AllObjects[id];
+		if (data.ofindex >= files.size())
+			continue;
+		const bool byLevel = data.minlvl != 0 && KeepLevel >= data.minlvl && KeepLevel <= data.maxlvl
+		    && !(IsAnyOf(static_cast<_object_id>(id), OBJ_TRAPL, OBJ_TRAPR) && levelType == DTYPE_HELL);
+		if (byLevel || data.olvltype == levelType)
+			files[data.ofindex] = true;
+	}
+	const auto add = [&](MapObjectKind kind) {
+		if (IsLegacyMapObject(kind) || !MapObjectFitsTileset(kind, map.tileset))
+			return;
+		for (const uint8_t file : PropFiles(kind)) {
+			if (file < files.size())
+				files[file] = true;
+		}
+	};
+	for (const MapObject &placed : map.objects)
+		add(placed.kind);
+	if (extra)
+		add(*extra);
+	return static_cast<size_t>(std::count(files.begin(), files.end(), true));
+}
+
+bool IsMapObjectArtLoaded(MapObjectKind kind)
+{
+	return IsLegacyMapObject(kind) || HeadlessMode || propArtLoaded[static_cast<size_t>(kind)];
+}
+
+bool MapNeedsArtReload(const KeepMap &map)
+{
+	if (HeadlessMode || !IsKeepLevel())
+		return false;
+	return std::any_of(map.objects.begin(), map.objects.end(), [&](const MapObject &placed) {
+		const size_t kind = static_cast<size_t>(placed.kind);
+		return !IsLegacyMapObject(placed.kind) && MapObjectFitsTileset(placed.kind, map.tileset) && IsPropArtInstalled(placed.kind)
+		    && !propArtLoaded[kind] && !propArtAsked[kind];
+	});
+}
+
+void SetWantedMapObjectArt(std::optional<MapObjectKind> kind)
+{
+	wantedArt = kind;
 }
 
 std::optional<MapObject> SnapMapObject(MapObjectKind kind, Point tile, uint8_t style)
@@ -1521,10 +1768,17 @@ std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapOb
 			return "Something already stands there";
 		return std::nullopt;
 	}
-	if (dObject[tile.x][tile.y] != 0)
-		return "Something already stands there";
-	if (IsNearStairs(map, tile))
-		return "Too close to the stairs";
+	std::vector<Point> footprint;
+	for (const Displacement offset : FootprintOf(object.kind))
+		footprint.push_back(tile + offset);
+	for (const Point at : footprint) {
+		if (!InRect(at, { 16, 16 }, 2 * DMAXX, 2 * DMAXY))
+			return "That's off the map";
+		if (dObject[at.x][at.y] != 0)
+			return "Something already stands there";
+		if (IsNearStairs(map, at))
+			return "Too close to the stairs";
+	}
 	const MapObjectTraits traits = GetMapObjectTraits(object.kind);
 	const Displacement facing = Facing(object);
 	const Displacement along = Along(object);
@@ -1545,12 +1799,14 @@ std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapOb
 	case MapObjectPlacement::Floor:
 		break;
 	}
-	if (!IsTileNotSolid(tile))
-		return "Props go on the floor";
+	for (const Point at : footprint) {
+		if (!IsTileNotSolid(at))
+			return footprint.size() > 1 ? fmt::format("It needs {} tiles of floor", footprint.size()) : std::string("Props go on the floor");
+	}
 	if (traits.solid) {
-		if (!KeepsConnectivity(tile))
+		if (!KeepsConnectivity(footprint))
 			return "It would block the way";
-		if (!LeavesWideWay(tile))
+		if (!LeavesWideWay(footprint))
 			return "It would leave the way past less than two tiles wide";
 	}
 	return std::nullopt;
@@ -1563,6 +1819,9 @@ const std::vector<std::pair<MapObject, std::string>> &LeftOutMapObjects()
 
 void NoteMapLevelLoaded()
 {
+	if (!propsMarked)
+		MarkLoadedPropsInert(); // the level came from its saved copy, not InitMapObjects
+	propsMarked = false;
 	if (!mapLoadError.empty()) {
 		EventPlrMsg(mapLoadError, UiFlags::ColorRed);
 		mapLoadError.clear();

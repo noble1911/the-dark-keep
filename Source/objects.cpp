@@ -4142,6 +4142,22 @@ Object *AddObject(_object_id objType, Point objPos)
 	return &object;
 }
 
+Object *AddSceneryObject(_object_id objType, Point objPos) // [DARK KEEP]
+{
+	if (ActiveObjectCount >= MAXOBJECTS)
+		return nullptr;
+
+	const int oi = AvailableObjects[0];
+	AvailableObjects[0] = AvailableObjects[MAXOBJECTS - 1 - ActiveObjectCount];
+	ActiveObjects[ActiveObjectCount] = oi;
+	dObject[objPos.x][objPos.y] = oi + 1;
+	Object &object = Objects[oi];
+	SetupObject(object, objPos, objType);
+	AddObjectLight(object);
+	ActiveObjectCount++;
+	return &object;
+}
+
 bool UpdateTrapState(Object &trap)
 {
 	if (trap._oVar4 != 0)
@@ -4206,7 +4222,10 @@ void ProcessObjects()
 {
 	for (int i = 0; i < ActiveObjectCount; ++i) {
 		Object &object = Objects[ActiveObjects[i]];
-		switch (object._otype) {
+		// [DARK KEEP] a keep's prop only shines and moves: a burning cross doesn't burn, a magic circle takes
+		// nobody anywhere, a sarcophagus never opens
+		const bool inertProp = keeper::IsInertMapProp(object);
+		switch (inertProp && IsAnyOf(object._otype, OBJ_SARC, OBJ_L5SARC, OBJ_FLAMEHOLE, OBJ_TRAPL, OBJ_TRAPR, OBJ_MCIRCLE1, OBJ_MCIRCLE2) ? OBJ_NULL : object._otype) {
 		case OBJ_L1LIGHT:
 		case OBJ_SKFIRE:
 		case OBJ_CANDLE1:
@@ -4265,7 +4284,8 @@ void ProcessObjects()
 		case OBJ_BCROSS:
 		case OBJ_TBCROSS:
 			UpdateObjectLight(object, 5);
-			UpdateBurningCrossDamage(object);
+			if (!inertProp) // [DARK KEEP]
+				UpdateBurningCrossDamage(object);
 			break;
 		default:
 			break;
@@ -4396,6 +4416,8 @@ _item_indexes ItemMiscIdIdx(item_misc_id imiscid)
 
 void OperateObject(Player &player, Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP] scenery: nothing happens, whoever asks
+		return;
 	const bool sendmsg = &player == MyPlayer;
 
 	switch (object._otype) {
@@ -4507,6 +4529,8 @@ void OperateObject(Player &player, Object &object)
 
 void DeltaSyncOpObject(Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP]
+		return;
 	switch (object._otype) {
 	case OBJ_L1LDOOR:
 	case OBJ_L1RDOOR:
@@ -4599,6 +4623,8 @@ void DeltaSyncCloseObj(Object &object)
 
 void SyncOpObject(Player &player, int cmd, Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP] a message from another player can't use one either
+		return;
 	const bool sendmsg = &player == MyPlayer;
 
 	switch (object._otype) {
@@ -4709,11 +4735,15 @@ void SyncOpObject(Player &player, int cmd, Object &object)
 
 void BreakObjectMissile(Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP]
+		return;
 	if (object.IsCrux())
 		BreakCrux(object, true);
 }
 void BreakObject(const Player &player, Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP]
+		return;
 	if (object.IsBarrel()) {
 		BreakBarrel(player, object, false, true);
 	} else if (object.IsCrux()) {
@@ -4723,6 +4753,8 @@ void BreakObject(const Player &player, Object &object)
 
 void DeltaSyncBreakObj(Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP]
+		return;
 	if (!object.IsBreakable() || !object.canInteractWith())
 		return;
 
@@ -4742,6 +4774,8 @@ void DeltaSyncBreakObj(Object &object)
 
 void SyncBreakObj(const Player &player, Object &object)
 {
+	if (keeper::IsInertMapProp(object)) // [DARK KEEP]
+		return;
 	if (object.IsBarrel()) {
 		BreakBarrel(player, object, true, false);
 	} else if (object.IsCrux()) {
