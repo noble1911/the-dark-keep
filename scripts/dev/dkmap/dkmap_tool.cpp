@@ -242,6 +242,7 @@ std::optional<PendingStamp> ParseStamp(const std::string &text, std::string &err
 	in >> name;
 	PendingStamp pending;
 	pending.line = Trim(text);
+	pending.line.erase(0, pending.line.find_first_not_of(' '));
 	pending.stamp = RoomStampNamed(name);
 	if (pending.stamp == nullptr) {
 		std::string names;
@@ -1264,7 +1265,7 @@ Point BiggestRoomCell(const KeepMap &map, Point avoid = NoMapPosition)
 		for (int y = 2; y < DMAXY - 2; y += 2) {
 			if (avoid != NoMapPosition && std::abs(x - avoid.x) <= 8 && std::abs(y - avoid.y) <= 8)
 				continue;
-			const size_t size = RoomCellsAt(map, { x, y }, 5).size();
+			const size_t size = RoomCellsAt(map, { x, y }).size();
 			if (size > bestSize) {
 				bestSize = size;
 				best = { x, y };
@@ -1446,6 +1447,10 @@ int main(int argc, char **argv)
 		bool parsed = false;
 		const Report report = BuildLevel(single, out, source, parsed);
 		fmt::print("{} {:<10} route {:4} floor {:4} buildable {:4} {} bytes, {} objects\n", source.map.name, parsed ? MapTilesetName(source.map.tileset) : "?", report.route, report.floorCells, report.buildableTiles, report.fileSize, source.map.objects.size());
+		for (const std::string &line : report.stamped)
+			fmt::print("  stamp {}\n", line);
+		if (report.dressed && report.dressed->stampedRooms > 0)
+			fmt::print("  dressing: {} themed rooms, {} props\n", report.dressed->stampedRooms, report.dressed->stampedProps);
 		for (const std::string &warning : report.warnings)
 			fmt::print("  warning: {}\n", warning);
 		for (const std::string &error : report.errors)

@@ -37,8 +37,8 @@ constexpr int TorchRadius = 8;
 constexpr int FloorLightRadius = 5;
 /** Steps from a light that count as no light at all. */
 constexpr int FarFromAnyLight = 40;
-/** A themed room's stamp covers megatiles this far from its middle, at most, either axis. */
-constexpr int ThemedRoomReach = 5;
+/** A stamp's room is this many megatiles across, at most, either axis: a bigger room gets a corner of it. */
+constexpr int StampSpan = 12;
 /** A stamp's room of this many megatiles gets each entry's count as written; bigger, up to twice as many. */
 constexpr int StampNominalCells = 36;
 
@@ -184,6 +184,43 @@ void MarkRoomsOf(const KeepMap &map, RoomGrid &rooms, std::vector<int> &sizes)
 			}
 		}
 	}
+}
+
+/**
+ * The cells of room `room` in a window at most `span` across round `at`: the whole room if it fits, otherwise
+ * slid along each axis to the room's nearer wall (keeping `at` inside), so the window has walls to stand by.
+ */
+std::vector<Point> RoomWindow(const RoomGrid &rooms, int room, Point at, int span)
+{
+	std::vector<Point> cells;
+	if (room == 0)
+		return cells;
+	Point low { DMAXX, DMAXY };
+	Point high { -1, -1 };
+	for (int x = 0; x < DMAXX; x++) {
+		for (int y = 0; y < DMAXY; y++) {
+			if (rooms[x][y] == room) {
+				low = { std::min(low.x, x), std::min(low.y, y) };
+				high = { std::max(high.x, x), std::max(high.y, y) };
+			}
+		}
+	}
+	const auto window = [span](int click, int first, int last) {
+		if (last - first + 1 <= span)
+			return std::pair { first, last };
+		// To the nearer wall, as far as the click stays in the window.
+		const int start = click - first <= last - click ? std::max(first, click - span + 1) : std::min(last - span + 1, click);
+		return std::pair { start, start + span - 1 };
+	};
+	const auto [left, right] = window(at.x, low.x, high.x);
+	const auto [top, bottom] = window(at.y, low.y, high.y);
+	for (int x = left; x <= right; x++) {
+		for (int y = top; y <= bottom; y++) {
+			if (rooms[x][y] == room)
+				cells.push_back({ x, y });
+		}
+	}
+	return cells;
 }
 
 class Dresser {
@@ -770,7 +807,7 @@ private:
 				stamp = RoomStampForTheme(themeIds_[(done + t) % themeIds_.size()], map_.tileset);
 			if (stamp == nullptr)
 				break;
-			// Round the middle cell of the room: a cavern that is all one room gets a part of it.
+			// Round the middle of the room: a cavern that is all one room gets a corner of it.
 			long sumX = 0;
 			long sumY = 0;
 			for (int x = 0; x < DMAXX; x++) {
@@ -782,13 +819,7 @@ private:
 				}
 			}
 			const Point middle { static_cast<int>(sumX / roomSizes_[room]), static_cast<int>(sumY / roomSizes_[room]) };
-			std::vector<Point> cells;
-			for (int x = 0; x < DMAXX; x++) {
-				for (int y = 0; y < DMAXY; y++) {
-					if (room_[x][y] == room && std::abs(x - middle.x) <= ThemedRoomReach && std::abs(y - middle.y) <= ThemedRoomReach)
-						cells.push_back({ x, y });
-				}
-			}
+			const std::vector<Point> cells = RoomWindow(room_, room, middle, StampSpan);
 			const StampResult stamped = Stamp(*stamp, cells, options_.seed + static_cast<uint32_t>(done) * 7919U);
 			done++;
 			if (stamped.placed > 0) {
@@ -1253,24 +1284,14 @@ std::optional<MapObjectKind> MapObjectKindNamed(std::string_view name)
 	return std::nullopt;
 }
 
-std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell, int reach)
+std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell)
 {
-	std::vector<Point> cells;
 	if (cell.x < 0 || cell.y < 0 || cell.x >= DMAXX || cell.y >= DMAXY)
-		return cells;
+		return {};
 	static RoomGrid rooms;
 	std::vector<int> sizes;
 	MarkRoomsOf(map, rooms, sizes);
-	const int room = rooms[cell.x][cell.y];
-	if (room == 0)
-		return cells;
-	for (int x = std::max(cell.x - reach, 0); x <= std::min(cell.x + reach, DMAXX - 1); x++) {
-		for (int y = std::max(cell.y - reach, 0); y <= std::min(cell.y + reach, DMAXY - 1); y++) {
-			if (rooms[x][y] == room)
-				cells.push_back({ x, y });
-		}
-	}
-	return cells;
+	return RoomWindow(rooms, rooms[cell.x][cell.y], cell, StampSpan);
 }
 
 std::vector<Point> FloorCellsIn(const KeepMap &map, Point a, Point b)

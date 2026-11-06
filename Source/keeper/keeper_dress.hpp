@@ -157,10 +157,11 @@ std::optional<MapObjectKind> MapObjectKindNamed(std::string_view name);
 
 /**
  * The room a click on `cell` (a megatile) means, by the map's layout alone: the megatiles of the room it is
- * in (floor that some 3 by 3 block of floor covers), at most `reach` megatiles away from it either axis, so a
- * cavern that is all one room gives the part round the click. Empty if the cell isn't in a room.
+ * in (floor that some 3 by 3 block of floor covers). A room more than 12 megatiles across gives a 12 wide
+ * window of it, slid to the walls nearest the click, so a hall or a cavern that is all one room gives the
+ * corner round the click, with walls to stand by. Empty if the cell isn't in a room.
  */
-std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell, int reach = 5);
+std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell);
 /** The floor megatiles in a rectangle (corners in either order), for a dragged stamp. */
 std::vector<Point> FloorCellsIn(const KeepMap &map, Point a, Point b);
 
