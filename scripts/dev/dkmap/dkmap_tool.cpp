@@ -14,6 +14,8 @@
  * A level source is text: `name:`, `tileset:`, `seed:` and `note:` lines, then 40 rows of 40 characters.
  *   # rock   . floor   D door   A arch   E entrance's top-left   V vault's top-left
  *   b barrel   c chest   i brazier (on floor; the object goes on the cell's first world tile)
+ * Stairs built into a wall (MapStairsNeedWall: the Cathedral's and Crypt's up stairs, the Caves' and Nest's both)
+ * must pass the editor's rule, MapStairsWallProblem: their E or V cell is then rock, as their top-left is.
  * and any number of `prop: <x> <y> <kind>[/<style>]` lines: a prop (MapObjectName or MapObjectId, any case) for a click
  * on world tile x, y, as the editor places it: a wall prop snaps to the wall beside that floor. Each must
  * pass the editor's rules, with the props before it standing.
@@ -376,6 +378,12 @@ std::optional<Source> ReadSource(const std::string &path, std::vector<std::strin
 			source.map.setCell(x, y, cell);
 		}
 	}
+	// E and V mark the stairs' top-left, which is in the rock for stairs built into a wall.
+	for (const bool entrance : { true, false }) {
+		const Point at = entrance ? source.map.entrance : source.map.vault;
+		if (at.x >= 0 && MapStairsNeedWall(source.map.tileset, entrance))
+			source.map.setCell(at.x, at.y, MapCell::Rock);
+	}
 	return source;
 }
 
@@ -499,6 +507,7 @@ void Analyse(const KeepMap &map, Report &report)
 		report.warnings.push_back(fmt::format("{} doors, more than the {} locks a player can have", report.doors.size(), MaxLocks));
 
 	int deadFloor = 0;
+	Point firstDead { -1, -1 };
 	for (int x = 0; x < DMAXX; x++) {
 		for (int y = 0; y < DMAXY; y++) {
 			const MapCell cell = map.cell(x, y);
@@ -518,8 +527,10 @@ void Analyse(const KeepMap &map, Report &report)
 			stairs = inside(map.entrance, true) || inside(map.vault, false);
 			if (cell == MapCell::Floor) {
 				report.floorCells++;
-				if (!reached && !stairs)
-					deadFloor++;
+				if (!reached && !stairs) {
+					if (deadFloor++ == 0)
+						firstDead = { x, y };
+				}
 			}
 			if (cell == MapCell::Door && !doorCell[x][y])
 				report.errors.push_back(fmt::format("the door at cell {},{} didn't form", x, y));
@@ -531,7 +542,7 @@ void Analyse(const KeepMap &map, Report &report)
 		}
 	}
 	if (deadFloor > 0)
-		report.warnings.push_back(fmt::format("{} floor cells can't be walked to", deadFloor));
+		report.warnings.push_back(fmt::format("{} floor cells can't be walked to (the first at cell {},{})", deadFloor, firstDead.x, firstDead.y));
 
 	// Open floor a player could really build on, by the rules of CanBuildAt.
 	for (int x = 0; x < MAXDUNX; x++) {
@@ -636,6 +647,11 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 	if (!MapStairsFit(map.tileset, true, map.entrance) || !MapStairsFit(map.tileset, false, map.vault)) {
 		report.errors.emplace_back("stairs off the paintable area");
 		return report;
+	}
+	// The editor's rule, which ValidateMap only warns about so that older maps still play: a campaign level keeps it.
+	for (const bool entrance : { true, false }) {
+		if (const std::optional<std::string> why = MapStairsWallProblem(map, entrance, entrance ? map.entrance : map.vault); why)
+			report.errors.push_back(*why);
 	}
 	for (const MapObject &object : map.objects) {
 		if (!MapObjectFitsTileset(object.kind, map.tileset))
@@ -1366,6 +1382,38 @@ int SelfTest()
 			base.tiles[x][y] = static_cast<uint8_t>(1 + (x + y) % 7);
 			base.trans[2 * x][2 * y] = static_cast<int8_t>((x * y) % 100);
 		}
+	}
+
+	// Stairs built into a wall: one room, x 5 to 30, y 5 to 30, in rock.
+	{
+		KeepMap room;
+		room.tileset = MapTileset::Cathedral;
+		for (int x = 5; x <= 30; x++) {
+			for (int y = 5; y <= 30; y++)
+				room.setCell(x, y, MapCell::Floor);
+		}
+		check(MapStairsNeedWall(MapTileset::Cathedral, true) && !MapStairsNeedWall(MapTileset::Cathedral, false), "the Cathedral's up stairs need a wall, its down stairs stand free");
+		check(MapStairsNeedWall(MapTileset::Caves, true) && MapStairsNeedWall(MapTileset::Caves, false) && MapStairsNeedWall(MapTileset::Crypt, true), "the Caves' stairs and the Crypt's up stairs need a wall");
+		check(!MapStairsNeedWall(MapTileset::Catacombs, true) && !MapStairsNeedWall(MapTileset::Hell, false), "the Catacombs' and Hell's stairs stand free");
+		check(!MapStairsWallProblem(room, true, { 10, 3 }), "Cathedral up stairs in the top-right wall pass");
+		check(MapStairsWallProblem(room, true, { 10, 5 }).has_value(), "Cathedral up stairs a row inside the room are flagged");
+		check(MapStairsWallProblem(room, true, { 10, 15 }).has_value(), "Cathedral up stairs in the middle of the room are flagged");
+		check(MapStairsWallProblem(room, true, { 10, 1 }).has_value(), "Cathedral up stairs deep in the rock are flagged");
+		check(MapStairsWallProblem(room, true, { 4, 3 }).has_value(), "Cathedral up stairs past the room's corner are flagged");
+		check(!MapStairsWallProblem(room, false, { 10, 15 }), "Cathedral down stairs in the open pass");
+		check(FindMapStairsSpot(room, true, { 10, 6 }, 5) == Point { 10, 3 }, "a click near the wall snaps the up stairs into it");
+		check(!FindMapStairsSpot(room, true, { 15, 18 }, 5), "a click in the middle of a big room finds no wall");
+		KeepMap caves = room;
+		caves.tileset = MapTileset::Caves;
+		check(!MapStairsWallProblem(caves, false, { 3, 12 }), "Caves down stairs in the top-left wall pass");
+		check(MapStairsWallProblem(caves, false, { 12, 12 }).has_value(), "Caves down stairs in the open are flagged");
+		caves.setCell(12, 4, MapCell::Rock);
+		for (int y = 5; y <= 9; y++) {
+			caves.setCell(12, y, MapCell::Rock);
+			caves.setCell(13, y, MapCell::Rock);
+		}
+		check(!MapStairsWallProblem(caves, false, { 12, 5 }), "Caves down stairs on a spur from the wall, with wall past both ends, pass");
+		check(MapStairsWallProblem(caves, false, { 12, 7 }).has_value(), "Caves down stairs at the spur's very end are flagged");
 	}
 
 	// Version 1: the legacy kinds only.
