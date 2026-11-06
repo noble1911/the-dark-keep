@@ -2,7 +2,7 @@ name: Iron Gaol
 tileset: Cathedral
 seed: 4104
 note: A U of corridors with gates across them and cell blocks between. One cell column has doors all the way through, so the short route takes three doors, and one lock on it is cheaper to break than the walk round. Two locks together send the party the long way, through every gate.
-dress: prison torture
+dress: prison torture rooms=1 stamps=prison
 ########################################
 ########################################
 ########################################

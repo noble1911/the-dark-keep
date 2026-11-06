@@ -2,7 +2,7 @@ name: Ashen Crypts
 tileset: Cathedral
 seed: 4103
 note: The vault sits at the centre of two rings, each with doors on opposite sides of it, so the party walks half of one ring and half of the other. The near door of each pair is the one to lock: that sends them the far way round, past everything built on it. Three tombs off the outer ring are for lairs that hit from behind.
-dress: tomb bones
+dress: tomb bones rooms=2 stamps=crypt,chapel
 ########################################
 ###############...E......###############
 ###############..........###############

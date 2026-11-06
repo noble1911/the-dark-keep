@@ -2,7 +2,7 @@ name: Cinder Keep
 tileset: Catacombs
 seed: 8206
 note: Three wards and a lane under them, then a keep of two halls, then a last lane that runs the whole width to the vault door. Gates and posterns give every stage a choice, and any two of them decide the whole route. The hardest of the door levels, and big enough to need a real garrison.
-dress: armoury bones lights=18
+dress: armoury bones lights=18 rooms=3 stamps=armoury,treasure,bones
 ########################################
 ########################################
 ##............#...........#...........##

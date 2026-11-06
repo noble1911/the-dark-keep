@@ -2,7 +2,7 @@ name: Silent Abbey
 tileset: Caves
 seed: 12305
 note: A wide cloister with a rock island in the middle, and the vault below it on the side the party starts from, with no way down there. It has to go round, by the gated middle walk or the far side, and a lock on the middle sends it the whole way round, so the army can stand in one place.
-dress: tomb bones
+dress: tomb bones rooms=2 stamps=shrine,bones
 ########################################
 ########################################
 ##............######..................##

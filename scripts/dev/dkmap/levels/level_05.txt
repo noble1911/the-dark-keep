@@ -2,7 +2,7 @@ name: Black Vaults
 tileset: Cathedral
 seed: 4101
 note: Nine strongrooms joined by doors in a lattice, the doors set far apart so each room has to be crossed. The door count is the point: gold for locks runs out long before doors do, and every lock moves the route somewhere else, so the player is choosing a path through the keep.
-dress: tomb chapel
+dress: tomb chapel rooms=3 stamps=crypt,treasure,chapel
 ########################################
 ########################################
 ##.E.........#...........#...........###

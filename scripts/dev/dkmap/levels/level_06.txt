@@ -2,7 +2,7 @@ name: Weeping Halls
 tileset: Cathedral
 seed: 4102
 note: Six long galleries in a switchback, with doors through the walls as shortcuts. The party takes every shortcut unless locked out, so an open keep is a straight dash. A lock near a turn sends them round; on a door far from the turn the way round costs more than the lock, so they stop and break it, and stand where the player wants them while they do.
-dress: torture chapel
+dress: torture chapel rooms=3 stamps=shrine,torture,chapel
 ########################################
 ########################################
 ###..E...............................###

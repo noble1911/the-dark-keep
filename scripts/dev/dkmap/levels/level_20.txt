@@ -2,7 +2,7 @@ name: Throne of Ash
 tileset: Hell
 seed: 16404
 note: The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big enough for a last stand.
-dress: hell armoury lights=18 scenery=24
+dress: hell armoury lights=18 scenery=24 rooms=3 stamps=altar,armoury,treasure
 ########################################
 ##.E..................................##
 ##..................................b.##

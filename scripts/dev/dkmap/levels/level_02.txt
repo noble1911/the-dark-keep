@@ -2,7 +2,7 @@ name: Rat Warrens
 tileset: Cathedral
 seed: 4098
 note: A long S with doors in a row and blind burrows off it. Still only one route, but now there is distance to spend: layers of defence, and burrows that hide lairs so that they strike the party from the side.
-dress: bones torture
+dress: bones torture rooms=2 stamps=torture,bones
 ########################################
 ########################################
 ########################################

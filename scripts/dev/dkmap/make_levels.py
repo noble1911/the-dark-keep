@@ -512,28 +512,28 @@ l.put('b', (36, 2), (3, 12), (36, 18), (3, 25), (36, 36), (3, 36))
 # route, the locks and the necks unchanged, so this never touches balance. The Cathedral's braziers (radius
 # 5) light only a tile or two in the keep's dark, so the levels that had them get wall torches instead.
 DRESSING = {
-    1: 'bones library',          # Old Cellars
-    2: 'bones torture',          # Rat Warrens
-    3: 'chapel library',         # Sunken Chapel
-    4: 'bones tomb',             # Bone Pits
-    5: 'tomb chapel',            # Black Vaults
-    6: 'torture chapel',         # Weeping Halls
-    7: 'tomb bones',             # Ashen Crypts
-    8: 'prison torture',         # Iron Gaol
+    1: 'bones library rooms=1 stamps=bones',          # Old Cellars
+    2: 'bones torture rooms=2 stamps=torture,bones',          # Rat Warrens
+    3: 'chapel library rooms=1 stamps=chapel',         # Sunken Chapel
+    4: 'bones tomb rooms=2 stamps=bones,crypt',             # Bone Pits
+    5: 'tomb chapel rooms=3 stamps=crypt,treasure,chapel',            # Black Vaults
+    6: 'torture chapel rooms=3 stamps=shrine,torture,chapel',         # Weeping Halls
+    7: 'tomb bones rooms=2 stamps=crypt,chapel',             # Ashen Crypts
+    8: 'prison torture rooms=1 stamps=prison',         # Iron Gaol
     # The Catacombs' floor art is the darkest: a few more torches.
-    9: 'torture bones lights=18',          # Maggot Deeps
-    10: 'armoury chapel lights=18',        # Hollow Court
-    11: 'torture prison lights=18',        # Blood Galleries
-    12: 'chapel library lights=18',        # Shrouded Nave
-    13: 'prison torture lights=18',        # Gallows Reach
-    14: 'armoury bones lights=18',         # Cinder Keep
-    15: 'prison bones',          # Howling Stair
-    16: 'tomb armoury',          # Tomb of Kings
-    17: 'tomb bones',            # Silent Abbey
+    9: 'torture bones lights=18 rooms=2 stamps=torture,bones',          # Maggot Deeps
+    10: 'armoury chapel lights=18 rooms=2 stamps=armoury,chapel',        # Hollow Court
+    11: 'torture prison lights=18 rooms=2 stamps=torture,prison',        # Blood Galleries
+    12: 'chapel library lights=18 rooms=1 stamps=chapel',        # Shrouded Nave
+    13: 'prison torture lights=18 rooms=2 stamps=prison,torture',        # Gallows Reach
+    14: 'armoury bones lights=18 rooms=3 stamps=armoury,treasure,bones',         # Cinder Keep
+    15: 'prison bones rooms=2 stamps=prison,bones',          # Howling Stair
+    16: 'tomb armoury rooms=2 stamps=treasure,armoury',          # Tomb of Kings
+    17: 'tomb bones rooms=2 stamps=shrine,bones',            # Silent Abbey
     # Hell is the flattest art and the darkest: more of everything.
-    18: 'hell prison lights=18 scenery=24',     # Chains of Night
-    19: 'hell tomb lights=18 scenery=24',       # Burning Sepulcre
-    20: 'hell armoury lights=18 scenery=24',    # Throne of Ash
+    18: 'hell prison lights=18 scenery=24 rooms=3 stamps=prison,torture,altar',     # Chains of Night
+    19: 'hell tomb lights=18 scenery=24 rooms=2 stamps=altar,treasure',       # Burning Sepulcre
+    20: 'hell armoury lights=18 scenery=24 rooms=3 stamps=altar,armoury,treasure',    # Throne of Ash
 }
 for made in LEVELS:
     made.dress(DRESSING[made.number])

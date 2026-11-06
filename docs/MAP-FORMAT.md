@@ -248,7 +248,11 @@ runs it after the `prop:` lines. The themes are bones, library, chapel, armoury,
 without one, the tileset's own (chapel for the Cathedral, tomb for the Catacombs and the Crypt, prison for the
 Caves, hell for Hell, bones for the Nest). `rooms=N` on that line also gives the N biggest rooms a theme-room
 stamp each (below), for the themes in turn, before the lights and scenery; a stamped room gets no scattered
-scenery or centrepiece, and its props don't count against `scenery=`. Without `rooms=` the pass is unchanged.
+scenery or centrepiece, and its props don't count against `scenery=`. `stamps=crypt,treasure` names the stamps
+instead, biggest room first (one the tileset can't have is passed over). A room much bigger than a stamp
+(a hall, a cavern) can take a second or third in corners of it far apart, once every room has had one, and
+keeps its scattered scenery; a room a stamp can't furnish doesn't use up the count. Without `rooms=` the pass is
+unchanged.
 
 ### Theme-room stamps
 
@@ -265,21 +269,23 @@ and the tool button opens the list as for props.
 
 | Stamp | Tilesets | What it puts in |
 |---|---|---|
-| library | Cathedral, Catacombs, Crypt | bookcases round the walls, a book stand in the middle, candles, a torch |
-| shrine | Cathedral, Catacombs, Caves, Crypt | a statue or fountain, two candles round it, banners, a torch |
-| chapel | Cathedral, Catacombs, Crypt | an angel statue, candles round it, banners, a book stand, a torch |
-| crypt | Cathedral, Catacombs, Crypt | a crucifix in the middle, skull piles and crucifixes by the walls, crypt candles |
-| torture | all but the Nest | a blood fountain, impaled and tortured bodies, headless bodies, a torch |
-| prison | all but the Nest | impaled and tortured bodies round the walls, skull piles, a torch |
-| armoury | Catacombs, Caves, Hell, Crypt | weapon racks and armour stands round the walls, a banner, torches |
-| treasure | all but the Nest | a statue or fountain, armour stands, banners, candles round it, a torch |
-| altar | Hell, Nest | a blood fountain ringed with skull fires, crucifixes, impaled and tortured bodies |
-| bones | all | skull piles, crucifixes, headless bodies, a skull fire |
+| library | Cathedral, Catacombs, Crypt | bookcases and bare bookshelves round the walls, an open lectern in the middle, story books (the Crypt's own book stands there), candles, a torch, an urn in the Crypt |
+| shrine | Cathedral, Catacombs, Caves, Crypt | a shrine against the wall, two candles round it, pedestals, a fountain or goat shrine, a banner, a torch |
+| chapel | Cathedral, Catacombs, Crypt | an altar, candles round it, banners, a lectern, a pedestal, a grey magic circle, a tear fountain, a torch |
+| crypt | Cathedral, Catacombs, Crypt | a sarcophagus in the middle (the Crypt's own there), more by the walls, urns or skull piles, a story book, a closed chest, crypt candles |
+| torture | all but the Nest | a blood fountain, impaled and hanging bodies, tortured bodies, a pulled lever, headless bodies, a torch |
+| prison | all but the Nest | impaled, hanging and tortured bodies round the walls, a lever, skull piles, a torch |
+| armoury | Catacombs, Caves, Hell, Crypt | weapon racks and armour stands round the walls, a banner, a large closed chest, torches |
+| treasure | all but the Nest | a large closed chest, smaller ones by the walls, a pedestal of stones, a staff stand, candles round it, a torch |
+| altar | Hell, Nest | an altar ringed with skull fires and a red magic circle, a burning cross, a skull switch or goat shrine, crucifixes and bodies |
+| bones | all | skull piles, crucifixes, headless bodies, a pod or mushroom patch in the Nest and Caves, a skull fire |
 
-A stamp names its props by name (`MapObjectName`), with choices: `Sarcophagus|Crucified skeleton` takes the
-first this build has that the tileset allows. Names for props still to come (sarcophagi, altars, shrines,
-statues, urns, chests, chains, wall skeletons, bone piles, wall banners, lecterns) are already in the stamps and
-are skipped until they exist. Each entry says where in the room its props go (round the edge, in the middle,
+A stamp names its props by id (`MapObjectId`) or name, with choices: `crypt_sarcophagus|sarcophagus|crucified_skeleton`
+takes the first this build has that the tileset allows and the level's art budget can load (a kind the map doesn't
+use yet is passed over if it would take the level past 40 object sprite files), so a stamp uses fewer kinds rather
+than fail. `closed_chest/2` asks for a style (the large chest, here); without one the seed picks. Names that aren't
+kinds are skipped. The stamps leave out the cauldron and the bare pedestal, which read as black blobs in the
+keep's dark; they are still in the editor's list. Each entry says where in the room its props go (round the edge, in the middle,
 two or three tiles round the centrepiece, or anywhere), how many (a range the seed picks from, more in a big
 room) and how far apart. Every prop is judged as the Dress pass judges its own: by the rules above, kept 2
 tiles off the heroes' route and the doors if solid, and taken back out if it changes the route, a lock's
