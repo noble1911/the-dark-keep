@@ -53,6 +53,10 @@ what it places is stored in the file as ordinary props, so every co-op client bu
   dkmap_tool builds every level bare as well, and fails it if the door or neck summary differs. Props do take
   a little floor: "tiles to build on" is 11 to 18 lower than bare, under 1%.
 
+A source can also furnish whole rooms with theme-room stamps (docs/MAP-FORMAT.md): `stamp:` lines for chosen
+rooms, or `rooms=N` on the `dress:` line for the N biggest. The campaign uses neither yet, so it bakes as it
+did; `dkmap_tool --stamptest` checks the stamps on a level of each tileset.
+
 Hell is the flattest art: its floor is bright and even, and the red tops of its walls glow whatever the light.
 Its ambient is darker than the other tilesets' (7 preparing, 10 in a raid, in `keeper_lighting.cpp`), and its
 levels get 18 lights and up to 24 props. The Catacombs' floor is the darkest art, so its levels get 18 lights too.
