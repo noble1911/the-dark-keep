@@ -42,6 +42,7 @@
 #include "keeper/keeper_input.hpp"
 #include "keeper/keeper_pad.hpp"
 #include "keeper/keeper_lobby.hpp"
+#include "keeper/keeper_map.hpp"
 #include "keeper/keeper_profile.hpp"
 #include "keeper/keeper_raidtypes.hpp"
 #include "keeper/keeper_resume.hpp"
@@ -520,6 +521,19 @@ void WriteMonsters()
 
 /** The floor plan, for choosing where to build. # solid, . floor. */
 /** Bodies on the floor: by corpse id, by type, and bot heroes' (drawn only). Then the tile with most bodies near it. */
+/** Every object on the level: what it is, which frame of how many it shows, and whether anything can use it. */
+void WriteObjects()
+{
+	for (int i = 0; i < ActiveObjectCount; i++) {
+		const Object &object = Objects[ActiveObjects[i]];
+		const size_t frames = object._oAnimData ? object._oAnimData->numSprites() : 0;
+		Output(fmt::format("object id={} type={} at={},{} frame={}/{} anim={} solid={} select={} break={} inert={} under={} cursor={}", object.GetId(), static_cast<int>(object._otype),
+		    object.position.x, object.position.y, object._oAnimFrame, frames, object._oAnimFlag ? 1 : 0, object._oSolidFlag ? 1 : 0, static_cast<int>(object.selectionRegion),
+		    object._oBreak, IsInertMapProp(object) ? 1 : 0, object._oPreFlag ? 1 : 0, ObjectUnderCursor == &object ? 1 : 0));
+	}
+	Output(fmt::format("objects count={} items={} monsters={}", ActiveObjectCount, ActiveItemCount, ActiveMonsterCount));
+}
+
 void WriteBodies()
 {
 	int byId = 0;
@@ -821,6 +835,8 @@ void Execute(const std::string &line)
 		WriteMap();
 	} else if (command == "bodies") {
 		WriteBodies();
+	} else if (command == "objects") {
+		WriteObjects();
 	} else if (command == "log") {
 		in >> a;
 		logEvery = a;
@@ -1036,6 +1052,11 @@ void Execute(const std::string &line)
 		PushMotion(at.x, at.y);
 		pending.push_front(fmt::format("press click {}", word));
 		waitUntil = SDL_GetTicks() + 80;
+	} else if (command == "screenof") {
+		// Where a tile's centre is on screen, for cropping shots
+		in >> a >> b;
+		const Point at = DevTileOnScreen({ a, b });
+		Output(fmt::format("screenof {},{} {} {}", a, b, at.x, at.y));
 	} else if (command == "movetile") {
 		in >> a >> b;
 		const Point at = DevTileOnScreen({ a, b });
