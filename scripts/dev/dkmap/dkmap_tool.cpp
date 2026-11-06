@@ -14,7 +14,7 @@
  * A level source is text: `name:`, `tileset:`, `seed:` and `note:` lines, then 40 rows of 40 characters.
  *   # rock   . floor   D door   A arch   E entrance's top-left   V vault's top-left
  *   b barrel   c chest   i brazier (on floor; the object goes on the cell's first world tile)
- * and any number of `prop: <x> <y> <kind>[/<style>]` lines: a prop (MapObjectName, any case) for a click
+ * and any number of `prop: <x> <y> <kind>[/<style>]` lines: a prop (MapObjectName or MapObjectId, any case) for a click
  * on world tile x, y, as the editor places it: a wall prop snaps to the wall beside that floor. Each must
  * pass the editor's rules, with the props before it standing.
  * A `dress: <theme> [<theme>] [lights=N] [minlights=N] [spacing=N] [scenery=N] [seed=N] [centre=0]` line runs
@@ -25,7 +25,8 @@
  *
  * Also:
  *   dkmap_tool --data <mpqs> --assets <assets> --map <source.txt> --out <file.dkmap>   one map, any name
- *   dkmap_tool --data <mpqs> --assets <assets> --selftest                               the file format
+ *   dkmap_tool --data <mpqs> --assets <assets> --selftest                               the file format, and every
+ *                                                                  prop placed, loaded and found inert in each tileset
  *   --hellfire with any of these: Hellfire's data too (the Nest, the Crypt and their props)
  * Exit code 0 only if every level passed.
  */
@@ -54,6 +55,7 @@
 #include "engine/path.h"
 #include "game_mode.hpp"
 #include "headless_mode.hpp"
+#include "items.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_campaign.hpp"
@@ -64,6 +66,8 @@
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "levels/trigs.h"
+#include "monster.h"
+#include "msg.h"
 #include "objects.h"
 #include "player.h"
 #include "quests.h"
@@ -127,18 +131,10 @@ std::optional<DressOptions> ParseDress(const std::string &text, std::vector<std:
 	return options;
 }
 
-std::optional<MapObjectKind> KindNamed(std::string name)
+/** By name as shown or by id (MapObjectId), any case. */
+std::optional<MapObjectKind> KindNamed(const std::string &name)
 {
-	const auto lower = [](std::string text) {
-		std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		return text;
-	};
-	name = lower(name);
-	for (size_t i = 0; i < NumMapObjectKinds; i++) {
-		if (lower(std::string(MapObjectName(static_cast<MapObjectKind>(i)))) == name)
-			return static_cast<MapObjectKind>(i);
-	}
-	return std::nullopt;
+	return MapObjectKindNamed(name);
 }
 
 /** `<x> <y> <kind>[/<style>]` */
@@ -628,6 +624,8 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 		if (map.objects.size() > MaxMapObjects)
 			report.errors.push_back(fmt::format("{} objects, more than a map holds", map.objects.size()));
 	}
+	if (const size_t files = MapObjectFileCount(map); files > MaxLevelObjectFiles)
+		report.errors.push_back(fmt::format("its props need {} object sprite files, and a level holds {}: use fewer kinds", files, MaxLevelObjectFiles));
 	const std::vector<std::byte> bytes = SerializeMap(map);
 	report.fileSize = bytes.size();
 	if (bytes.size() >= MaxMapBytes)
@@ -1010,7 +1008,211 @@ int CheckCampaign()
 	return failures == 0 ? 0 : 1;
 }
 
-/** Version 1 and 2 files, written and read back. @return failures */
+/** Everything about one object that using it could change. */
+struct ObjectSnapshot {
+	_object_id type;
+	Point position;
+	uint32_t frame;
+	uint32_t animFlag;
+	SelectionRegion selection;
+	bool solid;
+	bool missiles;
+	int breakState;
+	bool trap;
+	std::array<int, 7> vars;
+
+	bool operator==(const ObjectSnapshot &other) const
+	{
+		return type == other.type && position == other.position && frame == other.frame && animFlag == other.animFlag && selection == other.selection
+		    && solid == other.solid && missiles == other.missiles && breakState == other.breakState && trap == other.trap && vars == other.vars;
+	}
+};
+
+ObjectSnapshot SnapshotOf(const Object &object)
+{
+	return { object._otype, object.position, object._oAnimFrame, object._oAnimFlag, object.selectionRegion, object._oSolidFlag, object._oMissFlag, object._oBreak,
+		object._oTrapFlag, { object._oVar1, object._oVar2, object._oVar3, object._oVar4, object._oVar5, static_cast<int>(object._oVar6), object._oVar8 } };
+}
+
+/** A big walled room: wall props go on its top and left walls, the ones the camera sees. */
+KeepMap PropTestMap(MapTileset tileset)
+{
+	KeepMap map;
+	map.name = "Prop test";
+	map.author = "dkmap_tool";
+	map.tileset = tileset;
+	map.decorSeed = 77;
+	for (int x = 3; x < 37; x++) {
+		for (int y = 3; y < 37; y++)
+			map.setCell(x, y, MapCell::Floor);
+	}
+	map.entrance = { 4, 30 };
+	map.vault = { 30, 30 };
+	return map;
+}
+
+/**
+ * Every kind each tileset offers, placed by the editor's rules in a test room, saved, and loaded the way the game
+ * loads a map: each must stand, take its footprint, be inert, and do nothing when used, broken or left to run.
+ * The version 1 chest beside them must still open. @return failures
+ */
+int PropTest()
+{
+	int failures = 0;
+	const auto check = [&failures](bool ok, std::string_view what) {
+		if (!ok) {
+			fmt::print("FAIL {}\n", what);
+			failures++;
+		}
+	};
+	// Ids and names: each unique, each finds its kind.
+	for (size_t i = 0; i < NumMapObjectKinds; i++) {
+		const auto kind = static_cast<MapObjectKind>(i);
+		check(MapObjectKindNamed(MapObjectId(kind)) == kind, fmt::format("{} is found by its id", MapObjectId(kind)));
+		check(MapObjectKindNamed(MapObjectName(kind)) == kind, fmt::format("{} is found by its name", MapObjectName(kind)));
+		const MapObjectTraits traits = GetMapObjectTraits(kind);
+		check(MapObjectFootprint(kind).size() == traits.tiles && MapObjectFootprint(kind).front() == Displacement { 0, 0 }, fmt::format("{}'s footprint", MapObjectId(kind)));
+		check(traits.interactive == IsAnyOf(kind, MapObjectKind::Barrel, MapObjectKind::Chest), fmt::format("{} is interactive only if it's a version 1 barrel or chest", MapObjectId(kind)));
+	}
+	check(!MapObjectKindNamed("no such prop"), "an unknown name finds nothing");
+
+	const fs::path file = fs::temp_directory_path() / "dkmap_tool" / "prop_test.dkmap";
+	for (size_t t = 0; t < NumMapTilesets; t++) {
+		const auto tileset = static_cast<MapTileset>(t);
+		if (!IsMapTilesetInstalled(tileset))
+			continue;
+		if (!LoadMapTilesetData(tileset).has_value()) {
+			check(false, fmt::format("{} tiles load", MapTilesetName(tileset)));
+			continue;
+		}
+		KeepMap map = PropTestMap(tileset);
+		static bool decorate = false;
+		currlevel = KeepLevel;
+		setlevel = false;
+		gbIsMultiplayer = false;
+		SetCurrentSetup(SetupForMapEditor());
+		SetLiveMap(&map, &decorate);
+		if (!BakePlayableMap(map)) {
+			check(false, fmt::format("the {} test room bakes", MapTilesetName(tileset)));
+			SetLiveMap(nullptr, nullptr);
+			continue;
+		}
+		decorate = true;
+		// A version 1 chest, which must still open, then one of each kind, a few tiles from the rest.
+		map.objects.push_back({ MapObjectKind::Chest, { 40, 40 } });
+		const std::vector<MapObjectKind> palette = MapObjectPalette(tileset);
+		std::vector<MapObjectKind> unplaced;
+		for (const MapObjectKind kind : palette) {
+			if (IsLegacyMapObject(kind))
+				continue;
+			const MapObjectTraits traits = GetMapObjectTraits(kind);
+			BuildMapLevel();
+			std::memset(dObject, 0, sizeof(dObject));
+			InitObjects();
+			bool placed = false;
+			for (int y = 20; y < 88 && !placed; y++) {
+				for (int x = 20; x < 88 && !placed; x++) {
+					const bool nearWall = IsTileSolid({ x - 1, y }) || IsTileSolid({ x, y - 1 });
+					if ((traits.placement != MapObjectPlacement::Floor) != nearWall)
+						continue;
+					const std::optional<MapObject> snapped = SnapMapObject(kind, { x, y }, static_cast<uint8_t>(traits.styles - 1));
+					if (!snapped || WhyMapObjectCantStand(map, *snapped))
+						continue;
+					const bool crowded = std::any_of(map.objects.begin(), map.objects.end(), [&](const MapObject &other) {
+						return std::abs(other.position.x - snapped->position.x) < 4 && std::abs(other.position.y - snapped->position.y) < 4;
+					});
+					if (crowded)
+						continue;
+					map.objects.push_back(*snapped);
+					placed = true;
+				}
+			}
+			if (!placed)
+				unplaced.push_back(kind);
+		}
+		for (const MapObjectKind kind : unplaced)
+			check(false, fmt::format("{} finds a place in the {} test room", MapObjectId(kind), MapTilesetName(tileset)));
+		decorate = false;
+		SetLiveMap(nullptr, nullptr);
+		const size_t files = MapObjectFileCount(map);
+		fmt::print("{:<10} {} kinds, {} objects, {} object sprite files with every kind (the engine holds {})\n", MapTilesetName(tileset), palette.size(), map.objects.size(), files, MaxLevelObjectFiles);
+
+		// As the game loads it.
+		const std::vector<std::byte> bytes = SerializeMap(map);
+		check(WriteMapBytes(file.string(), bytes).has_value(), "the test map is written");
+		const tl::expected<KeepMap, std::string> loaded = ParseMap(bytes.data(), bytes.size());
+		check(loaded.has_value() && loaded->objects == map.objects, fmt::format("the {} test map reads back", MapTilesetName(tileset)));
+		check(bytes[4] == static_cast<std::byte>(3), "a map with the newer kinds is version 3");
+		SetCurrentSetup(SetupForCustomMap(file.string()));
+		ForgetMapCache();
+		PrepareMapLevel();
+		std::memset(dObject, 0, sizeof(dObject));
+		if (!BuildMapLevel()) {
+			check(false, fmt::format("the {} test map builds", MapTilesetName(tileset)));
+			continue;
+		}
+		InitObjects();
+		for (const auto &[object, why] : LeftOutMapObjects())
+			check(false, fmt::format("{} at {},{} left out: {}", MapObjectId(object.kind), object.position.x, object.position.y, why));
+		std::vector<Object *> props;
+		Object *legacyChest = nullptr;
+		for (const MapObject &placed : map.objects) {
+			Object *object = FindObjectAtPosition(placed.kind == MapObjectKind::ImpaledBody && !placed.facesY() ? placed.position + Displacement { 1, 0 } : placed.position, false);
+			const std::string what = fmt::format("{} in {}", MapObjectId(placed.kind), MapTilesetName(tileset));
+			check(object != nullptr, what + " stands");
+			if (object == nullptr)
+				continue;
+			if (IsLegacyMapObject(placed.kind)) {
+				legacyChest = object;
+				continue;
+			}
+			props.push_back(object);
+			check(IsInertMapProp(*object), what + " is inert");
+			check(!object->canInteractWith() && object->_oBreak == 0 && !object->_oTrapFlag && object->_oMissFlag, what + " can't be selected, broken or set off, and missiles pass");
+			check(object->_oSolidFlag == GetMapObjectTraits(placed.kind).solid, what + " is as solid as its kind");
+			for (const Displacement offset : MapObjectFootprint(placed.kind)) {
+				const Point at = object->position + offset;
+				check(FindObjectAtPosition(at) == object, fmt::format("{} covers {},{}", what, at.x, at.y));
+				check(!IsTileWalkable(at) || !GetMapObjectTraits(placed.kind).solid, fmt::format("{} blocks {},{}", what, at.x, at.y));
+			}
+		}
+		check(legacyChest != nullptr && legacyChest->canInteractWith() && !IsInertMapProp(*legacyChest), "the version 1 chest still opens");
+
+		// Used, broken, synced from another player, left to run with someone standing right by it: nothing changes.
+		Player &player = *MyPlayer;
+		player.plractive = true;
+		player._pHitPoints = player._pMaxHP = 50 << 6;
+		const int items = ActiveItemCount;
+		const size_t monsters = ActiveMonsterCount;
+		for (Object *object : props) {
+			const ObjectSnapshot before = SnapshotOf(*object);
+			player.position.tile = object->position + Displacement { 0, -1 };
+			OperateObject(player, *object);
+			SyncOpObject(player, CMD_OPOBJXY, *object);
+			DeltaSyncOpObject(*object);
+			BreakObject(player, *object);
+			BreakObjectMissile(*object);
+			SyncBreakObj(player, *object);
+			DeltaSyncBreakObj(*object);
+			const ObjectSnapshot after = SnapshotOf(*object);
+			check(before == after, fmt::format("{} type {} in {} doesn't change when used or hit", object->position.x, static_cast<int>(object->_otype), MapTilesetName(tileset)));
+			if (IsAnyOf(object->_otype, OBJ_TBCROSS, OBJ_BCROSS)) {
+				// Where a burning cross burns: the tile at -y.
+				for (int tick = 0; tick < 100; tick++)
+					ProcessObjects();
+				check(player._pHitPoints == 50 << 6, fmt::format("standing by a burning cross in {} does no harm", MapTilesetName(tileset)));
+			}
+		}
+		check(ActiveItemCount == items, fmt::format("using the props in {} drops nothing", MapTilesetName(tileset)));
+		check(ActiveMonsterCount == monsters, fmt::format("using the props in {} spawns nothing", MapTilesetName(tileset)));
+		ForgetMapCache();
+	}
+	std::error_code ignored;
+	fs::remove(file, ignored);
+	return failures;
+}
+
+/** Version 1, 2 and 3 files, written and read back. @return failures */
 int SelfTest()
 {
 	int failures = 0;
@@ -1105,13 +1307,39 @@ int SelfTest()
 	bad[objectsAt] = static_cast<std::byte>(NumMapObjectKinds);
 	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 2 refuses an unknown kind");
 	bad = v2Bytes;
-	bad[4] = static_cast<std::byte>(3);
-	check(errorOf(bad) == "it was made by a newer version of the game", "version 3 is refused as newer");
+	bad[objectsAt] = static_cast<std::byte>(NumMapObjectKindsV2); // a version 3 kind
+	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 2 refuses a version 3 kind, as an older reader does");
+
+	// Version 3: the newer kinds. Nothing else changed, so a map without them stays version 2 or 1.
+	KeepMap v3 = v2;
+	v3.objects.push_back({ MapObjectKind::ClosedChest, { 44, 44 }, 2 });
+	v3.objects.push_back({ MapObjectKind::Shrine, { 41, 46 }, MapObjectFacesY });
+	v3.objects.push_back({ MapObjectKind::Sarcophagus, { 46, 50 }, 0 });
+	v3.objects.push_back({ MapObjectKind::Cauldron, { 50, 50 }, 0 });
+	const std::vector<std::byte> v3Bytes = SerializeMap(v3);
+	check(versionOf(v3Bytes) == 3, "a map with a version 3 kind is written as version 3");
+	check(v3Bytes.size() == v2Bytes.size() + 4 * (v3.objects.size() - v2.objects.size()), "version 3 objects are 4 bytes each, as in version 2");
+	tl::expected<KeepMap, std::string> v3Read = ParseMap(v3Bytes.data(), v3Bytes.size());
+	check(v3Read.has_value() && v3Read->objects == v3.objects && v3Read->cells == v3.cells && v3Read->tiles == v3.tiles && v3Read->trans == v3.trans, "version 3 reads back the same");
+	check(v3Read.has_value() && SerializeMap(*v3Read) == v3Bytes, "version 3 writes back byte for byte");
+	check(SerializeMap(v2) == v2Bytes && SerializeMap(v1) == v1Bytes, "maps without version 3 kinds are written as before");
+	bad = v3Bytes;
+	bad[objectsAt] = static_cast<std::byte>(NumMapObjectKinds);
+	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 3 refuses an unknown kind");
+	bad = v3Bytes;
+	bad[objectsAt + 4 * (v3.objects.size() - 4) + 3] = static_cast<std::byte>(3); // closed chest style 3 (it has 0 to 2)
+	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 3 refuses a style the kind hasn't got");
+	bad = v3Bytes;
+	bad[objectsAt + 4 * (v3.objects.size() - 2) + 3] = static_cast<std::byte>(MapObjectFacesY); // a sarcophagus facing a wall
+	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 3 refuses a facing on a floor kind");
+	bad = v3Bytes;
+	bad[4] = static_cast<std::byte>(4);
+	check(errorOf(bad) == "it was made by a newer version of the game", "version 4 is refused as newer");
 	bad = v1Bytes;
 	bad[objectsAt - 2] = static_cast<std::byte>(MaxMapObjectsV1 + 1);
 	check(!ParseMap(withCrc(bad).data(), bad.size()).has_value(), "version 1 refuses more than 64 objects");
 
-	check(v2Bytes.size() + 4 * MaxMapObjects < MaxMapBytes, "a full version 2 map fits the co-op join data");
+	check(v2Bytes.size() + 4 * MaxMapObjects < MaxMapBytes, "a full version 2 or 3 map fits the co-op join data");
 	fmt::print("{} failure(s)\n", failures);
 	return failures;
 }
@@ -1182,8 +1410,12 @@ int main(int argc, char **argv)
 	LoadObjectData();
 	if (checkCampaign)
 		return CheckCampaign();
-	if (selfTest)
-		return SelfTest() == 0 ? 0 : 1;
+	if (selfTest) {
+		const int formatFailures = SelfTest();
+		const int propFailures = PropTest();
+		fmt::print("props: {} failure(s)\n", propFailures);
+		return formatFailures + propFailures == 0 ? 0 : 1;
+	}
 	if (!single.empty()) {
 		Source source;
 		bool parsed = false;
