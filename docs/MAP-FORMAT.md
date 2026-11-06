@@ -14,7 +14,7 @@ All numbers are little-endian. There is no compression: a file is always about 9
 | Offset | Type | Field | Notes |
 |---|---|---|---|
 | 0 | char[4] | magic | `DKMP` |
-| 4 | u16 | version | 1 or 2: see Versions |
+| 4 | u16 | version | 1, 2 or 3: see Versions |
 | 6 | u16 | flags | bit 0: playable, it passed validation when saved |
 | 8 | u32 | payload size | must equal file size minus 16 |
 | 12 | u32 | CRC-32 | of the payload (the zlib polynomial) |
@@ -32,8 +32,8 @@ All numbers are little-endian. There is no compression: a file is always about 9
 | u32 | decoration seed | for the random wall and floor variants |
 | u8, bytes | name | up to 40 printable ASCII characters |
 | u8, bytes | author | up to 24 printable ASCII characters |
-| u16 | object count | at most 64 in version 1, 80 in version 2 |
-| 3 bytes each (v1), 4 (v2) | objects | u8 kind (see Objects and props), u8 x, u8 y as world tiles, and in version 2 u8 variant |
+| u16 | object count | at most 64 in version 1, 80 in versions 2 and 3 |
+| 3 bytes each (v1), 4 (v2, v3) | objects | u8 kind (see Objects and props), u8 x, u8 y as world tiles, and from version 2 u8 variant |
 | 1600 bytes | layout | one per megatile, row by row: 0 rock, 1 floor, 2 door, 3 arch |
 | 1600 bytes | tiles | one per megatile, row by row: the finished `dungeon` |
 | 6400 bytes | transparency | one per world tile of the dungeon area, row by row: `dTransVal`, 0 to 127 |
@@ -67,6 +67,11 @@ heroes can go.
 The variant byte holds the prop's look (its style, bits 0 to 6) and, for a wall prop, bit 7: clear if the
 floor in front is at +x, set if at +y. Those are the two walls the camera sees. Anything else is refused.
 
+Each kind also has a stable id, used by level sources and the editor's theme stamps (`MapObjectId`,
+`MapObjectKindNamed` in keeper_map.hpp, which takes the id or the name shown, any case). Ids never change once
+released; the names shown may be reworded. The editor's prop list is grouped: Light, Wall, Furniture, Bodies,
+Clutter and Set pieces.
+
 | Kind | Name | Engine object | Styles | Light | Solid | Stands | Tilesets |
 |---|---|---|---|---|---|---|---|
 | 0 | Barrel | OBJ_BARREL | 1 | | yes | floor | all (breakable) |
@@ -89,6 +94,44 @@ floor in front is at +x, set if at +y. Those are the two walls the camera sees. 
 | 17 | Crypt candles | OBJ_L5CANDLE | 1 | radius 3 | yes | floor | Crypt |
 | 18 | Angel statue | OBJ_ANGEL | 1 | | yes | floor | Cathedral, Catacombs, Crypt |
 
+Version 3 adds these, all inert scenery however their vanilla object behaves. They are placed without their
+type's own setup (`AddSceneryObject`): no shrine is picked, no skeleton hides in a sarcophagus, no chest gets
+items, and frames are fixed by the style rather than rolled. A multi-tile kind takes the tiles the engine's own
+setup marks (AddSarcophagus, AddLargeFountain, AddMushPatch): `x, y` is the tile it's drawn from, and the others
+are at -y (two tiles) or -x, -y and both (four).
+
+| Kind | Id | Name | Engine object, frames | Styles | Light | Solid | Stands | Tiles | Tilesets | Vanilla anchor |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 19 | closed_chest | Closed chest | OBJ_CHEST1, 2, 3, frame 1 (shut) | 3: small, medium, large | | yes | floor | 1 | all | random floor tile (AddChest) |
+| 20 | sarcophagus | Sarcophagus | OBJ_SARC, frame 1 (shut) | 1 | | yes | floor | 2 | Cathedral, Catacombs, Hell, Crypt | floor; AddSarcophagus marks -y |
+| 21 | crypt_sarcophagus | Crypt sarcophagus | OBJ_L5SARC, frame 1 | 1 | | yes | floor | 2 | Crypt, Hell | as the sarcophagus |
+| 22 | shrine | Shrine | OBJ_SHRINEL (+x), OBJ_SHRINER (+y), frame 1 (unused) | 1 | | yes | against a wall | 1 | all but the Nest | TFit_Shrine: the floor tile with the wall at -x (L) or -y (R), as the bookcase |
+| 23 | goat_shrine | Goat shrine | OBJ_GOATSHRINE, animated | 1 | | yes | floor | 1 | all | middle of 3 by 3 floor (TFit_GoatShrine) |
+| 24 | large_fountain | Large fountain | OBJ_PURIFYINGFTN, OBJ_MURKYFTN, animated | 2: clear, murky | | yes | floor | 4 | all | 2 by 2 floor (TFit_Obj5); AddLargeFountain marks -x, -y |
+| 25 | tear_fountain | Tear fountain | OBJ_TEARFTN, animated | 1 | | yes | floor | 1 | all | as the large fountain, one tile |
+| 26 | pedestal | Pedestal | OBJ_PEDESTAL, frames 1 to 4 (no stones to three) | 4 | | yes | floor | 1 | all but the Nest | set level floor (Blood quest) |
+| 27 | lectern | Lectern | OBJ_BOOKLVR (book1), frames 1 to 3 | 3: shut, open, bare | | yes | floor | 1 | all but the Nest | set level floor (book levers, quest tomes) |
+| 28 | story_book | Story book | OBJ_STORYBOOK, frames 1 to 6 | 6: three books, shut and open | | yes | floor | 1 | all but the Nest | AddStoryBooks: open floor, candles round it |
+| 29 | lever | Lever | OBJ_LEVER, frames 1, 2 | 2: up, pulled | | yes | floor | 1 | all but the Nest | set level floor |
+| 30 | skull_switch | Skull switch | OBJ_SWITCHSKL, frames 1, 2 | 2 | | yes | floor | 1 | Hell | Diablo's level, on the floor |
+| 31 | crypt_lever | Crypt lever | OBJ_L5LEVER, frames 1, 2 | 2 | | yes | floor | 1 | Crypt | Na-Krul's level, on the floor |
+| 32 | crypt_book_stand | Crypt book stand | OBJ_L5BOOKS, frames 1 to 6 | 6 | | yes | floor | 1 | Crypt | AddCryptStoryBook: open floor, candles round it |
+| 33 | altar | Altar | OBJ_ALTBOY, frame 1 | 1 | | yes | floor | 1 | all | Lazarus's set level, floor |
+| 34 | staff_stand | Staff stand | OBJ_LAZSTAND, frames 1 (staff), 2 (bare) | 2 | | yes | floor | 1 | all | AddLazStand: open floor |
+| 35 | rock_stand | Rock stand | OBJ_STAND, frame 1 | 1 | | yes | floor | 1 | all | Magic Rock quest, floor |
+| 36 | magic_circle | Magic circle | OBJ_MCIRCLE1, frames 1 to 4, drawn under units | 4: pentagram and rings, grey and red | | no | floor | 1 | all | Lazarus's set level, painted on the floor |
+| 37 | burning_cross | Burning cross | OBJ_TBCROSS, animated | 1 | radius 5 | yes | floor | 1 | all | middle of 3 by 3 floor (Theme_BrnCross) |
+| 38 | hanging_body | Hanging body | OBJ_NUDEW2R, animated | 1 | | yes | floor | 1 | all | set levels, floor |
+| 39 | bookshelf | Bookshelf | OBJ_BOOKSHELF (+x), OBJ_BOOKSHELFR (+y), the bare shelves | 1 | | yes | against a wall | 1 | Cathedral, Catacombs, Crypt | set levels, as the bookcase |
+| 40 | mushroom_patch | Mushroom patch | OBJ_MUSHPATCH, frame 1 | 1 | | yes | floor | 4 | Caves, Nest | AddMushPatch marks -x, -y |
+| 41 | urn | Urn | OBJ_URN, frame 1 (whole) | 1 | | yes | floor | 1 | Crypt | random floor tile (as barrels) |
+| 42 | pod | Pod | OBJ_POD, frame 1 (whole) | 1 | | yes | floor | 1 | Nest | random floor tile (as barrels) |
+| 43 | cauldron | Cauldron | OBJ_CAULDRON, frame 1 (full) | 1 | | yes | floor | 1 | all | 2 by 2 floor (TFit_Obj5) |
+
+Every one was checked by eye in every tileset it's offered in, each style and facing (dkmap_tool builds survey maps,
+the game screenshots them): floor kinds stand on their tile, the shrine and the bookshelf have their backs on the
+wall, and no frame is blank or broken. The Hellfire kinds (the Crypt's and the Nest's) need Hellfire's data.
+
 `x, y` is the tile the prop is stored on: for a wall prop, the wall tile. An impaled body facing +x is drawn
 from the floor tile in front (its art is made for that), so it stands there in the level, without blocking it.
 Every tileset has a light: braziers, candles, skull fires and torches, and the Crypt's own candles.
@@ -101,7 +144,8 @@ and a left-out prop is a warning. The rules depend only on the tiles and the obj
 leaves out the same ones.
 
 - Not within a tile of either staircase's footprint, nor where something already stands.
-- **On the floor:** on a walkable tile. A solid prop must also keep the heroes' ways as they were: every
+- **On the floor:** on a walkable tile, every tile of a multi-tile kind's footprint, which is judged as one
+  block by the rules below. A solid prop must also keep the heroes' ways as they were: every
   walkable tile round it must still reach every other one without it, by the steps heroes take (BuildField's,
   diagonals round corners included), so it can't cut anything off or fill a doorway; and it must leave at least
   two tiles of open floor beside it along both axes, so it never narrows a way through to one tile or puts a
@@ -137,25 +181,58 @@ none of which the keep runs. What each one is and why it is or isn't a prop:
 | OBJ_BLOODFTN | blood fountain theme (any) | | yes | | heals | Blood fountain, inert |
 | OBJ_L5CANDLE | Crypt story books | 3 | yes | | no | Crypt candles |
 | OBJ_ANGEL | set levels | | yes, blocks missiles | | no | Angel statue |
-| OBJ_CAULDRON | Hell (cauldron theme) | | yes | | random shrine | left out: its art draws as a black blob in the keep |
-| OBJ_SARC, OBJ_L5SARC | Cathedral, Crypt | | yes, two tiles | | opens, can hold a skeleton | left out: spawns monsters |
-| OBJ_BCROSS, OBJ_TBCROSS burning cross | burning cross theme | 5 | yes | | burns whoever stands by | left out: does damage |
-| Purifying, murky and tear fountains, goat shrine, shrines | themes | | yes, some four tiles | | buffs, curses | left out: interactive or too big |
-| OBJ_LEVER, OBJ_BOOK2L/R, story books, pedestal, magic circles, mushroom patch | quests | | | | quest triggers | left out |
-| OBJ_POD, OBJ_URN | Nest, Crypt | | yes | | break like barrels | left out: the barrel is the keep's breakable |
+| OBJ_CAULDRON | Hell (cauldron theme) | | yes | | random shrine | Cauldron, inert, frame 1: frame 3 is the drained pot, the black blob seen before |
+| OBJ_CHEST1 to 3, OBJ_TCHEST1 to 3 | any level | | yes | | items, traps | Closed chest, shut and inert (the v1 Chest still opens) |
+| OBJ_SARC, OBJ_L5SARC | Cathedral, Crypt | | yes, two tiles | | opens, can hold a skeleton | Sarcophagus, Crypt sarcophagus: shut, no skeleton, never opens |
+| OBJ_BCROSS, OBJ_TBCROSS burning cross | burning cross theme | 5 | yes | | burns the player on the tile at -y | Burning cross: lights, never burns |
+| OBJ_SHRINEL/R | shrine theme, against a wall | | no (yes as a prop) | | buffs, curses | Shrine, unusable |
+| OBJ_GOATSHRINE, purifying, murky and tear fountains | themes | | yes, two by two for the big fountains | | buffs, heals, curses | Goat shrine, Large fountain, Tear fountain: inert |
+| OBJ_LEVER, OBJ_SWITCHSKL, OBJ_L5LEVER, OBJ_FLAMELVR | quests, Diablo's and Na-Krul's levels | | yes | | open doors, start traps | Lever, Skull switch, Crypt lever: never pulled (the flame lever is the same art) |
+| OBJ_BOOKLVR, OBJ_BLINDBOOK, OBJ_BLOODBOOK, OBJ_STEELTOME (book1) | quests | | yes | | quest text, open doors | Lectern, unreadable |
+| OBJ_STORYBOOK, OBJ_L5BOOKS | levels 4, 8, 12, the Crypt | | yes | | story text | Story book, Crypt book stand: unreadable |
+| OBJ_PEDESTAL, OBJ_STAND, OBJ_LAZSTAND, OBJ_ALTBOY | quests | | yes | | quest steps | Pedestal, Rock stand, Staff stand, Altar: inert |
+| OBJ_MCIRCLE1/2 | Lazarus's level | | no | | teleport | Magic circle: never teleports (not updated) |
+| OBJ_NUDEW2R | set levels | | yes | | no | Hanging body |
+| OBJ_BOOKSHELF, OBJ_BOOKSHELFR | set levels | | yes | | no | Bookshelf |
+| OBJ_MUSHPATCH | Mushroom quest | | yes, two by two | | gives the mushroom | Mushroom patch, inert |
+| OBJ_POD, OBJ_URN | Nest, Crypt | | yes | | break like barrels, can hold a skeleton | Pod, Urn: whole and unbreakable. The exploding OBJ_PODEX, OBJ_URNEX and OBJ_BARRELEX stay out |
+| OBJ_BOOK2L/R, OBJ_SKELBOOK | quests, skeleton room | | yes | | books | left out: the same art as the Book stand |
+| OBJ_SLAINHERO | level 9 | | yes | | gives an item | left out: it is OBJ_DECAP's frame 2, the Headless body's second style |
+| OBJ_SIGNCHEST, OBJ_WEAPRACK, OBJ_WARARMOR, OBJ_WARWEAP | quests | | | | | left out: the same art as the closed chest, racks and stands |
+| OBJ_WATER (miniwatr) | unused | | | | | left out: no vanilla anchor to copy |
+| OBJ_TORCHL/R | Catacombs, on the floor in front of the near walls | 8 | | yes | | left out: the format's facings are the walls the camera sees, where they float |
 | OBJ_TRAPL/R, OBJ_FLAMEHOLE | traps | | | | fire | left out: the keep has its own traps |
 
-Every prop is solid except the two wall kinds, and every one lets missiles through (the bookcase, the racks and
+**Wall dressing.** Vanilla's only wall-mounted objects are the torches (OBJ_TORCHL2/R2 on the wall tile), the
+impaled bodies (OBJ_TORTURE1 to 5) and the stick torches of the near walls. The chains, skeletons and banners on
+dungeon walls are wall tiles (the decoration variants a saved map bakes), not objects, so there are no more wall
+kinds to add from vanilla's art; the shrine and the bookshelf stand against walls like the bookcase.
+
+**Inert.** A prop's Objects[] slot is noted when InitMapObjects places it (and again from the map if the level
+comes from its saved copy). `keeper::IsInertMapProp` is checked first thing by OperateObject, SyncOpObject and
+DeltaSyncOpObject, BreakObject, BreakObjectMissile, SyncBreakObj and DeltaSyncBreakObj, so neither a click, a
+telekinesis spell nor a message from another player can use one; ProcessObjects only lights and animates it (no
+sarcophagus update, no burning cross damage, no magic circle). Its selection region is none, so the cursor and
+the controller never pick it, its break state is 0, its trap flag is clear and missiles pass. Bots and hero
+monsters never operate objects at all. dkmap_tool --selftest places every kind in every tileset, uses, breaks
+and syncs each one and checks nothing changes, nothing drops, nothing spawns, and standing by a burning cross
+does no harm; and that the version 1 chest still opens.
+
+Every prop is solid except the two wall kinds and the magic circle, and every one lets missiles through (the bookcase, the racks and
 stands, the statue and the crucifixes would block them in vanilla). Object lights are baked into the level's
 light when it's built, and also come and go as a moving light while a player is within the radius plus 10 tiles;
 the engine has 32 moving lights in all.
 
 **Art.** InitObjectGFX loads an object's sprite file only if a level-range, level-type, theme or quest says so,
 and the keep (level 1, no themes, no quests) would get none of these. `AddMapObjectGraphics` adds the files of
-every prop the tileset can have on the keep level. The engine holds 40 object sprite files a level (pObjCels):
-the keep's own use about 9 (barrels, chests, traps, sarcophagi, its tileset's doors and braziers) and all props
-add up to 21 more, so they fit; a kind whose files wouldn't fit is left out with a log line. A prop whose art the
-game data lacks (Hellfire's, for the Crypt candles) isn't offered and is left out.
+the props the map uses. The engine holds 40 object sprite files a level (pObjCels): the keep's own use 9 or 10
+(barrels, chests, traps, the sarcophagus, its tileset's doors, the Cathedral's braziers), and every kind a
+tileset offers would need 41 to 49 in all, so a level can't load them all. A map stays within 40 if it uses
+fewer kinds: the editor refuses a kind that would go over, ValidateMap warns, dkmap_tool fails a level that
+does, and the game leaves out a kind whose files don't fit, with a log line. The editor loads the map's own
+kinds first, then the chosen kind and the rest of the tileset's while there's room; a kind it didn't load
+reloads the level when placed (`MapNeedsArtReload`). A prop whose art the game data lacks (Hellfire's, for the
+Crypt's and the Nest's kinds) isn't offered and is left out.
 
 ### Dressing
 
@@ -196,10 +273,14 @@ byte or flag bits for anything older readers must understand.
 
 - **1:** objects are 3 bytes, kinds 0 to 2, at most 64.
 - **2:** objects are 4 bytes (the variant), kinds 0 to 18, at most 80. Nothing else changed.
+- **3:** kinds 0 to 43. Nothing else changed.
 
-A map is written as version 1 whenever that can hold it (64 objects or fewer, all kinds 0 to 2): a version 1
-file reads back and writes back byte for byte, so the campaign's maps and players' older maps stay as they are
-and still open in older builds. A map with props needs version 2. `dkmap_tool --selftest` checks both ways
+A map is written as the oldest version that holds it: version 1 for 64 objects or fewer, all kinds 0 to 2;
+version 2 if it has only kinds up to 18; version 3 only if it uses a newer kind. Each reads back and writes
+back byte for byte, so the campaign's maps and players' older maps stay exactly as they are and still open in
+older builds. The new kinds got a version rather than going into version 2 because a version 2 reader refuses
+an unknown kind as damage ("it has an unknown object"); with version 3 it says the map is from a newer game,
+which is the truth, and the rule above says a change older readers can't understand takes a new version. `dkmap_tool --selftest` checks both ways
 round, and `--check-campaign` that every campaign map writes back unchanged and builds every object it holds.
 
 ## Co-op

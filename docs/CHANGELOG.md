@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statues and more, all inert, placed by rules that never change where heroes can go
 - All 20 campaign levels are lit and furnished for their names by a dressing pass, proven to leave every
   route, lock detour and neck as it was. The editor's Dress button runs the same pass on your own maps
+- Maps version 3: 25 more props, all inert scenery: closed chests, sarcophagi, shrines, fountains, a goat
+  shrine, lecterns and story books, levers, an altar, pedestals and stands, magic circles, a burning cross that
+  doesn't burn, a hanging body, bookshelves, a cauldron, and the Crypt's and Nest's urns, pods, levers and books.
+  Big ones take two or four tiles. Nothing can use, open or break them, from a click or another player
+- A level loads only the object art its map uses, so more kinds fit the engine's 40 sprite files
+- The editor's prop list is grouped: Light, Wall, Furniture, Bodies, Clutter and Set pieces
 - Hell is darker (7 preparing, 10 in a raid) so its torches and skull fires read against the flat floor
 - The Cathedral levels' braziers became wall torches: radius 5 lit only a tile or two in the dark
 - Every monster and slain hero leaves a body that stays all level
