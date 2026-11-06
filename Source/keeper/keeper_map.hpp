@@ -242,6 +242,22 @@ std::vector<MapObjectKind> MapObjectPalette(MapTileset tileset);
 Size MapStairsSize(MapTileset tileset, bool entrance);
 /** True if a staircase with its top-left at `position` fits inside the paintable area. */
 bool MapStairsFit(MapTileset tileset, bool entrance, Point position);
+/**
+ * True for stairs built into a wall (the Cathedral's and Crypt's up stairs, both of the Caves' and the Nest's), as
+ * opposed to those that stand free in a room. The generator only ever puts these in a straight wall.
+ */
+bool MapStairsNeedWall(MapTileset tileset, bool entrance);
+/** For the editor: where stairs that need a wall go. */
+std::string MapStairsWallHint(MapTileset tileset, bool entrance);
+/**
+ * Why these stairs at `position` aren't set into a wall the way the generator's are, judged on the painted layout:
+ * the rock behind them (their stamp's rock part) and one cell to either side of it must be rock already, and the
+ * stamp's floor painted floor, so the stamp adds no free-standing wall. Nothing if they are, or stand free anyway.
+ * Old maps that break it still load and play; the editor and ValidateMap say so.
+ */
+std::optional<std::string> MapStairsWallProblem(const KeepMap &map, bool entrance, Point position);
+/** The nearest spot (by straight distance, up to `radius` cells away) where the stairs fit and pass the rule above. */
+std::optional<Point> FindMapStairsSpot(const KeepMap &map, bool entrance, Point wanted, int radius);
 /** Paintable megatiles: the outermost ring has to stay rock, or the joining rules run off the map. */
 constexpr bool IsPaintableCell(int x, int y)
 {

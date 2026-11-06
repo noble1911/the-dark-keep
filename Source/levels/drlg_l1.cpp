@@ -1371,7 +1371,7 @@ void KeeperL1Build(Point stairsUp, Point stairsDown, const uint8_t openings[DMAX
 		KeeperCryptPlaceStairs(stairsUp, stairsDown);
 	} else {
 		if (stairsUp.x >= 0)
-			STAIRSUP.place(stairsUp);
+			L5STAIRSUP.place(stairsUp); // backed by rock, as the keep's stairs go in an outer wall
 		if (stairsDown.x >= 0)
 			STAIRSDOWN.place(stairsDown);
 	}

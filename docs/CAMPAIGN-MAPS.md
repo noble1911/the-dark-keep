@@ -109,47 +109,47 @@ lines, by world tile, as a click in the editor would: see the top of scripts/dev
 
 ## Level 1: Old Cellars
 
-**Cathedral.** Route 56 tiles, 466 floor cells, 1953 tiles to build on. 4 doors: 2 can't be bypassed, 0 on the short route with a way round, 2 off the short route. Shut at any of 8 points along the route, 4 leave no way on. 20 light sources, 40 props.
+**Cathedral.** Route 60 tiles, 466 floor cells, 1969 tiles to build on. 4 doors: 2 can't be bypassed, 0 on the short route with a way round, 2 off the short route. Shut at any of 8 points along the route, 5 leave no way on. 20 light sources, 42 props.
 
 One way in, two doors on it. Nothing to work out but where to stand: the hall is the place for traps, the door the place for a first lock, and the two closets take lairs out of the way.
 
 ```
 
-
-             o###########o#
+                  EEEE
+             #####EEEE###o#
              #....EEEE....#
-             #....EEEE....#
-             #....EEEE....#
-             #....EEEE...o#
+             o....EEEE...o#
              #.......++...#
-             #........+...#
+             #........++..#
+             #.........+..#
+             #........++..#
              #.......++...#
-             #o.....++.o..#
-             #####o.+######
-                  #.+#
-                  #.+#
+             o..o...++..o.#
+             ######.+######
+                  o.+#
                   #.+#
                   #.+#
                   #++#
-         ##o##o#o#oD#########o#
-  o######o..........+........o######o#
-  #......#.......o...+........#......#
-  #.b....#.o..........+......oo....c.#
-  #......D....o........+......#......#
-  #......#.....o...oo..++.....D......#
-  #..b...o............++......#......#
-  o...o..#...........++.......#...o..#
-  #######o...o..o..o++..o.o.o.########
+                  #+.#
+         #o#o##o#ooD########o##
+  o#######..........+........o########
+  #......o...........+........#......#
+  #.b....o............+......o#....c.#
+  #......D.o..o.....o..+......#......#
+  #......#.......o..o..++.....D......#
+  #..b...o............++......o......#
+  o.o....o...........++......o#.o....#
+  #######o...o..o..o++..o.o...########
          ###########D#####o####
             #........+.....#
-            #......o..+....#
+            #.....o...+....#
             #.........++...#
             #.....VVVV+....#
+            #.....VVVV.....#
             #.....VVVV....o#
-            #.o...VVVV.....#
+            #..o...........#
             #..............#
-            #..............#
-            #.............o#
+            #.........o....#
             ################
 
 
@@ -158,48 +158,48 @@ One way in, two doors on it. Nothing to work out but where to stand: the hall is
 
 ## Level 2: Rat Warrens
 
-**Cathedral.** Route 123 tiles, 724 floor cells, 3133 tiles to build on. 5 doors: 3 can't be bypassed, 0 on the short route with a way round, 2 off the short route. Shut at any of 19 points along the route, 16 leave no way on. 21 light sources, 59 props.
+**Cathedral.** Route 123 tiles, 724 floor cells, 3150 tiles to build on. 5 doors: 3 can't be bypassed, 0 on the short route with a way round, 2 off the short route. Shut at any of 19 points along the route, 17 leave no way on. 21 light sources, 59 props.
 
 A long S with doors in a row and blind burrows off it. Still only one route, but now there is distance to spend: layers of defence, and burrows that hide lairs so that they strike the party from the side.
 
 ```
 
-
-  ###########            #########o###
+     EEEE
+  ###EEEE####            #########o###
   #..EEEE...#            #...........#
   #..EEEE...#            #...........#
-  #..EEEE...#########o####...........#
-  #..EEEE...............+D...........#
-  #.....++.+++++++++++++.#+..........#
-  #......++.####+.########.+.........#
+  #.....++..#########o####...........#
+  #......++.............+D..........o#
+  #.......++++++++++++++.#+..........#
+  #.........####+.########.+.........#
   #.........#  #..#      #..+........#
-  #o...o....#  #..#      #o..+......o#
+  #..o..o...#  #..#      #...+.....o.#
   ##############..#####  #####+.######
             #.........#      #.+#
             #.b.....c.#      #.+#
             #.........#      #.+#
-            #......o..#      #++#
-  o##########.......b.##ooo###+.ooo###
+            #..o......#      #++#
+  o########o#.......b.##ooo###+.ooo###
   #.........#.........#o....++.......#
-  #........o############...++........#
-  #.........o#######o##o..++...o.....#
+  #.........############...++........#
+  #.........#####o#####o..++...o.....#
   #........+D.........+D.++.o....o...#
   #.......++#++++++++++#++.....o.....#
   #......++.#####+######.............#
-  #.....++..#   #.#    #..o..........#
+  #.....++.o#   #.#    #..o..........#
   #o...++...#   #.#    o...o..o...o..#
-  ####.+#########D####################
-     o.+#    o........#
+  ###o.+#########D####################
+     #.+#    o.......o#
      #.+#    #.b......#
-     #.+#    #o.......#
+     #.+#    #........#
   ####.+########o#ooo#oo#o#o##########
   #.....+.......#....................#
-  #......+.....o#..o...............c.#
+  #......+......#..o...............c.#
   #....VVVV.....#o.....o.............#
-  #....VVVV.....D....o....oo........o#
-  #....VVVV.....o.....o..............#
+  #....VVVV.....D....o....oo.........#
+  #....VVVV.....o.....o.............o#
   #.............#..................b.#
-  #...o....o....o...o.o..o..o......o.#
+  #....o.o...o..o...o....o.o...o..o..#
   ####################################
 
 
@@ -207,146 +207,146 @@ A long S with doors in a row and blind burrows off it. Still only one route, but
 
 ## Level 3: Sunken Chapel
 
-**Cathedral.** Route 71 tiles, 604 floor cells, 2597 tiles to build on. 5 doors: 1 can't be bypassed, 1 on the short route with a way round (detour +34 tiles), of which a lock turns the party away from 1, 3 off the short route. Shut at any of 10 points along the route, 1 leave no way on; 2 have a real way round (+10 tiles or more, longest +34). 19 light sources, 43 props.
+**Cathedral.** Route 71 tiles, 594 floor cells, 2572 tiles to build on. 5 doors: 1 can't be bypassed, 1 on the short route with a way round (detour +34 tiles), of which a lock turns the party away from 1, 3 off the short route. Shut at any of 10 points along the route, 1 leave no way on; 2 have a real way round (+10 tiles or more, longest +34). 19 light sources, 43 props.
 
 The first loop. Two aisles reach the chancel, one shorter, and a side chapel links them. A lock on the short aisle turns the party down the long one, so a single lock chooses which hall the traps go in. Both aisles meet at the one last door.
 
 ```
 
-          ############
-          #..EEEE....#
-      ##o##..EEEE....#     #####
-      #...#..EEEE....##o####..o#
-      #..+D..EEEE....D.........#
-      #..+#++........#.........#
-      #..+#.........o#######...#
-      #..+#..o.......#     #..o#
+             EEEE
+          ###EEEE#####
+      #o###..EEEE....#     #####
+      #..o#..EEEE....##o####...#
+      #..+D.+........D.........#
+      #..+#+.........#.........#
+      #..+#..........#######...#
+      #..+#..o..o....#     #...#
       #..+############     #...#
       o..+#                #...#
       #..+#oooo##o##o######o...#
-      #..+#................#...#
+      #..+#................#..o#
       #..+#.b.....oo.o.o.b.#...#
-      #..+#...............o#..o#
       #..+#................#...#
-      #..+#....oo.........o#...#
+      #..+#...............o#...#
+      #..+#....oo..........#...#
       #..+D.....o..........#...#
-      #..+#........o.......#...#
+      #..+#........o......o#...#
       #..+o..oo............o...#
       #..+#................D...#
       #..+#................#...#
-      #..+#.b............b.#..o#
-      #..+#o...o..........o#...#
+      #..+#.b............bo#...#
+      #..+#o...........o...#...#
       #..+##################...#
-      #..+#                #...#
-      #..+#####o#########o##..o#
+      #..+#                #..o#
+      #..+#####o########o###...#
       #...+....................#
       o....+...................#
       #.....+..................#
-      #......+............o....#
+      #...o..+.......o...o.....#
       o######D########o#########
       #......++........#
       #......VVVV......#
       #......VVVV......#
       #......VVVV......#
-      #...............o#
-      #..o..........o..#
+      #................#
+      #.o.....o......o.#
       ##################
 
 ```
 
 ## Level 4: Bone Pits
 
-**Cathedral.** Route 83 tiles, 850 floor cells, 3596 tiles to build on. 7 doors: 1 can't be bypassed, 2 on the short route with a way round (detour +16, +16 tiles), of which a lock turns the party away from 2, 4 off the short route. Shut at any of 12 points along the route, 6 leave no way on; 4 have a real way round (+10 tiles or more, longest +16). 22 light sources, 61 props.
+**Cathedral.** Route 83 tiles, 840 floor cells, 3568 tiles to build on. 7 doors: 1 can't be bypassed, 2 on the short route with a way round (detour +16, +16 tiles), of which a lock turns the party away from 2, 4 off the short route. Shut at any of 12 points along the route, 6 leave no way on; 4 have a real way round (+10 tiles or more, longest +16). 22 light sources, 63 props.
 
 A hub with pits around it. The party crosses the central pit whatever it does, so whatever stands there sees it. Two ways lead on from the hub, by the east pit and by the south pit, and the north and west pits are dead ends: places for lairs, not places anyone need go.
 
 ```
 
- ############         #######o######
- #..EEEE....#         #...........o#
- #..EEEE...o#         #.b........c.#
- #..EEEE....#####o#####............#
- #..EEEE..............D............#
- #.....++..++++++++...#............#
- #......+++.#######+.##............#
- #..o....+..#     #.+##..........bo#
- ############     #.+#o.o..........#
+    EEEE              #########o####
+ ###EEEE#####         #............#
+ #..EEEE....#         #.b........c.#
+ #..EEEE....o######o###............#
+ #.....++.............D............#
+ #......++.++++++++...#............#
+ #.......++.#######+.##............#
+ #o...o.....#     #.+##..........b.#
+ ############     #.+##.....o.o.o..#
                   #.+###############
                   o.+#
                   #++#    #############
- #oo###o##oo#oooo#oD#oo#oo#..o........#
- #...........#......+.....#......o....#
- o.b.........#.......+....#...........#
- #.........o.#.....o..+...#...........#
- o.....o.....o.........+.+D...........#
- #....o......#...oo.....++#+..........#
- o.....o.....D...o....o...#.+...o....o#
+ #oo###o##oo#oooo##D##o#oo#...........#
+ #...........#......+.....#...o.......#
+ o.b.........#...o...+....#...........#
+ #.........o.o.....o..+...#...........#
+ o.....o.....#.........+.+D...........#
+ #....o......o....o...o.++#+.........o#
+ o.....o.....Doo..........#.+...o.....#
  o........o..#............#..+........#
- o...........o..o.........#...+.......#
- #...........#.....o......#....+......#
- o...........#............o.....+.....#
- o.c.......b.o.........o..#..o...+....#
+ o...........#....o.....o.#...+.......#
+ #...........o.......o....#....+......#
+ o...........o............o.....+.....#
+ o.c.......b.o..o.........#.o.o..+....#
  #...........#............#######D#####
- ##############D#########o#.......+..o#
-           #..............#........+..#
-           #..............#.......++.o#
-           #...o..........#...VVVV+...#
+ ##############D#########o#.......+...#
+           #..............#.......+...#
+           #..............#.......++..#
+           #....o.........#...VVVV+...#
            #..............#...VVVV....#
-           #..............#...VVVV....#
+           #..............#...VVVV...o#
            #..............#...........#
            #..............D...........#
-           #..o........o..#...........#
-           ################..........o#
+           #......o...o...#...........#
+           ################...........#
                           #...........#
-                          o......o....#
+                          o...o..o.o..#
                           #############
 
 ```
 
 ## Level 5: Black Vaults
 
-**Cathedral.** Route 96 tiles, 1089 floor cells, 4611 tiles to build on. 11 doors: 0 can't be bypassed, 4 on the short route with a way round (detour +5, +5, +7, +7 tiles), of which a lock turns the party away from 4, 7 off the short route. Shut at any of 14 points along the route, 0 leave no way on. 24 light sources, 62 props.
+**Cathedral.** Route 98 tiles, 1078 floor cells, 4581 tiles to build on. 11 doors: 0 can't be bypassed, 4 on the short route with a way round (detour +4, +4, +6, +6 tiles), of which a lock turns the party away from 4, 7 off the short route. Shut at any of 15 points along the route, 0 leave no way on. 23 light sources, 65 props.
 
 Nine strongrooms joined by doors in a lattice, the doors set far apart so each room has to be crossed. The door count is the point: gold for locks runs out long before doors do, and every lock moves the route somewhere else, so the player is choosing a path through the keep.
 
 ```
 
- #o#####oo##oo########################
- #.EEEE......#..........o#...........#
- o.EEEE......#.b.........D.........co#
- o.EEEE......#...........#...........#
- o.EEEE......#...........#...........#
- #....++.....#...........#..........o#
- o...o.++....#.....o.....#...........#
- o.....++....#...........#...........#
- o..o.++.....#..........o#...........#
- o...++......#...........#...........#
- o..++.......D...........o...........#
- #.++........#....o......#....o......#
- ooD#####oo#o##########D#o#########D##
- o..+........#...........#...........#
- #...+......+D.b....o....#...........#
+   EEEE      oooo#####o#o#####o#######
+ ##EEEE#######...........#...........#
+ #.EEEE......#.b.........D.........co#
+ #.EEEE.....o#...........#...........#
+ #....++.....#.....o.....#..........o#
+ #.....++....o....o......#...........#
+ #......+....#....oo.....#...........#
+ #.....++....o...........#...........#
+ #....++.....#...........#...........#
+ #...++......o...........#...........#
+ #..++.......D...........#..........o#
+ #.++........#...........#...........#
+ o#D##o#o#o#o##########D###########Do#
+ #..+........#...........o...........#
+ o...+......+D.b.....o...#...........#
  o....+....++#+..........#...........#
- #..o..+..++.#.+......o..#...........#
- o....o.+++..#..+........#...........#
- o.......+...#...+.......#...........#
- #...o.......#....+.....o#...........#
- o...........#....++.....#..........o#
- #...........#...++......#...........#
+ #.....+..++.#.+.........#..........o#
+ o...o..+++..#..+........#...........#
+ o....o..+.o.#...+.o....o#...........#
+ #.....o.....#....+......#..........o#
+ #...........#....++....o#...........#
+ o...........#...++......#...........#
  o...........#..++.....b.D...........#
- o...........#.++........#....o.o....#
- o#D#oo#o#o####D###################D##
- #...........#..+........#...........#
- o...........#...+......+D..........o#
- #...........#....+....++#+..........#
- #....o......#.....+..++.#.+.........#
- #....o......#......+++.o#..+........#
- o...........#.......+...#...+.......#
- #...o.......#...........#....+.VVVV.#
- o...........#...........#.....+VVVVo#
- #...........#...........#......VVVV.#
+ #...........#.++..o.....#.......o...#
+ o#D#o#ooooo###D###################D##
+ o...........#..+........#...........#
+ o...........#...+......+D...........#
+ o...........#....+....++#+..........#
+ o.....o.....#.....+..++.#.+.........#
+ #....o......#......+++..#..+.......o#
+ #...........#.......+...#...+.......#
+ #...o.......#....o......#....+.VVVV.#
+ #...........#..........o#.....+VVVV.#
+ o...........#...........#......VVVV.#
  #.c.........#.........b.#...........#
- #...........#.....o...o.#...........#
+ #...........#......o....#...o......o#
  #####################################
 
 
@@ -354,48 +354,48 @@ Nine strongrooms joined by doors in a lattice, the doors set far apart so each r
 
 ## Level 6: Weeping Halls
 
-**Cathedral.** Route 157 tiles, 1035 floor cells, 4458 tiles to build on. 5 doors: 0 can't be bypassed, 5 on the short route with a way round (detour +12, +20, +28, +36, +44 tiles), of which a lock turns the party away from 4, 0 off the short route. Shut at any of 25 points along the route, 0 leave no way on; 10 have a real way round (+10 tiles or more, longest +44). 22 light sources, 48 props.
+**Cathedral.** Route 157 tiles, 1001 floor cells, 4344 tiles to build on. 5 doors: 0 can't be bypassed, 5 on the short route with a way round (detour +12, +20, +28, +36, +44 tiles), of which a lock turns the party away from 4, 0 off the short route. Shut at any of 25 points along the route, 0 leave no way on; 10 have a real way round (+10 tiles or more, longest +44). 22 light sources, 44 props.
 
 Six long galleries in a switchback, with doors through the walls as shortcuts. The party takes every shortcut unless locked out, so an open keep is a straight dash. A lock near a turn sends them round; on a door far from the turn the way round costs more than the lock, so they stop and break it, and stand where the player wants them while they do.
 
 ```
 
-  ooo####oo##o########o#############o#
-  #..EEEE...........................o#
-  o..EEEE............................#
-  #..EEEEoo..o.......................#
-  o..EEEE............................#
-  o.o.o.+++++++++++++++++++++........#
-  ##########################D#####...#
-  o........................++........#
+     EEEE
+  ###EEEE############o#############o##
+  #..EEEE............................#
+  #..EEEE............................#
+  #.....++..........................o#
+  #......++++++++++++++++++++........#
+  ###o##################o###D#####...#
+  #........................++........#
   #.......................++.........#
   #.b....................++..........#
   #.....................++...........#
-  #......o......+++++++++............#
-  #...########ooDo##################o#
-  #..............+...o...............#
-  #...........o...+....o.............#
-  #................+b................#
-  #..............o..+................#
-  #........o.o.......++++++.........o#
-  ########################D#######...#
-  #................o.....++..........#
-  #.....................++...........#
-  o...................+++..........b.#
+  #.............+++++++++...o...o....#
+  #...#######oooD#####################
+  #............o.++...o.............o#
+  #..........o.....++................#
+  #.................b+...............#
   #..................++..............#
-  #...........++++++++.....o..o.....o#
-  #...########D#########o#############
+  #.o....o...o.o...o..+++++..........#
+  o#######################D#######...#
+  #.................o....++..........#
+  #.....................++...........#
+  #....................++..........b.#
+  #...................++.............#
+  #....o......+++++++++.o....o......o#
+  #...########D#######################
   #............+.....................#
   #.............+....................#
   #...b..........+...................#
   #...............+..................#
-  #.............o..++++++........o...#
-  #oo##o################D#########...#
-  #.....o................+...........#
-  #.......................+...VVVV...#
-  #....o...................+..VVVV...#
-  #...o..o..................+.VVVV...#
-  #...........o.......o..o...++......#
+  #................++++++............#
+  #ooo##o#####o#o#o#####D#########...#
+  #......................+...........#
+  #...o....o......o.o.....+...VVVV...#
+  #....o...........o.......+..VVVV...#
+  #......................o..+.VVVV..o#
+  o............oo............++......#
   ####################################
 
 
@@ -403,56 +403,56 @@ Six long galleries in a switchback, with doors through the walls as shortcuts. T
 
 ## Level 7: Ashen Crypts
 
-**Cathedral.** Route 92 tiles, 752 floor cells, 3353 tiles to build on. 8 doors: 1 can't be bypassed, 2 on the short route with a way round (detour +8, +10 tiles), of which a lock turns the party away from 2, 5 off the short route. Shut at any of 14 points along the route, 2 leave no way on; 1 have a real way round (+10 tiles or more, longest +10). 23 light sources, 47 props.
+**Cathedral.** Route 92 tiles, 732 floor cells, 3286 tiles to build on. 8 doors: 1 can't be bypassed, 2 on the short route with a way round (detour +8, +10 tiles), of which a lock turns the party away from 2, 5 off the short route. Shut at any of 14 points along the route, 2 leave no way on; 1 have a real way round (+10 tiles or more, longest +10). 23 light sources, 47 props.
 
 The vault sits at the centre of two rings, each with doors on opposite sides of it, so the party walks half of one ring and half of the other. The near door of each pair is the one to lock: that sends them the far way round, past everything built on it. Three tombs off the outer ring are for lairs that hit from behind.
 
 ```
-              ############
+
+                  EEEE
+              ####EEEE####
               #...EEEE...#
-              #...EEEE..o#
               #...EEEE...#
-              #...EEEE...#
-              #...o.++..o#
-              #....++....#
-     #o############D###############
+              #...o.++...#
+              #....++..o.#
+     ###o##########D###############
      #............++..............#
      #...........++...............#
-     #..++++++++++.....o...o......#
+     #..++++++++++......o.........#
      #..+#########o#o##########...#
-     #..+#....................#..o#
-     #..+#o............o.....o#...#
-     #..+#..o..oo..o..........#o..#
-     #..+D..ooo###o#o#oo###...#...#
+     #..+#...................o#..o#
+     #..+#o...................#...#
+     #..+#..o..oo..o..........#...#
+     #..+D..ooo###o#o#oo###...#..o#
      #...#+.o#............#...#...#
-####o#...#.+.#............#..o#...o####
+#o####...#.+.#............#...#...#o###
 #....#...#..+#............D...#...#...#
-#.c..#...#..+#.o..VVVV....#...#...#.b.#
+#.c..#...#..+#.o..VVVV....#..o#...#.b.#
 #....#...o..+#..ooVVVV....#...#...#...#
-#....#...#..+#..o.VVVV....#...#...#..o#
+#....#...#..+#..o.VVVV....#...#...#...#
 #....D...o..+#...++.......#...#...D...#
 #....#...#..+#...+........#.o.#...#...#
-#..bo#...#..+#....+.......#...#...#...#
-#....#...#..+#o....+.o....#...#...#...#
-######...#..+######D#######...#...#####
+#..b.#...#..+#....+.......#...#...#...#
+#.o..#...#..+#o....+.o....#o..#...#o..#
+######...#..+######D#######..o#...#####
      #...#...+....++..........#...#
      #...#....+..++...........D...#
-     o...#.....+++......o.o...#..o#
+     o..o#.....+++.......o....#...#
      #...######################...#
      #............................#
      #............................#
-     #................o...........#
-     ########o#####D#####o#########
-             #............#
+     #..........o.....o..........o#
+     ##############D#####o#########
+             o............#
              #.b........c.#
-             #.....o......#
+             #..........o.#
              ##############
 
 ```
 
 ## Level 8: Iron Gaol
 
-**Cathedral.** Route 93 tiles, 620 floor cells, 2769 tiles to build on. 14 doors: 3 can't be bypassed, 3 on the short route with a way round (detour +44, +44, +44 tiles), of which a lock turns the party away from 0, 8 off the short route. Shut at any of 14 points along the route, 6 leave no way on; 6 have a real way round (+10 tiles or more, longest +44). 20 light sources, 40 props.
+**Cathedral.** Route 93 tiles, 620 floor cells, 2786 tiles to build on. 14 doors: 3 can't be bypassed, 3 on the short route with a way round (detour +44, +44, +44 tiles), of which a lock turns the party away from 0, 8 off the short route. Shut at any of 14 points along the route, 6 leave no way on; 5 have a real way round (+10 tiles or more, longest +44). 20 light sources, 40 props.
 
 A U of corridors with gates across them and cell blocks between. One cell column has doors all the way through, so the short route takes three doors, and one lock on it is cheaper to break than the walk round. Two locks together send the party the long way, through every gate.
 
@@ -464,36 +464,36 @@ A U of corridors with gates across them and cell blocks between. One cell column
 
 
 
-
- ###########o#########o###############
- #.EEEE.....#...........#............#
+   EEEE
+ ##EEEE################o##############
+ #.EEEE.....o..........o#............#
  #.EEEE.....#...........D............#
- #.EEEE....+D...........#............#
- #.EEEE++++.#++++++++..o#.o..........#
- #####D######D######D######D####.....#
-   #......#......#...+..#...o..#.o...#
-   #.b...o#.c..o.#....+.#.....b#.....#
-   #......#......#....++#......#.....#
+ #....++...+D...........#............#
+ #o....++++.#++++++++...#......o.....#
+ #####D##o###D######D######D####.....#
+   #......#....o.#...+..#....o.#.....#
+   #.b...o#.c....#....+.#.....b#.....#
+   #......#......#....++#......#....o#
    #......#......#...++.#......#.....#
-   #......#......#o.++..#......#.....#
-   #o#############o#D####o#####oooD#o#
-   #......#......#...+..#......#.....#
+   #......#......#..++.o#......#.....#
+   #o############o##D####o#####oooD#o#
+   #.....o#......#...+..#......#.....#
    #......#......#....+.#......#....o#
-   #......#......#....++#......o....o#
-   #.b....#.....o#...++.#.c...b#.....#
-   #.....o#......#..++.o#......o.....#
+   #......#.....o#....++#......o....o#
+   #.b....#......#...++.#.c...b#.....#
+   #......#......#.o++..#......o.....#
  #####D##o###D######D####ooD##o#.....#
- o........#.....o#.++........o......o#
- #.......+D......#++.................#
+ #........#......#.++........o......o#
+ #.......+D.....o#++.................#
  #.......+#+....+D+..........o......o#
- #.......+#.+++++o...o..o.o.......o..#
+ #.......+#.+++++o.....o..o.......o..#
  #......++############################
  #..VVVV+.#
  #..VVVV..#
- #..VVVV..#
+ #..VVVV.o#
  #........#
  #........#
- #.o.o....#
+ #.......o#
  ##########
 
 
@@ -795,80 +795,80 @@ Three wards and a lane under them, then a keep of two halls, then a last lane th
 
 ## Level 15: Howling Stair
 
-**Caves.** Route 123 tiles, 776 floor cells, 2948 tiles to build on. 5 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +46 tiles), of which a lock turns the party away from 0, 2 off the short route. Shut at any of 19 points along the route, 5 leave no way on; 2 have a real way round (+10 tiles or more, longest +46). 16 light sources, 63 props.
+**Caves.** Route 126 tiles, 768 floor cells, 2966 tiles to build on. 5 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +46 tiles), of which a lock turns the party away from 0, 2 off the short route. Shut at any of 19 points along the route, 6 leave no way on; 2 have a real way round (+10 tiles or more, longest +46). 16 light sources, 62 props.
 
 A long winding gully with one short cut through a tight neck halfway, and in the Caves a door is a fence with a gate in it. Gates on the gully and the short cut decide which way the party goes, and the last two gates are forced, so the gully is worth garrisoning.
 
 ```
 
-
-  ###########         #####o########o#
+     EEE
+  ###EEE#####         o#############o#
   #..EEE....#         #..............#
-  #.oEEE....#         #.b...........o#
-  #..EEE....######o####..............#
-  #..EEE.............................#
-  #.....+..+++......D................#
-  #......+++++++...o................o#
-  #.......+.###++.#####..............#
-  #.........# #.++#   #..............#
-  #...o.....# #..+#   o............b.#
-  ########### #..+#   #...o..........#
-              o..+#   #######o..o#####
-              #.++#          #...#
+  #..EEE....#         #.b............#
+  #.....+...##o########..............#
+  #......+...........................#
+  #.......++++......D................#
+  #........+++++......o.............o#
+  #.........###++.#####..............#
+  #........o# #.++#   #..............#
+  oo.o......# #..+#   #............b.#
+  ########### #..+#   oo.............#
+              #..+#   ########...#####
+              o.++#          #...#
               #.D.#          #...#
               #.+.#          #.D.#
               #..+#          #...#
-  o#########  #..+#          #...#
-  #.......o#  o..+#o#oo#ooo#oo..o####o#
-  #........#  #.++#o..................#
-  #.......o#  #++.##..................#
-  #........o###+..#o....o............o#
-  #..........++.......o.....o.o.......#
-  #........+D+......o.................#
-  #......+++....o..o....o....o........#
-  #.....++.#########.......o..........#
-  #.b..++..#       #............o.....#
-  #....+...#       ####################
+  o#######o#  #..+#          #..o#
+  #........#  #..+#oo#oo#oooo#...####o#
+  #........#  #.++##..................#
+  #.......o#  #++.#o..................#
+  #........#o##+..##.........o........#
+  #..........++..........oo...........#
+  #........+D+.......................o#
+  #......+++.......o..................#
+  #.....++.########o..................#
+  #.b..++..#       #..o........o......#
+  #o...+...#       ####################
   ###.++####
     #.D.#
-  #o#.+.##o##o#oooo#ooooo#############
-  #....+....................+++++....#
-  #.....+..................++.VVVV..o#
-  #......+........oo......++..VVVV...#
-  #.......+..........o...++...VVVV..o#
-  #........+++++++++++++++...........#
-  #.....o...+++++++++++++......o.....#
+  #o#.+.#ooo#ooo#oooo########o########
+  #....+......................VVVV...#
+  #.....+..o.o...............oVVVV...#
+  #......+....o.o..oo.........VVVV...#
+  #.......+..................o##.....#
+  #........+++++++++++++++++++++....o#
+  #.o.o..o..+++++++++++++++++++......#
   ####################################
 
 ```
 
 ## Level 16: Tomb of Kings
 
-**Caves.** Route 144 tiles, 774 floor cells, 2955 tiles to build on. 7 doors: 1 can't be bypassed, 3 on the short route with a way round (detour +0, +0, +10 tiles), of which a lock turns the party away from 3, 3 off the short route. Shut at any of 22 points along the route, 4 leave no way on; 2 have a real way round (+10 tiles or more, longest +10). 16 light sources, 55 props.
+**Caves.** Route 147 tiles, 756 floor cells, 2932 tiles to build on. 7 doors: 1 can't be bypassed, 3 on the short route with a way round (detour +0, +0, +10 tiles), of which a lock turns the party away from 3, 3 off the short route. Shut at any of 23 points along the route, 4 leave no way on; 2 have a real way round (+10 tiles or more, longest +10). 16 light sources, 57 props.
 
 A chain of burial chambers, each with two gated necks to the next. A locked gate or a trap seen once pushes the party through the other neck, so they work in pairs, and the chambers between are where the party is caught either way.
 
 ```
 
- ############  ##########o##
- #..........#  #...........#
- #..EEE.....####.b........o#
+    EEE        #########o###
+ ###EEE######  #..........o#
+ #..EEE.....####.b.........#
  #..EEE......D.............#
- #..EEE...................o######
- #..EEE....o###o..........+++...#
- #.....+....#  #.........++++++.#
- #......+...####........++.###D.#
- #.......+.++D++.......++..# o+.#
- #........+++..+++++++++..o# #.+#
- #.o....o...####.++++++....###.+#####o#
- ############  ##############..++....o#
-        #ooo##oo####        #...++....#
+ #.....+...o..............o######
+ #......+...####..........+++...#
+ #.......+..#  o.........++++++.#
+ #........+.####........++.###D.#
+ #.........++D++.......++..# o+.#
+ #..........+..+++++++++...# #.+#
+ oo....o....####.++++++.o..###.+#####o#
+ ############  ##############..++.....#
+        #ooo##oo####        #...++...o#
         #..........#        #....++...#
-        #.b.......o#        #....++..o#
+        #.b.......o#        #....++...#
         #..........#####o####...++....#
         #..............D.......++.....#
         o..........o..........++......#
-        o..........##########++.......#
+        o..........##########++......o#
         o..........o#####o###+........#
         #.............+D+..++.......b.#
         #.........+++++..+++.....o....#
@@ -877,15 +877,15 @@ A chain of burial chambers, each with two gated necks to the next. A locked gate
         ###..###++##
           #D.# #D.#
           #..# #+.#
-   #####o##..##o.+o###ooo##############
-   #.............++.........+++++....o#
-   #..............++.......+..VVVV....#
-   #..........o..o.++.....+..oVVVV....#
-   #................++.o.+....VVVV....#
-   #...............o.++.+.............#
-   #................o.++..............#
-   #.b...............................o#
-   o....o...o.o.o..o..o.oo...o.....o..#
+   ########..##o.+o#oo#oo##############
+   #.............++...........VVVV....#
+   #..............++.........oVVVV...o#
+   #...........o...++....o....VVVV....#
+   #.............o..++.......o##......#
+   #...............o.++.......+.......#
+   #...............o..++.....+.......o#
+   #.b.................++++++.........#
+   o....o...o..ooo..oo..++++...o.o....#
    ####################################
 
 
@@ -893,51 +893,51 @@ A chain of burial chambers, each with two gated necks to the next. A locked gate
 
 ## Level 17: Silent Abbey
 
-**Caves.** Route 108 tiles, 756 floor cells, 2883 tiles to build on. 4 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +56 tiles), of which a lock turns the party away from 0, 1 off the short route. Shut at any of 16 points along the route, 5 leave no way on; 3 have a real way round (+10 tiles or more, longest +56). 17 light sources, 46 props.
+**Caves.** Route 111 tiles, 766 floor cells, 2960 tiles to build on. 4 doors: 2 can't be bypassed, 1 on the short route with a way round (detour +56 tiles), of which a lock turns the party away from 0, 1 off the short route. Shut at any of 17 points along the route, 6 leave no way on; 3 have a real way round (+10 tiles or more, longest +56). 17 light sources, 52 props.
 
 A wide cloister with a rock island in the middle, and the vault below it on the side the party starts from, with no way down there. It has to go round, by the gated middle walk or the far side, and a lock on the middle sends it the whole way round, so the army can stand in one place.
 
 ```
 
- ##############    ##o###############o#
- #............#    #.................o#
+     EEE           o#############o#####
+ ####EEE#####o#    #..................#
  #...EEE......#    #.b................#
  #...EEE......#    #..................#
- #...EEE......#    #..................#
- #...EEE......#    #..................#
- #......+.....#    #................b.#
- #.......+....#    #.o.....o..........#
- #........+..o#    #############..o####
- #.........+..####oo########o###...##o#
- #..........+....o..o.................#
- #...........+.......................o#
- #............+++.....o...............#
- o.............++++.o.................#
+ #......+....o#    #.................o#
+ #.......+....#    #..................#
+ #........+...#    #................b.#
+ #.........+..#    #..................#
+ #..........+.#    #############...####
+ #...........+###oo###o####o####...#o##
+ #...........++..o.o..................#
+ #............++.....................o#
+ #.............+++...o................#
+ o........o.....+++.....o....o........#
  #################++.###########......#
                  #.++#         #......#
                  #..+#         #......#
                  #..+#         #......#
-                 o.++#         #......#
-                 #.D.#         #..D.o.#
-                 #.+.#         o......#
+                 o.++#         o......#
+                 #.D.#         #..D..o#
+                 o.+.#         #......#
                  #..+#         #......#
                  #..+#         #......#
                  #.++#         #......#
                  #++.#         #......#
-               ###+..####o######......#
+               ###+..######o####.....o#
        #######o#++....................#
-       #.......++.....................#
-       o..+D+.++.....................b#
-       #.++..++.....o.o...o....o...o..#
+       o.......++.....................#
+       #..+D+.++.....................b#
+       #.++..++.o...o...o..o..........#
        #.D.############################
-   o####.+.#oo#ooo##oo#o#########o#
-   #......+..............VVVV.....#
-   #.......+.............VVVV.....#
-   #........+..o.o....o..VVVV.....#
-   #.........++++++++++++++.......#
-   #..o....o..++++++++++++..o.o..o#
+   ###oo.+.#oo###o###############o#
+   o......+.............oVVVV.....#
+   #.o.....+..o..........VVVV.....#
+   o..o.o...+............VVVV....o#
+   #.........+..........o##.......#
+   o...o...o..+++++++++++++.......#
+   o.o...o..o..+++++++++++........#
    ################################
-
 ```
 
 ## Level 18: Chains of Night

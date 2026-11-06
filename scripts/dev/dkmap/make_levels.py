@@ -100,7 +100,7 @@ def level(number, name, tileset, seed, note):
 l = level(1, 'Old Cellars', 'Cathedral', 0x1001,
           'One way in, two doors on it. Nothing to work out but where to stand: the hall is the place '
           'for traps, the door the place for a first lock, and the two closets take lairs out of the way.')
-l.room(14, 3, 12, 8).entrance(18, 3)
+l.room(14, 3, 12, 8).entrance(18, 1)
 l.hall_v(19, 11, 16)
 l.door(19, 17)
 l.room(10, 18, 20, 8)
@@ -115,7 +115,7 @@ l = level(2, 'Rat Warrens', 'Cathedral', 0x1002,
           'A long S with doors in a row and blind burrows off it. Still only one route, but now there '
           'is distance to spend: layers of defence, and burrows that hide lairs so that they strike the '
           'party from the side.')
-l.room(3, 3, 9, 8).entrance(5, 3)
+l.room(3, 3, 9, 8).entrance(5, 1)
 l.hall_h(6, 12, 24)
 l.door(25, 6)
 l.room(26, 3, 11, 8)
@@ -142,7 +142,7 @@ l = level(3, 'Sunken Chapel', 'Cathedral', 0x1003,
           'The first loop. Two aisles reach the chancel, one shorter, and a side chapel links them. A '
           'lock on the short aisle turns the party down the long one, so a single lock chooses which '
           'hall the traps go in. Both aisles meet at the one last door.')
-l.room(11, 2, 10, 7).entrance(13, 2)
+l.room(11, 3, 10, 6).entrance(13, 1)
 l.door(10, 5)
 l.hall_v(7, 4, 26, 3)
 l.door(21, 5)
@@ -160,7 +160,7 @@ l = level(4, 'Bone Pits', 'Cathedral', 0x1004,
           'A hub with pits around it. The party crosses the central pit whatever it does, so whatever '
           'stands there sees it. Two ways lead on from the hub, by the east pit and by the south pit, '
           'and the north and west pits are dead ends: places for lairs, not places anyone need go.')
-l.room(2, 2, 10, 7).entrance(4, 2)
+l.room(2, 3, 10, 6).entrance(4, 1)
 l.hall_h(5, 12, 21)
 l.door(22, 5)
 l.room(23, 2, 12, 8)
@@ -185,7 +185,7 @@ l = level(5, 'Black Vaults', 'Cathedral', 0x1005,
           'lock moves the route somewhere else, so the player is choosing a path through the keep.')
 for (cx, cy) in [(2, 2), (14, 2), (26, 2), (2, 14), (14, 14), (26, 14), (2, 26), (14, 26), (26, 26)]:
     l.room(cx, cy, 11, 11)
-l.entrance(3, 2).vault(32, 32)
+l.rock(2, 2, 11, 1).entrance(3, 1).vault(32, 32)
 # across
 l.door(13, 11).door(25, 3).door(13, 15).door(25, 23).door(25, 27)
 # down
@@ -200,7 +200,7 @@ l = level(6, 'Weeping Halls', 'Cathedral', 0x1006,
           'stop and break it, and stand where the player wants them while they do.')
 for y in (2, 8, 14, 20, 26, 32):
     l.room(3, y, 34, 5)
-l.entrance(5, 2).vault(30, 33)
+l.rock(3, 2, 34, 1).entrance(5, 1).vault(30, 33)
 # the turns
 l.room(34, 7, 3, 1).room(3, 13, 3, 1).room(34, 19, 3, 1).room(3, 25, 3, 1).room(34, 31, 3, 1)
 # the shortcuts
@@ -212,7 +212,7 @@ l = level(7, 'Ashen Crypts', 'Cathedral', 0x1007,
           'party walks half of one ring and half of the other. The near door of each pair is the one to '
           'lock: that sends them the far way round, past everything built on it. Three tombs off the outer '
           'ring are for lairs that hit from behind.')
-l.room(15, 1, 10, 6).entrance(18, 1)
+l.room(15, 3, 10, 4).entrance(18, 1)
 l.door(19, 7)
 # outer ring
 l.room(6, 8, 28, 3).room(6, 31, 28, 3).room(6, 8, 3, 26).room(31, 8, 3, 26)
@@ -233,7 +233,7 @@ l = level(8, 'Iron Gaol', 'Cathedral', 0x1008,
           'the way through, so the short route takes three doors, and one lock on it is cheaper to break '
           'than the walk round. Two locks together send the party the long way, through every gate.')
 # north corridor, gates at x 12 and 24
-l.room(2, 9, 30, 4).entrance(3, 9)
+l.room(2, 9, 30, 4).entrance(3, 7)
 l.rock(12, 9, 1, 4).door(12, 11)
 l.rock(24, 9, 1, 4).door(24, 10)
 # the turn, with a gate across it
@@ -398,7 +398,7 @@ l = level(15, 'Howling Stair', 'Caves', 0x300F,
           'A long winding gully with one short cut through a tight neck halfway, and in the Caves a door is '
           'a fence with a gate in it. Gates on the gully and the short cut decide which way the party goes, '
           'and the last two gates are forced, so the gully is worth garrisoning.')
-l.room(3, 3, 9, 9).entrance(5, 3)
+l.room(3, 3, 9, 9).entrance(5, 1)
 l.hall_h(6, 12, 22, 3)
 l.room(23, 3, 14, 10)
 l.hall_v(30, 13, 19, 3)
@@ -406,7 +406,7 @@ l.room(20, 20, 18, 8)
 l.hall_h(23, 8, 19, 3)
 l.room(3, 19, 8, 10)
 l.hall_v(5, 29, 31, 3)
-l.room(3, 32, 34, 6).vault(30, 33)
+l.room(3, 32, 34, 6).rock(30, 32, 2, 4).vault(30, 32)
 l.hall_v(15, 9, 22, 3)
 l.door(20, 7).door(16, 15).door(31, 16).door(12, 24).door(6, 30)
 l.put('b', (24, 4), (35, 11), (4, 27))
@@ -415,7 +415,7 @@ l = level(16, 'Tomb of Kings', 'Caves', 0x3010,
           'A chain of burial chambers, each with two gated necks to the next. A locked gate or a trap seen '
           'once pushes the party through the other neck, so they work in pairs, and the chambers between '
           'are where the party is caught either way.')
-l.room(2, 2, 10, 10).entrance(4, 3)
+l.room(2, 3, 10, 9).entrance(4, 1)
 l.room(16, 2, 11, 10)
 l.hall_h(4, 12, 15, 2)
 l.hall_h(9, 12, 15, 2)
@@ -427,7 +427,7 @@ l.hall_h(21, 19, 28, 2)
 l.room(9, 14, 10, 11)
 l.hall_v(11, 25, 28, 2)
 l.hall_v(16, 25, 28, 2)
-l.room(4, 29, 34, 8).vault(30, 30)
+l.room(4, 29, 34, 8).rock(30, 29, 2, 4).vault(30, 29)
 l.door(13, 4).door(13, 9).door(30, 8).door(23, 17).door(23, 21).door(11, 26).door(16, 26)
 l.put('b', (17, 3), (36, 21), (10, 15), (5, 35))
 
@@ -435,7 +435,7 @@ l = level(17, 'Silent Abbey', 'Caves', 0x3011,
           'A wide cloister with a rock island in the middle, and the vault below it on the side the party '
           'starts from, with no way down there. It has to go round, by the gated middle walk or the far side, '
           'and a lock on the middle sends it the whole way round, so the army can stand in one place.')
-l.room(2, 2, 12, 9).entrance(5, 3)
+l.room(2, 3, 12, 8).entrance(5, 1)
 l.room(2, 11, 36, 4)
 l.room(32, 11, 6, 20)
 l.room(16, 27, 22, 4)
@@ -444,7 +444,7 @@ l.room(20, 2, 18, 7)
 l.hall_v(32, 9, 10, 3)
 l.hall_h(28, 8, 15, 3)
 l.hall_v(8, 31, 32, 3)
-l.room(4, 33, 30, 5).vault(25, 33)
+l.room(4, 33, 30, 6).rock(25, 33, 2, 4).vault(25, 33)
 l.door(19, 20).door(34, 20).door(11, 29).door(9, 31)
 l.put('b', (21, 3), (36, 7), (37, 29))
 

@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every campaign level has 1 to 3 themed rooms furnished with the new props, its routes and locks unchanged
 - Hell is darker (7 preparing, 10 in a raid) so its torches and skull fires read against the flat floor
 - The Cathedral levels' braziers became wall torches: radius 5 lit only a tile or two in the dark
+- Stairs that belong in a wall are built into one: the Cathedral's entrance is Diablo's own wall set piece, set in
+  a room's back wall instead of a walled box standing in front of it, and the Caves' stairs no longer stand out
+  as lumps of rock. The editor snaps them to the nearest wall and says where they go; older maps still play and
+  are flagged when opened. Levels 1 to 8 and 15 to 17 moved their stairs, with routes a few tiles longer
 - Every monster and slain hero leaves a body that stays all level
 - Guards growl when heroes come near, and heroes speak their lines aloud
 
