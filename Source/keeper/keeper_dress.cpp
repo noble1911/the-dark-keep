@@ -45,7 +45,7 @@ constexpr int StampNominalCells = 36;
 struct ThemeSpec {
 	std::string_view name;
 	/** Scenery and how often each comes up. */
-	std::array<std::pair<MapObjectKind, int>, 5> kinds;
+	std::array<std::pair<MapObjectKind, int>, 7> kinds;
 	/** Tried in order for the centrepiece. */
 	std::array<MapObjectKind, 2> centre;
 	/** The light on open floor, where no wall will take a torch. */
@@ -55,14 +55,14 @@ struct ThemeSpec {
 constexpr MapObjectKind None = MapObjectKind::Barrel; // a blank in the tables: the dressing never places barrels
 
 constexpr std::array<ThemeSpec, NumDressThemes> Themes { {
-    { "bones", { { { MapObjectKind::SkullPile, 4 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::ImpaledBody, 1 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
-    { "library", { { { MapObjectKind::Bookcase, 4 }, { MapObjectKind::BookStand, 3 }, { MapObjectKind::SkullPile, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BookStand }, MapObjectKind::Candle },
-    { "chapel", { { { MapObjectKind::Banner, 3 }, { MapObjectKind::BookStand, 2 }, { MapObjectKind::Bookcase, 1 }, { MapObjectKind::SkullPile, 1 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BloodFountain }, MapObjectKind::Candle },
-    { "armoury", { { { MapObjectKind::WeaponRack, 3 }, { MapObjectKind::ArmourStand, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::HeadlessBody, 1 }, { None, 0 } } }, { MapObjectKind::Banner, None }, MapObjectKind::Candle },
-    { "torture", { { { MapObjectKind::TorturedBody, 3 }, { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 1 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
-    { "prison", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
-    { "tomb", { { { MapObjectKind::SkullPile, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::BookStand, 1 } } }, { MapObjectKind::AngelStatue, MapObjectKind::CrucifiedSkeleton }, MapObjectKind::Candle },
-    { "hell", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
+    { "bones", { { { MapObjectKind::SkullPile, 4 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::ImpaledBody, 1 }, { MapObjectKind::Pod, 1 }, { MapObjectKind::MushroomPatch, 1 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
+    { "library", { { { MapObjectKind::Bookcase, 4 }, { MapObjectKind::BookStand, 3 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Bookshelf, 2 }, { MapObjectKind::Lectern, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BookStand }, MapObjectKind::Candle },
+    { "chapel", { { { MapObjectKind::Banner, 3 }, { MapObjectKind::BookStand, 2 }, { MapObjectKind::Bookcase, 1 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Pedestal, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BloodFountain }, MapObjectKind::Candle },
+    { "armoury", { { { MapObjectKind::WeaponRack, 3 }, { MapObjectKind::ArmourStand, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::ClosedChest, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::Banner, None }, MapObjectKind::Candle },
+    { "torture", { { { MapObjectKind::TorturedBody, 3 }, { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
+    { "prison", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
+    { "tomb", { { { MapObjectKind::SkullPile, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::BookStand, 1 }, { MapObjectKind::Urn, 1 }, { MapObjectKind::ClosedChest, 1 } } }, { MapObjectKind::AngelStatue, MapObjectKind::CrucifiedSkeleton }, MapObjectKind::Candle },
+    { "hell", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
 } };
 
 /** The dressing's own numbers: never the game's generator, which co-op keeps in step. */
@@ -123,6 +123,9 @@ std::optional<Light> LightOf(const Object &object)
 		return Light { object.position, 5 };
 	case OBJ_L5CANDLE:
 		return Light { object.position, 3 };
+	case OBJ_BCROSS:
+	case OBJ_TBCROSS:
+		return Light { object.position, 5 };
 	default:
 		return std::nullopt;
 	}
@@ -487,9 +490,16 @@ private:
 		Dilate(doors, 5, nearDoor_);
 	}
 
+	/**
+	 * The tileset has it, and the level can load its art: a kind the map doesn't use yet mustn't take it past
+	 * the engine's 40 object sprite files (the dressing and the stamps use fewer kinds instead).
+	 */
 	bool Available(MapObjectKind kind) const
 	{
-		return kind != None && available_[static_cast<size_t>(kind)];
+		if (kind == None || !available_[static_cast<size_t>(kind)])
+			return false;
+		const bool used = std::any_of(map_.objects.begin(), map_.objects.end(), [&](const MapObject &object) { return object.kind == kind; });
+		return used || MapObjectFileCount(map_, kind) <= MaxLevelObjectFiles;
 	}
 
 	static bool HugsWall(Point tile)
@@ -864,10 +874,10 @@ private:
 		}
 	}
 
-	/** The kinds an entry names that this build and tileset have, in its order. */
-	std::vector<MapObjectKind> ResolveKinds(std::string_view names, StampResult &out) const
+	/** The kinds an entry names that this build, the tileset and the art budget allow, in its order, with any style asked for. */
+	std::vector<std::pair<MapObjectKind, std::optional<uint8_t>>> ResolveKinds(std::string_view names, StampResult &out) const
 	{
-		std::vector<MapObjectKind> kinds;
+		std::vector<std::pair<MapObjectKind, std::optional<uint8_t>>> kinds;
 		while (!names.empty()) {
 			const size_t bar = names.find('|');
 			std::string_view name = names.substr(0, bar);
@@ -876,6 +886,15 @@ private:
 				name.remove_prefix(1);
 			while (!name.empty() && name.back() == ' ')
 				name.remove_suffix(1);
+			std::optional<uint8_t> style;
+			if (const size_t slash = name.find('/'); slash != std::string_view::npos) {
+				int number = 0;
+				for (const char c : name.substr(slash + 1))
+					number = std::isdigit(static_cast<unsigned char>(c)) != 0 ? number * 10 + (c - '0') : 255;
+				name = name.substr(0, slash);
+				if (number < 255)
+					style = static_cast<uint8_t>(number);
+			}
 			if (name.empty())
 				continue;
 			const std::optional<MapObjectKind> kind = MapObjectKindNamed(name);
@@ -885,8 +904,11 @@ private:
 				continue;
 			}
 			// Never the barrel, the chest or the brazier: those are the keep's own, and aren't judged as props.
-			if (!IsLegacyMapObject(*kind) && Available(*kind) && std::find(kinds.begin(), kinds.end(), *kind) == kinds.end())
-				kinds.push_back(*kind);
+			if (style && *style >= GetMapObjectTraits(*kind).styles)
+				style.reset();
+			const std::pair<MapObjectKind, std::optional<uint8_t>> choice { *kind, style };
+			if (!IsLegacyMapObject(*kind) && Available(*kind) && std::find(kinds.begin(), kinds.end(), choice) == kinds.end())
+				kinds.push_back(choice);
 		}
 		return kinds;
 	}
@@ -1063,7 +1085,7 @@ StampResult Dresser::Stamp(const RoomStamp &stamp, const std::vector<Point> &cel
 	std::vector<Point> floorTaken;
 	std::vector<Point> wallTaken;
 	for (const RoomStampEntry &entry : stamp.entries) {
-		const std::vector<MapObjectKind> kinds = ResolveKinds(entry.kinds, out);
+		const auto kinds = ResolveKinds(entry.kinds, out);
 		if (kinds.empty()) {
 			out.entriesWithoutKind++;
 			continue;
@@ -1086,8 +1108,9 @@ StampResult Dresser::Stamp(const RoomStamp &stamp, const std::vector<Point> &cel
 			bool placed = false;
 			for (int attempt = 0; attempt < 8 && !placed; attempt++) {
 				std::optional<MapObject> best;
+				std::optional<uint8_t> bestStyle;
 				int bestScore = 0;
-				for (const MapObjectKind kind : kinds) {
+				for (const auto &[kind, style] : kinds) {
 					const MapObjectTraits traits = GetMapObjectTraits(kind);
 					const bool onWall = traits.placement == MapObjectPlacement::OnWall;
 					for (const MapObject &spot : StampSpots(kind, entry.spot, area, centre.value_or(middle))) {
@@ -1120,6 +1143,7 @@ StampResult Dresser::Stamp(const RoomStamp &stamp, const std::vector<Point> &cel
 						if (score > bestScore) {
 							bestScore = score;
 							best = spot;
+							bestStyle = style;
 						}
 					}
 					if (best)
@@ -1128,7 +1152,8 @@ StampResult Dresser::Stamp(const RoomStamp &stamp, const std::vector<Point> &cel
 				if (!best)
 					break;
 				MapObject object = *best;
-				object.variant = static_cast<uint8_t>((object.variant & MapObjectFacesY) | random.below(GetMapObjectTraits(object.kind).styles));
+				const int rolled = random.below(GetMapObjectTraits(object.kind).styles);
+				object.variant = static_cast<uint8_t>((object.variant & MapObjectFacesY) | bestStyle.value_or(static_cast<uint8_t>(rolled)));
 				if (AtCap()) {
 					out.capped = true;
 					break;
@@ -1178,9 +1203,10 @@ constexpr uint8_t InCrypt = TilesetBit(MapTileset::Crypt);
 constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest | InCrypt;
 
 /**
- * The stamps, by prop name. Names that aren't kinds yet (sarcophagi, altars, urns, chains, wall skeletons, ...)
- * are for props still to come: they're skipped until a build has them, and the next name on the line stands in.
- * Entries go in order, so the centrepiece comes first where the ring round it needs it.
+ * The stamps, by prop id (MapObjectId) or name, '|' between choices: the first that this build, the tileset and
+ * the level's art budget allow, with somewhere to go, is used. `id/N` asks for style N (closed_chest/2 is the
+ * large chest, magic_circle/1 the red pentagram); without one the style is picked by the seed. Names that aren't
+ * kinds are skipped. Entries go in order, so the centrepiece comes first where the ring round it needs it.
  */
 std::vector<RoomStamp> MakeRoomStamps()
 {
@@ -1188,81 +1214,97 @@ std::vector<RoomStamp> MakeRoomStamps()
 	// clang-format off
 	return {
 		{ "library", "Library corner", InCathedral | InCatacombs | InCrypt, {
-			{ "Bookcase|Bookshelf", S::Edge, 3, 5 },
-			{ "Lectern|Book stand", S::Centre, 1, 1 },
-			{ "Book stand", S::Edge, 0, 1, 4 },
-			{ "Crypt candles|Candles", S::Edge, 1, 2, 5 },
-			{ "Wall torch", S::Edge, 0, 1, 6 },
-			{ "Urn", S::Scatter, 0, 1 },
+			{ "bookcase|bookshelf", S::Edge, 2, 4 },
+			{ "bookshelf|bookcase", S::Edge, 1, 2, 3 },
+			{ "lectern/1|book_stand", S::Centre, 1, 1 },
+			{ "crypt_book_stand|story_book|book_stand", S::Edge, 0, 2, 4 },
+			{ "crypt_candles|candles", S::Edge, 1, 2, 5 },
+			{ "wall_torch", S::Edge, 0, 1, 6 },
+			{ "urn", S::Scatter, 0, 1 },
 		} },
 		{ "shrine", "Shrine alcove", InCathedral | InCatacombs | InCaves | InCrypt, {
-			{ "Shrine|Altar|Angel statue|Blood fountain", S::Centre, 1, 1 },
-			{ "Crypt candles|Candles|Skull fire", S::Ring, 2, 2, 3 },
-			{ "Wall banner|Banner", S::Edge, 1, 2, 3 },
-			{ "Statue", S::Edge, 0, 2, 4 },
-			{ "Wall torch", S::Edge, 1, 1, 6 },
+			{ "shrine|altar|angel_statue|blood_fountain", S::Centre, 1, 1 },
+			{ "crypt_candles|candles|skull_fire", S::Ring, 2, 2, 3 },
+			{ "pedestal", S::Edge, 1, 2, 3 },
+			{ "large_fountain|goat_shrine|tear_fountain", S::Scatter, 0, 1, 5 },
+			{ "banner", S::Edge, 0, 1, 3 },
+			{ "wall_torch", S::Edge, 1, 1, 6 },
 		} },
 		{ "chapel", "Chapel", InCathedral | InCatacombs | InCrypt, {
-			{ "Altar|Angel statue", S::Centre, 1, 1 },
-			{ "Crypt candles|Candles", S::Ring, 2, 2, 3 },
-			{ "Wall banner|Banner", S::Edge, 2, 2, 4 },
-			{ "Lectern|Book stand", S::Edge, 1, 1 },
-			{ "Statue", S::Edge, 0, 2, 4 },
-			{ "Wall torch", S::Edge, 1, 1, 6 },
+			{ "altar|angel_statue", S::Centre, 1, 1 },
+			{ "crypt_candles|candles", S::Ring, 2, 2, 3 },
+			{ "banner", S::Edge, 1, 2, 4 },
+			{ "lectern|book_stand", S::Edge, 1, 1 },
+			{ "pedestal/0|shrine", S::Edge, 0, 1, 4 },
+			{ "magic_circle/0|magic_circle/2", S::Scatter, 0, 1, 4 },
+			{ "tear_fountain|angel_statue", S::Edge, 0, 1, 5 },
+			{ "wall_torch", S::Edge, 1, 1, 6 },
 		} },
 		{ "crypt", "Crypt", InCathedral | InCatacombs | InCrypt, {
-			{ "Sarcophagus|Crucified skeleton", S::Centre, 1, 1 },
-			{ "Sarcophagus|Tomb|Skull pile", S::Edge, 1, 2, 3 },
-			{ "Urn|Skull pile", S::Edge, 1, 3 },
-			{ "Wall skeleton|Crucified skeleton", S::Edge, 1, 2, 3 },
-			{ "Bone pile|Headless body", S::Scatter, 0, 1 },
-			{ "Crypt candles|Candles", S::Edge, 1, 2, 4 },
+			{ "crypt_sarcophagus|sarcophagus|crucified_skeleton", S::Centre, 1, 1 },
+			{ "crypt_sarcophagus|sarcophagus|skull_pile", S::Edge, 1, 2, 3 },
+			{ "urn|skull_pile", S::Edge, 1, 3 },
+			{ "crypt_book_stand|story_book", S::Edge, 0, 1, 4 },
+			{ "closed_chest", S::Edge, 0, 1, 4 },
+			{ "crucified_skeleton", S::Edge, 0, 1, 3 },
+			{ "headless_body", S::Scatter, 0, 1 },
+			{ "crypt_candles|candles", S::Edge, 1, 2, 4 },
 		} },
 		{ "torture", "Torture room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
-			{ "Torture rack|Blood fountain", S::Centre, 1, 1 },
-			{ "Impaled body", S::Edge, 2, 3, 3 },
-			{ "Chains|Shackles|Wall chains", S::Edge, 1, 2, 3 },
-			{ "Tortured body", S::Edge, 1, 2, 3 },
-			{ "Headless body", S::Scatter, 1, 2 },
-			{ "Skull pile", S::Scatter, 0, 1 },
-			{ "Wall torch|Skull fire", S::Edge, 1, 1, 6 },
+			{ "cauldron|blood_fountain", S::Centre, 1, 1 },
+			{ "impaled_body", S::Edge, 2, 3, 3 },
+			{ "hanging_body|tortured_body", S::Edge, 1, 2, 3 },
+			{ "tortured_body", S::Edge, 1, 1, 3 },
+			{ "lever/1|lever", S::Edge, 0, 1, 4 },
+			{ "headless_body", S::Scatter, 1, 2 },
+			{ "wall_torch|skull_fire", S::Edge, 1, 1, 6 },
 		} },
 		{ "prison", "Prison cells", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
-			{ "Chains|Shackles|Wall chains|Impaled body", S::Edge, 2, 3, 3 },
-			{ "Tortured body", S::Edge, 1, 2, 3 },
-			{ "Skull pile", S::Edge, 1, 1 },
-			{ "Headless body", S::Scatter, 1, 1 },
-			{ "Wall torch|Skull fire", S::Edge, 1, 1, 6 },
+			{ "impaled_body", S::Edge, 2, 3, 3 },
+			{ "hanging_body|tortured_body", S::Edge, 1, 1, 3 },
+			{ "tortured_body", S::Edge, 1, 2, 3 },
+			{ "lever", S::Edge, 0, 1, 4 },
+			{ "skull_pile", S::Edge, 1, 1 },
+			{ "headless_body", S::Scatter, 1, 1 },
+			{ "wall_torch|skull_fire", S::Edge, 1, 1, 6 },
 		} },
 		{ "armoury", "Armoury", InCatacombs | InCaves | InHell | InCrypt, {
-			{ "Weapon rack", S::Edge, 2, 3, 3 },
-			{ "Armour stand", S::Edge, 2, 3, 3 },
-			{ "Wall banner|Banner", S::Edge, 0, 1 },
-			{ "Closed chest|Treasure chest", S::Centre, 0, 1 },
-			{ "Wall torch|Candles", S::Edge, 1, 2, 6 },
+			{ "weapon_rack", S::Edge, 2, 3, 3 },
+			{ "armour_stand", S::Edge, 2, 3, 3 },
+			{ "banner", S::Edge, 0, 1 },
+			{ "closed_chest/2|closed_chest", S::Centre, 0, 1 },
+			{ "wall_torch|candles", S::Edge, 1, 2, 6 },
 		} },
 		{ "treasure", "Treasure room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
-			{ "Treasure chest|Gold pile|Angel statue|Blood fountain", S::Centre, 1, 1 },
-			{ "Open chest|Closed chest|Urn|Armour stand", S::Edge, 2, 3, 3 },
-			{ "Wall banner|Banner", S::Edge, 1, 2, 3 },
-			{ "Crypt candles|Candles", S::Ring, 2, 2, 3 },
-			{ "Wall torch", S::Edge, 1, 1, 6 },
+			{ "closed_chest/2|angel_statue|blood_fountain", S::Centre, 1, 1 },
+			{ "closed_chest/1|closed_chest/0", S::Edge, 2, 3, 3 },
+			{ "pedestal/3|pedestal", S::Edge, 1, 2, 3 },
+			{ "staff_stand|rock_stand", S::Edge, 0, 1, 4 },
+			{ "urn|armour_stand", S::Scatter, 0, 1 },
+			{ "banner", S::Edge, 0, 1, 3 },
+			{ "crypt_candles|candles", S::Ring, 2, 2, 3 },
+			{ "wall_torch", S::Edge, 1, 1, 6 },
 		} },
 		{ "altar", "Hell altar", InHell | InNest, {
-			{ "Altar|Hell altar|Blood fountain", S::Centre, 1, 1 },
-			{ "Skull fire", S::Ring, 2, 3, 3 },
-			{ "Crucified skeleton", S::Edge, 1, 2, 3 },
-			{ "Impaled body", S::Edge, 1, 2, 3 },
-			{ "Wall skeleton|Tortured body", S::Edge, 1, 2, 3 },
-			{ "Bone pile|Skull pile", S::Scatter, 1, 2 },
+			{ "altar|blood_fountain", S::Centre, 1, 1 },
+			{ "magic_circle/1|magic_circle/3", S::Ring, 0, 1, 4 },
+			{ "skull_fire", S::Ring, 2, 3, 3 },
+			{ "burning_cross", S::Edge, 0, 1, 6 },
+			{ "skull_switch|goat_shrine", S::Edge, 0, 1, 4 },
+			{ "cauldron", S::Scatter, 0, 1, 4 },
+			{ "crucified_skeleton", S::Edge, 1, 2, 3 },
+			{ "impaled_body", S::Edge, 0, 1, 3 },
+			{ "tortured_body", S::Edge, 0, 1, 3 },
+			{ "skull_pile|pod", S::Scatter, 1, 2 },
 		} },
 		{ "bones", "Bone room", InAll, {
-			{ "Bone pile|Skull pile", S::Centre, 1, 1 },
-			{ "Skull pile", S::Edge, 2, 3 },
-			{ "Wall skeleton|Crucified skeleton", S::Edge, 1, 2, 3 },
-			{ "Headless body", S::Scatter, 2, 3 },
-			{ "Impaled body", S::Edge, 0, 1 },
-			{ "Skull fire", S::Edge, 1, 1, 5 },
+			{ "skull_pile", S::Centre, 1, 1 },
+			{ "skull_pile", S::Edge, 2, 3 },
+			{ "crucified_skeleton", S::Edge, 1, 2, 3 },
+			{ "headless_body", S::Scatter, 2, 3 },
+			{ "pod|mushroom_patch", S::Scatter, 0, 1, 4 },
+			{ "impaled_body", S::Edge, 0, 1 },
+			{ "skull_fire", S::Edge, 1, 1, 5 },
 		} },
 	};
 	// clang-format on

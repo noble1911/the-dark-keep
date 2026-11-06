@@ -1573,6 +1573,32 @@ int StampTest(const std::string &levelsDir)
 		const StampResult nothing = StampRoom(map, none, cells, {});
 		check(nothing.placed == 0 && nothing.wanted == 0 && map.objects == base.objects, fmt::format("level {}: a stamp of nothing this build has adds nothing", level));
 
+		// A style asked for is the style placed.
+		RoomStamp styled { "styled", "Styled", 0xFF, { { "closed_chest/2", StampSpot::Edge, 2, 2 }, { "magic_circle/1", StampSpot::Scatter, 1, 1 } } };
+		reset();
+		const StampResult styles = StampRoom(map, styled, cells, {});
+		check(styles.placed >= 2 && std::all_of(styles.added.begin(), styles.added.end(), [](const MapObject &object) { return object.style() == (object.kind == MapObjectKind::ClosedChest ? 2 : 1); }),
+		    fmt::format("level {}: closed_chest/2 and magic_circle/1 place those styles ({} placed)", level, styles.placed));
+
+		// A kind whose art would take the level past its 40 object sprite files gives way to the next on the line.
+		reset();
+		for (const MapObjectKind kind : MapObjectPalette(base.tileset)) {
+			if (MapObjectFileCount(map) >= MaxLevelObjectFiles)
+				break;
+			if (!IsLegacyMapObject(kind) && kind != MapObjectKind::Cauldron && kind != MapObjectKind::SkullPile && MapObjectFileCount(map, kind) <= MaxLevelObjectFiles - 1)
+				map.objects.push_back({ kind, { 17, 17 } }); // on rock: left out of the level, but its art counts
+		}
+		// Skull piles go in every tileset; with their art already counted, they're what's left to use.
+		map.objects.push_back({ MapObjectKind::SkullPile, { 17, 18 } });
+		BuildMapLevel();
+		std::memset(dObject, 0, sizeof(dObject));
+		InitObjects();
+		RoomStamp heavy { "heavy", "Heavy", 0xFF, { { "cauldron|skull_pile", StampSpot::Scatter, 2, 2 } } };
+		const bool full = MapObjectFileCount(map, MapObjectKind::Cauldron) > MaxLevelObjectFiles;
+		const StampResult budget = StampRoom(map, heavy, cells, {});
+		check(!full || (budget.placed >= 1 && std::none_of(budget.added.begin(), budget.added.end(), [](const MapObject &object) { return object.kind == MapObjectKind::Cauldron; }) && MapObjectFileCount(map) <= MaxLevelObjectFiles),
+		    fmt::format("level {}: with the art budget spent ({} files), a stamp uses a kind already loaded ({} placed)", level, MapObjectFileCount(map), budget.placed));
+
 		// The caps stop a stamp and say so.
 		const RoomStamp &bones = *RoomStampNamed("bones");
 		reset();
