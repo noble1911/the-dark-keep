@@ -942,7 +942,7 @@ A wide cloister with a rock island in the middle, and the vault below it on the 
 
 ## Level 18: Chains of Night
 
-**Hell.** Route 184 tiles, 1012 floor cells, 4153 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 8 of them. 22 light sources, 69 props.
+**Hell.** Route 184 tiles, 1012 floor cells, 4153 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 29 points along the route, 0 leave no way on; 3 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 8 of them. 23 light sources, 69 props.
 
 Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. Each turn is a place to bar, and shoulders of rock narrow every hall to one more.
 
@@ -991,7 +991,7 @@ Long chained halls in a switchback, with a broad neck at each turn and one bypas
 
 ## Level 19: Burning Sepulcre
 
-**Hell.** Route 154 tiles, 825 floor cells, 3434 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 21 of them. 22 light sources, 55 props.
+**Hell.** Route 154 tiles, 825 floor cells, 3434 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 24 points along the route, 0 leave no way on; 1 have a real way round (+10 tiles or more, longest +11); a Barricade fits at 21 of them. 23 light sources, 55 props.
 
 A burial hall ringed by a broad ambulatory, with the vault below and behind it. The hall has two necks in, and the ring is cut on the east, so the party crosses the hall or walks the whole ring, and the only way down is at the far corner, with the vault back at the other end. Traps herd rather than block: there is always another way on, and lairs hold the ring.
 
@@ -1040,7 +1040,7 @@ A burial hall ringed by a broad ambulatory, with the vault below and behind it. 
 
 ## Level 20: Throne of Ash
 
-**Hell.** Route 204 tiles, 1082 floor cells, 4510 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 22 of them. 21 light sources, 62 props.
+**Hell.** Route 204 tiles, 1082 floor cells, 4510 tiles to build on. 0 doors: 0 can't be bypassed, 0 on the short route with a way round, 0 off the short route. Shut at any of 32 points along the route, 0 leave no way on; 6 have a real way round (+10 tiles or more, longest +16); a Barricade fits at 22 of them. 22 light sources, 62 props.
 
 The last keep: the longest route in the campaign, five halls in a switchback with a broad neck at each turn and bypasses through the walls. Nothing can be sealed and only the last neck has no way round, so it asks for everything learned so far, with barricades for locks, and ends in a throne room big enough for a last stand.
 

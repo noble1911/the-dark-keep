@@ -273,7 +273,7 @@ and the tool button opens the list as for props.
 | shrine | Cathedral, Catacombs, Caves, Crypt | a shrine against the wall, two candles round it, pedestals, a fountain or goat shrine, a banner, a torch |
 | chapel | Cathedral, Catacombs, Crypt | an altar, candles round it, banners, a lectern, a pedestal, a grey magic circle, a tear fountain, a torch |
 | crypt | Cathedral, Catacombs, Crypt | a sarcophagus in the middle (the Crypt's own there), more by the walls, urns or skull piles, a story book, a closed chest, crypt candles |
-| torture | all but the Nest | a blood fountain, impaled and hanging bodies, tortured bodies, a pulled lever, headless bodies, a torch |
+| torture | all but the Nest | a hanging body ringed with skull fires, impaled and more hanging bodies, tortured bodies, a pulled lever, headless bodies, a torch |
 | prison | all but the Nest | impaled, hanging and tortured bodies round the walls, a lever, skull piles, a torch |
 | armoury | Catacombs, Caves, Hell, Crypt | weapon racks and armour stands round the walls, a banner, a large closed chest, torches |
 | treasure | all but the Nest | a large closed chest, smaller ones by the walls, a pedestal of stones, a staff stand, candles round it, a torch |

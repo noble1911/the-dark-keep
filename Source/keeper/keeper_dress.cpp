@@ -59,10 +59,10 @@ constexpr std::array<ThemeSpec, NumDressThemes> Themes { {
     { "library", { { { MapObjectKind::Bookcase, 4 }, { MapObjectKind::BookStand, 3 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Bookshelf, 2 }, { MapObjectKind::Lectern, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BookStand }, MapObjectKind::Candle },
     { "chapel", { { { MapObjectKind::Banner, 3 }, { MapObjectKind::BookStand, 2 }, { MapObjectKind::Bookcase, 1 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Lectern, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BloodFountain }, MapObjectKind::Candle },
     { "armoury", { { { MapObjectKind::WeaponRack, 3 }, { MapObjectKind::ArmourStand, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::ClosedChest, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::Banner, None }, MapObjectKind::Candle },
-    { "torture", { { { MapObjectKind::TorturedBody, 3 }, { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
+    { "torture", { { { MapObjectKind::TorturedBody, 3 }, { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::HangingBody, MapObjectKind::BloodFountain }, MapObjectKind::SkullFire },
     { "prison", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
     { "tomb", { { { MapObjectKind::SkullPile, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::BookStand, 1 }, { MapObjectKind::Urn, 1 }, { MapObjectKind::ClosedChest, 1 } } }, { MapObjectKind::AngelStatue, MapObjectKind::CrucifiedSkeleton }, MapObjectKind::Candle },
-    { "hell", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
+    { "hell", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 } } }, { MapObjectKind::BurningCross, MapObjectKind::BloodFountain }, MapObjectKind::SkullFire },
 } };
 
 /** The dressing's own numbers: never the game's generator, which co-op keeps in step. */
@@ -1312,8 +1312,8 @@ std::vector<RoomStamp> MakeRoomStamps()
 			{ "crypt_candles|candles", S::Edge, 1, 2, 4 },
 		} },
 		{ "torture", "Torture room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
-			{ "blood_fountain|hanging_body", S::Centre, 1, 1 },
-			// The dark eats a centrepiece with no light by it: a blood fountain reads as a black pool.
+			// A hanging body, lit: in the keep's dark a blood fountain reads as a black pool even by a fire.
+			{ "hanging_body|tortured_body", S::Centre, 1, 1 },
 			{ "skull_fire|candles", S::Ring, 1, 2, 3 },
 			{ "impaled_body", S::Edge, 2, 3, 3 },
 			{ "hanging_body|tortured_body", S::Edge, 1, 2, 3 },
