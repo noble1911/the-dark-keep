@@ -70,8 +70,9 @@ enum class EditTool : uint8_t {
 	Vault,
 	Object,
 	Erase,
+	Stamp,
 };
-constexpr size_t NumEditTools = 11;
+constexpr size_t NumEditTools = 12;
 
 struct ToolInfo {
 	std::string_view name;
@@ -91,6 +92,7 @@ constexpr std::array<ToolInfo, NumEditTools> Tools { {
 	{ "Vault", "9", "Click to place the vault. It clears the floor it needs. Right-click: remove." },
 	{ "Object", "0", "Click floor to place one; click this tool again to pick another. Click one to change its look. Right-click: remove." },
 	{ "Erase", "E", "Drag to remove doors, arches, objects and stairs. Paints nothing." },
+	{ "Stamp", "T", "Click in a room for a themed group of props (Drag: a rectangle). Click this tool again to pick another. [ ]: next stamp." },
 } };
 
 enum class ActionKind : uint8_t {
@@ -126,6 +128,7 @@ enum class Modal : uint8_t {
 	LoadList,
 	TilesetList,
 	PropList,
+	StampList,
 	ConfirmNew,
 };
 
@@ -189,6 +192,29 @@ struct Stroke {
 	Snapshot before;
 };
 Stroke stroke;
+
+/** The stamp the Stamp tool places: an index into RoomStamps(). */
+size_t stampIndex = 0;
+/** The stamps in the stamp list, as it was opened. */
+std::vector<const RoomStamp *> stampListStamps;
+
+/**
+ * A stamp on show but not kept yet: its props are in the model, and `before` is the model without them. Kept,
+ * it is one Undo; dropped, the model goes back to `before`.
+ */
+struct StampPreview {
+	bool active = false;
+	Snapshot before;
+	bool dirtyBefore = false;
+	std::vector<Point> cells;
+	uint32_t seed = 0;
+	StampResult result;
+};
+StampPreview stampPreview;
+/** Each stamp shown gets the next seed, so a reroll (or the next room) is a new layout. */
+uint32_t stampSeed = 0;
+
+void SettleStamp();
 
 Modal modal = Modal::None;
 std::string modalText;
@@ -290,6 +316,7 @@ void InitNewMap()
 	dirty = false;
 	undoStack.clear();
 	redoStack.clear();
+	stampPreview.active = false;
 }
 
 std::string WriteModel(const std::string &path)
@@ -302,6 +329,7 @@ std::string WriteModel(const std::string &path)
 
 void Autosave()
 {
+	SettleStamp();
 	if (!dirty)
 		return;
 	const std::string path = MapsFolder() + std::string(AutosaveFile);
@@ -342,6 +370,7 @@ void OpenTextModal(Modal kind, std::string text)
 
 void Save()
 {
+	SettleStamp();
 	if (fileName.empty())
 		OpenTextModal(Modal::SaveName, model.name);
 	else
@@ -352,6 +381,7 @@ void ChangeTileset(MapTileset tileset)
 {
 	if (tileset == model.tileset)
 		return;
+	SettleStamp();
 	if (!IsMapTilesetInstalled(tileset)) {
 		SetFeedback(fmt::format("The game data here has no {} tiles", MapTilesetName(tileset)), true);
 		return;
@@ -386,6 +416,7 @@ void LoadMapNamed(const std::string &name)
 		return;
 	}
 	Autosave();
+	stampPreview.active = false;
 	const bool sameTileset = loaded->tileset == model.tileset;
 	model = std::move(*loaded);
 	// The editor's own scratch files get overwritten behind the author's back: saving asks for a name.
@@ -416,6 +447,7 @@ void NewMapNow()
 
 void NewMap()
 {
+	SettleStamp();
 	if (dirty) {
 		modal = Modal::ConfirmNew;
 		modalNote.clear();
@@ -426,6 +458,7 @@ void NewMap()
 
 void StartTest()
 {
+	SettleStamp();
 	if (levelStale)
 		RefreshLevel();
 	if (HasBlockingProblem()) {
@@ -774,12 +807,191 @@ void OpenPropList()
 	OpenPropList(inPalette ? std::optional<MapObjectGroup>(group) : std::nullopt);
 }
 
+const RoomStamp &CurrentStamp()
+{
+	const std::vector<RoomStamp> &stamps = RoomStamps();
+	if (stampIndex >= stamps.size() || !RoomStampSuits(stamps[stampIndex], model.tileset)) {
+		const std::vector<const RoomStamp *> suits = RoomStampsFor(model.tileset);
+		stampIndex = suits.empty() ? 0 : static_cast<size_t>(suits.front() - stamps.data());
+	}
+	return stamps[stampIndex];
+}
+
+/** The next or previous stamp meant for the tileset. */
+void CycleStamp(int delta)
+{
+	const std::vector<const RoomStamp *> suits = RoomStampsFor(model.tileset);
+	if (suits.empty())
+		return;
+	const RoomStamp *current = &CurrentStamp();
+	const auto at = std::find(suits.begin(), suits.end(), current);
+	const int index = at == suits.end() ? 0 : static_cast<int>(at - suits.begin());
+	const int count = static_cast<int>(suits.size());
+	stampIndex = static_cast<size_t>(suits[(index + delta + count) % count] - RoomStamps().data());
+}
+
+std::string StampKeysHint()
+{
+	if (IsPadInUse())
+		return fmt::format("{} on it: keep   {}+{}: another layout   {}: drop", InputName(PadAction::Confirm), InputName(PadAction::Modifier), InputName(PadAction::Confirm), InputName(PadAction::Order));
+	return "Click it or Enter: keep   R or Shift-click: another layout   Right-click or Esc: drop";
+}
+
+void DropStamp()
+{
+	if (!stampPreview.active)
+		return;
+	stampPreview.active = false;
+	model.objects = stampPreview.before.objects;
+	dirty = stampPreview.dirtyBefore;
+	levelStale = true;
+}
+
+void KeepStamp()
+{
+	if (!stampPreview.active)
+		return;
+	stampPreview.active = false;
+	PushUndo(stampPreview.before);
+	dirty = true;
+	SetFeedback(fmt::format("Kept the {}: {} props. Undo takes it out", CurrentStamp().label, stampPreview.result.placed));
+}
+
+void SettleStamp()
+{
+	KeepStamp();
+}
+
+/** Shows the current stamp on `cells`, in place of any stamp on show. */
+void PreviewStamp(const std::vector<Point> &cells)
+{
+	DropStamp();
+	if (model.entrance == NoMapPosition || model.vault == NoMapPosition) {
+		SetFeedback("Place the entrance and the vault first: a stamp keeps off the heroes' way", true);
+		return;
+	}
+	if (cells.empty()) {
+		SetFeedback("That isn't a room: click inside one, or drag a rectangle", true);
+		return;
+	}
+	const RoomStamp &stamp = CurrentStamp();
+	if (model.objects.size() >= MaxMapObjects) {
+		SetFeedback(fmt::format("A map can hold {} objects: there's no room for the {}", MaxMapObjects, stamp.label), true);
+		return;
+	}
+	const Snapshot before = TakeSnapshot();
+	const bool dirtyBefore = dirty;
+	StampOptions options;
+	options.seed = stampSeed++;
+	const StampResult result = StampRoom(model, stamp, cells, options);
+	levelStale = true;
+	if (result.placed == 0) {
+		model.objects = before.objects;
+		if (!result.notes.empty())
+			SetFeedback(result.notes.front(), true);
+		else if (result.capped)
+			SetFeedback(fmt::format("The object cap is reached ({} on a map, {} on a level with its doors)", MaxMapObjects, MaxLevelObjectsAtLoad), true);
+		else
+			SetFeedback(fmt::format("No {} fits there, off the heroes' way", stamp.label), true);
+		return;
+	}
+	stampPreview = { true, before, dirtyBefore, cells, options.seed, result };
+	dirty = true;
+	if (result.capped)
+		SetFeedback(fmt::format("The object cap stopped the {} at {} of {} props ({} on a map, {} on a level). {}", stamp.label, result.placed, result.wanted, MaxMapObjects, MaxLevelObjectsAtLoad, StampKeysHint()), true);
+	else
+		SetFeedback(fmt::format("{}: {} props, {} lights. {}", stamp.label, result.placed, result.lights, StampKeysHint()));
+}
+
+void RerollStamp()
+{
+	if (!stampPreview.active) {
+		SetFeedback("Stamp a room first, then this tries another layout", true);
+		return;
+	}
+	const std::vector<Point> cells = stampPreview.cells;
+	PreviewStamp(cells);
+}
+
+/** The cells a click or drag of the Stamp tool means. */
+std::vector<Point> StampCells()
+{
+	if (stroke.anchor == stroke.last)
+		return RoomCellsAt(model, stroke.anchor);
+	return FloorCellsIn(model, stroke.anchor, stroke.last);
+}
+
+void FinishStampStroke()
+{
+	const bool click = stroke.anchor == stroke.last;
+	if (click && stampPreview.active && std::find(stampPreview.cells.begin(), stampPreview.cells.end(), stroke.anchor) != stampPreview.cells.end()) {
+		// On the stamp on show: keep it, or with Shift try another.
+		if (stroke.shift)
+			RerollStamp();
+		else
+			KeepStamp();
+		return;
+	}
+	PreviewStamp(StampCells());
+}
+
+void OpenStampList()
+{
+	modal = Modal::StampList;
+	stampListStamps = RoomStampsFor(model.tileset);
+	modalList.clear();
+	modalRow = 0;
+	const RoomStamp *current = &CurrentStamp();
+	for (size_t i = 0; i < stampListStamps.size(); i++) {
+		const RoomStamp &stamp = *stampListStamps[i];
+		// What it has here: the first kind each entry names that this build and tileset have.
+		std::vector<std::string> kinds;
+		const std::vector<MapObjectKind> palette = MapObjectPalette(model.tileset);
+		for (const RoomStampEntry &entry : stamp.entries) {
+			for (std::string_view names = entry.kinds; !names.empty();) {
+				const size_t bar = names.find('|');
+				const std::optional<MapObjectKind> kind = MapObjectKindNamed(names.substr(0, bar));
+				names = bar == std::string_view::npos ? std::string_view() : names.substr(bar + 1);
+				if (kind && !IsLegacyMapObject(*kind) && std::find(palette.begin(), palette.end(), *kind) != palette.end()) {
+					std::string name(MapObjectName(*kind));
+					if (std::find(kinds.begin(), kinds.end(), name) == kinds.end())
+						kinds.push_back(std::move(name));
+					break;
+				}
+			}
+		}
+		std::string label(stamp.label);
+		// The list is narrow: the first two say what it is.
+		for (size_t k = 0; k < kinds.size() && k < 2; k++)
+			label += fmt::format("{} {}", k == 0 ? ":" : ",", kinds[k]);
+		modalList.push_back(std::move(label));
+		if (stampListStamps[i] == current)
+			modalRow = static_cast<int>(i);
+	}
+	modalScroll = std::clamp(modalRow - ModalRows + 1, 0, std::max(0, static_cast<int>(modalList.size()) - ModalRows));
+	modalNote = modalList.empty() ? "No stamps for this tileset" : "";
+}
+
+/** A new stamp chosen: the one on show becomes it, in the same room. */
+void ChoseStamp()
+{
+	if (!stampPreview.active)
+		return;
+	const std::vector<Point> cells = stampPreview.cells;
+	PreviewStamp(cells);
+}
+
 void FinishStroke()
 {
 	const bool committed = stroke.active;
 	stroke.active = false;
 	if (!committed)
 		return;
+	if (tool == EditTool::Stamp) {
+		if (!stroke.right)
+			FinishStampStroke();
+		return;
+	}
 	switch (tool) {
 	case EditTool::Wall:
 		for (const Point cell : DraggedCells())
@@ -891,11 +1103,23 @@ void BeginStroke(bool right)
 	case EditTool::Object:
 		PlaceObject(cursPosition, right);
 		break;
+	case EditTool::Stamp:
+		if (right) {
+			// Right-click drops the stamp on show; nothing else to undo.
+			DropStamp();
+			stroke.active = false;
+		}
+		break;
 	}
 }
 
 void Undo()
 {
+	if (stampPreview.active) {
+		// The stamp on show isn't kept yet: Undo is dropping it.
+		DropStamp();
+		return;
+	}
 	if (undoStack.empty())
 		return;
 	redoStack.push_back(TakeSnapshot());
@@ -905,6 +1129,7 @@ void Undo()
 
 void Redo()
 {
+	SettleStamp();
 	if (redoStack.empty())
 		return;
 	undoStack.push_back(TakeSnapshot());
@@ -918,6 +1143,10 @@ void SelectTool(EditTool next)
 		FinishStroke(); // it finishes as the tool it began with
 	if (next == EditTool::Object && tool == EditTool::Object)
 		OpenPropList();
+	if (next == EditTool::Stamp && tool == EditTool::Stamp)
+		OpenStampList();
+	else
+		SettleStamp();
 	tool = next;
 	if (next == EditTool::Corridor && brushSize < 2)
 		brushSize = 2;
@@ -933,6 +1162,7 @@ void DressLevel()
 		SetFeedback("Place the entrance and the vault first: the dressing keeps off the heroes' way", true);
 		return;
 	}
+	SettleStamp();
 	const Snapshot before = TakeSnapshot();
 	const DressResult result = DressMap(model, DressOptions {});
 	levelStale = true;
@@ -978,6 +1208,8 @@ std::vector<Button> PanelButtons()
 		std::string label = fmt::format("{}{}", key, Tools[i].name);
 		if (thisTool == EditTool::Object)
 			label = fmt::format("{}{}", key, MapObjectName(objectKind));
+		if (thisTool == EditTool::Stamp)
+			label = fmt::format("{}{}", key, CurrentStamp().label);
 		bool enabled = true;
 		if (thisTool == EditTool::Door)
 			enabled = MapTilesetHasDoors(model.tileset);
@@ -987,7 +1219,7 @@ std::vector<Button> PanelButtons()
 	}
 	x = left;
 	y += ButtonHeight + 7;
-	add("Undo", ActionKind::Undo, 0, false, !undoStack.empty());
+	add("Undo", ActionKind::Undo, 0, false, !undoStack.empty() || stampPreview.active);
 	add("Redo", ActionKind::Redo, 0, false, !redoStack.empty());
 	add("New", ActionKind::New, 0, false);
 	add("Save", ActionKind::Save, 0, false);
@@ -1095,7 +1327,7 @@ Rectangle ModalRect()
 {
 	const int uiWidth = gnScreenWidth / UiPixelScale();
 	int height = 86;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList)
+	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList)
 		height = 44 + ModalRows * ModalRowHeight;
 	return { { (uiWidth - ModalWidth) / 2, std::max(10, PanelTop() - height - 10) }, { ModalWidth, height } };
 }
@@ -1113,6 +1345,8 @@ std::string_view ModalTitle()
 		return "Tileset";
 	case Modal::PropList:
 		return propListGroup ? MapObjectGroupName(*propListGroup) : "Object";
+	case Modal::StampList:
+		return "Room stamp";
 	case Modal::ConfirmNew:
 		return "Start a new map?";
 	case Modal::None:
@@ -1123,7 +1357,7 @@ std::string_view ModalTitle()
 
 std::optional<size_t> ModalRowAt(Point mouse)
 {
-	if (modal != Modal::LoadList && modal != Modal::TilesetList && modal != Modal::PropList)
+	if (modal != Modal::LoadList && modal != Modal::TilesetList && modal != Modal::PropList && modal != Modal::StampList)
 		return std::nullopt;
 	const Rectangle box = ModalRect();
 	const Rectangle rows { box.position + Displacement { 8, 24 }, { box.size.width - 16, ModalRows * ModalRowHeight } };
@@ -1175,6 +1409,8 @@ void DrawModal(const Surface &out)
 			const PropRow &propRow = propListRows[index];
 			current = propRow.type == PropRow::Type::Kind ? propRow.kind == objectKind : (propRow.type == PropRow::Type::Group && propRow.group == GetMapObjectTraits(objectKind).group);
 		}
+		else if (modal == Modal::StampList)
+			current = index < stampListStamps.size() && stampListStamps[index] == &CurrentStamp();
 		DrawString(out, modalList[index], { at + Displacement { 4, 1 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | (current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 	if (!modalNote.empty())
@@ -1270,6 +1506,9 @@ void ClickModalRow(size_t row)
 			objectKind = picked.kind;
 			break;
 		}
+	} else if (kind == Modal::StampList && row < stampListStamps.size()) {
+		stampIndex = static_cast<size_t>(stampListStamps[row] - RoomStamps().data());
+		ChoseStamp();
 	}
 }
 
@@ -1497,7 +1736,10 @@ bool EditorOnTestKey(SDL_Keycode key)
 }
 
 #ifdef KEEPER_DEVCTL
-void DevEditor(const std::string &what, const std::string &arg)
+/** The middle of the last room `editor stampat` stamped, for `editor stampcam` in a test run. */
+Point devStampMiddle = NoMapPosition;
+
+std::string DevEditor(const std::string &what, const std::string &arg)
 {
 	if (what == "save")
 		Save();
@@ -1523,6 +1765,47 @@ void DevEditor(const std::string &what, const std::string &arg)
 		else
 			OpenPropList(static_cast<MapObjectGroup>(std::clamp(std::atoi(arg.c_str()), 0, static_cast<int>(NumMapObjectGroups) - 1)));
 	}
+	else if (what == "stamp") {
+		// `editor stamp <name>`: the Stamp tool with that stamp
+		if (const RoomStamp *stamp = RoomStampNamed(arg); stamp != nullptr) {
+			if (tool != EditTool::Stamp)
+				SelectTool(EditTool::Stamp);
+			stampIndex = static_cast<size_t>(stamp - RoomStamps().data());
+			ChoseStamp();
+		}
+	} else if (what == "stampat") {
+		// `editor stampat <x>,<y>`: as a click on that world tile with the Stamp tool
+		const size_t comma = arg.find(',');
+		if (comma != std::string::npos) {
+			const Point tile { std::atoi(arg.c_str()), std::atoi(arg.c_str() + comma + 1) };
+			const std::vector<Point> cells = RoomCellsAt(model, { (tile.x - 16) / 2, (tile.y - 16) / 2 });
+			PreviewStamp(cells);
+			// The camera on the room stamped, for a screenshot (a test run starts where the editor's camera is).
+			if (!cells.empty()) {
+				Point sum { 0, 0 };
+				for (const Point cell : cells)
+					sum += Displacement { cell.x, cell.y };
+				devStampMiddle = Point { sum.x / static_cast<int>(cells.size()), sum.y / static_cast<int>(cells.size()) }.megaToWorld() + Displacement { 1, 1 };
+				CenterCamera(devStampMiddle);
+			}
+		}
+	} else if (what == "stampcam") {
+		if (devStampMiddle != NoMapPosition)
+			CenterCamera(devStampMiddle);
+	} else if (what == "stampkeep")
+		KeepStamp();
+	else if (what == "stampreroll")
+		RerollStamp();
+	else if (what == "stampdrop")
+		DropStamp();
+	else if (what == "stampinfo")
+	{
+		std::string added;
+		for (const MapObject &object : stampPreview.result.added)
+			added += fmt::format(" {}@{},{}{}", MapObjectName(object.kind), object.position.x, object.position.y, object.facesY() ? "y" : "");
+		return fmt::format("stamp {} active={} placed={} wanted={} lights={} capped={} objects={} undo={} middle={},{} added:{}", CurrentStamp().name, stampPreview.active, stampPreview.result.placed, stampPreview.result.wanted, stampPreview.result.lights, stampPreview.result.capped, model.objects.size(), undoStack.size(), devStampMiddle.x, devStampMiddle.y, added);
+	}
+	return {};
 }
 #endif
 
@@ -1557,7 +1840,7 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	if (modal != Modal::None) {
 		if (key == SDLK_ESCAPE)
 			modal = Modal::None;
-		if ((modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList) && !modalList.empty()) {
+		if ((modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList) && !modalList.empty()) {
 			const int last = static_cast<int>(modalList.size()) - 1;
 			if (key == SDLK_DOWN || key == SDLK_UP) {
 				modalRow = std::clamp(modalRow + (key == SDLK_DOWN ? 1 : -1), 0, last);
@@ -1612,11 +1895,27 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	case SDLK_E:
 		SelectTool(EditTool::Erase);
 		return true;
-	case SDLK_LEFTBRACKET:
-		brushSize = std::max(brushSize - 1, 1);
+	case SDLK_T:
+		SelectTool(EditTool::Stamp);
 		return true;
+	case SDLK_R:
+		if (tool == EditTool::Stamp)
+			RerollStamp();
+		return true;
+	case SDLK_RETURN:
+	case SDLK_KP_ENTER:
+		KeepStamp();
+		return true;
+	case SDLK_LEFTBRACKET:
 	case SDLK_RIGHTBRACKET:
-		brushSize = std::min(brushSize + 1, MaxBrush);
+		if (tool == EditTool::Stamp) {
+			CycleStamp(key == SDLK_LEFTBRACKET ? -1 : 1);
+			ChoseStamp();
+			if (!stampPreview.active)
+				SetFeedback(fmt::format("Stamp: {}", CurrentStamp().label));
+		} else {
+			brushSize = std::clamp(brushSize + (key == SDLK_LEFTBRACKET ? -1 : 1), 1, MaxBrush);
+		}
 		return true;
 	case SDLK_G:
 		showGrid = !showGrid;
@@ -1650,6 +1949,10 @@ bool EditorOnKeyDown(SDL_Keycode key)
 			// Wall, Room and Hall only change anything on release; freehand tools roll back.
 			RestoreSnapshot(stroke.before);
 			stroke.active = false;
+			return true;
+		}
+		if (stampPreview.active) {
+			DropStamp();
 			return true;
 		}
 		return false; // the game menu
@@ -1697,7 +2000,7 @@ bool EditorOnMouseWheel(int deltaY)
 {
 	if (levelReloading)
 		return true;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList) {
+	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList) {
 		const int maxScroll = std::max(0, static_cast<int>(modalList.size()) - ModalRows);
 		modalScroll = std::clamp(modalScroll + (deltaY > 0 ? -1 : 1), 0, maxScroll);
 		return true;
@@ -1729,6 +2032,11 @@ void EditorDrawWorld(const Surface &out)
 	}
 	DrawStairsMarker(out, model.entrance, true, maxY);
 	DrawStairsMarker(out, model.vault, false, maxY);
+	// The stamp on show: what it added.
+	if (stampPreview.active) {
+		for (const MapObject &object : stampPreview.result.added)
+			DrawTileOutline(out, object.position, PAL16_YELLOW + 2, maxY);
+	}
 
 	if (IsMouseOverPanel())
 		return;
@@ -1773,6 +2081,20 @@ void EditorDrawWorld(const Surface &out)
 		DrawTileOutline(out, at, why.empty() || onExisting ? PAL16_YELLOW + 6 : PAL16_RED + 2, maxY);
 		break;
 	}
+	case EditTool::Stamp:
+		if (stroke.active && !stroke.right && stroke.anchor != stroke.last) {
+			const Point first { std::min(stroke.anchor.x, stroke.last.x), std::min(stroke.anchor.y, stroke.last.y) };
+			DrawRectOutline(out, first, { std::abs(stroke.last.x - stroke.anchor.x) + 1, std::abs(stroke.last.y - stroke.anchor.y) + 1 }, PAL16_YELLOW + 2, maxY);
+		} else {
+			// The room a click would stamp, red where there's none; nothing over the stamp on show, so it can be seen.
+			const bool onPreview = stampPreview.active && std::find(stampPreview.cells.begin(), stampPreview.cells.end(), *hovered) != stampPreview.cells.end();
+			const std::vector<Point> cells = onPreview ? std::vector<Point> {} : RoomCellsAt(model, *hovered);
+			for (const Point cell : cells)
+				DrawCellOutline(out, cell, PAL16_ORANGE + 4, maxY);
+			if (cells.empty())
+				DrawCellOutline(out, *hovered, onPreview ? PAL16_YELLOW + 2 : PAL16_RED + 2, maxY);
+		}
+		break;
 	}
 }
 
@@ -1810,6 +2132,9 @@ void EditorDrawUi(const Surface &out)
 		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
 	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
 		hint += fmt::format("  Size {}", brushSize);
+	if (tool == EditTool::Stamp) {
+		hint = fmt::format("{}: {}{}", CurrentStamp().label, hint, stampPreview.active ? "  " + StampKeysHint() : std::string());
+	}
 	if (tool == EditTool::Object && !IsMouseOverPanel()) {
 		if (const std::string why = ObjectForClick(cursPosition).second; !why.empty() && FindObjectForClick(cursPosition) == model.objects.end())
 			hint = fmt::format("{}: {}", MapObjectName(objectKind), why);
@@ -1864,7 +2189,7 @@ bool IsTextModal()
 
 bool IsListModal()
 {
-	return modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList;
+	return modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList;
 }
 
 Rectangle ModalRowRect(int row)
@@ -2056,6 +2381,11 @@ std::string EditorPadPrompt(bool focused)
 	if (focused)
 		return fmt::format("{}: move   {}: press   {}: back to the map", InputName(PadAction::Navigate), confirm, cancel);
 	const auto name = PadButtonName;
+	if (tool == EditTool::Stamp) {
+		return fmt::format("{}: stamp a room (hold: drag), again: keep   {}+{}: another layout   {}: drop   {} {}: stamp   {}: tools   {}: menu",
+		    confirm, InputName(PadAction::Modifier), confirm, InputName(PadAction::Order),
+		    name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER), InputName(PadAction::Navigate), InputName(PadAction::Menu));
+	}
 	return fmt::format("{}: paint (hold: drag)   {}: other way   {}: shift   {}: undo   {} {}: size   {}: tools   {}: test   {}: menu",
 	    confirm, InputName(PadAction::Order), InputName(PadAction::Modifier), name(ControllerButton_BUTTON_Y),
 	    name(ControllerButton_BUTTON_LEFTSHOULDER), name(ControllerButton_BUTTON_RIGHTSHOULDER), InputName(PadAction::Navigate), name(ControllerButton_BUTTON_BACK), InputName(PadAction::Menu));

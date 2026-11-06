@@ -66,7 +66,7 @@ extern "C" __declspec(dllimport) unsigned int __stdcall SetErrorMode(unsigned in
 namespace devilution::keeper {
 
 void DevHallSelect(int whichTab, size_t index);
-void DevEditor(const std::string &what, const std::string &arg);
+std::string DevEditor(const std::string &what, const std::string &arg);
 
 namespace {
 
@@ -1064,7 +1064,8 @@ void Execute(const std::string &line)
 	} else if (command == "editor") {
 		std::string arg;
 		in >> word >> arg;
-		DevEditor(word, arg);
+		if (const std::string said = DevEditor(word, arg); !said.empty())
+			Output(said);
 	} else if (command == "lockroute") {
 		// The first door or neck on the heroes' way that can be shut, a good way in.
 		const std::vector<Point> route = EstimateHeroRoute({});

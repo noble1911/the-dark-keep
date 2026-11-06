@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Big ones take two or four tiles. Nothing can use, open or break them, from a click or another player
 - A level loads only the object art its map uses, so more kinds fit the engine's 40 sprite files
 - The editor's prop list is grouped: Light, Wall, Furniture, Bodies, Clutter and Set pieces
+- The editor's Stamp tool furnishes a room for a theme in one click: a library corner, a shrine, a chapel, a
+  crypt, a torture room, prison cells, an armoury, a treasure room, a hell altar or a bone room. Shown before
+  it's kept, rerolled for another layout, and taken out with one Undo; it never changes the heroes' way
+- Level sources can stamp rooms (`stamp:` lines) and have the dressing stamp the biggest rooms (`rooms=N`)
 - Hell is darker (7 preparing, 10 in a raid) so its torches and skull fires read against the flat floor
 - The Cathedral levels' braziers became wall torches: radius 5 lit only a tile or two in the dark
 - Every monster and slain hero leaves a body that stays all level

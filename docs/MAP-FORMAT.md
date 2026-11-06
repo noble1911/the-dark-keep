@@ -246,7 +246,49 @@ barricade goes is taken back out. Pressing it again adds only what's missing; Un
 In a level source, `dress: <theme> [<theme>] [lights=N] [minlights=N] [spacing=N] [scenery=N] [seed=N] [centre=0]`
 runs it after the `prop:` lines. The themes are bones, library, chapel, armoury, torture, prison, tomb and hell;
 without one, the tileset's own (chapel for the Cathedral, tomb for the Catacombs and the Crypt, prison for the
-Caves, hell for Hell, bones for the Nest).
+Caves, hell for Hell, bones for the Nest). `rooms=N` on that line also gives the N biggest rooms a theme-room
+stamp each (below), for the themes in turn, before the lights and scenery; a stamped room gets no scattered
+scenery or centrepiece, and its props don't count against `scenery=`. Without `rooms=` the pass is unchanged.
+
+### Theme-room stamps
+
+The editor's **Stamp** tool (key T) puts a themed group of props in a room at once. Click inside a room for
+that room (one wider than 10 megatiles gives a 10 by 10 corner of it round the click, against the walls the
+camera sees if it can, so it has walls to stand by), or drag a rectangle for its floor. The stamp shows at
+once, outlined, and isn't kept until you say: click it again (or Enter) to keep it, Shift-click it (or R) for
+another layout, right-click (or Esc) to drop it. Clicking another room moves it there. Once kept, one Undo
+takes the whole stamp out. Click the tool again for the list of stamps meant for the tileset; `[` and `]` step
+through them, and a stamp on show turns into the new one where it stands. On a controller: the Confirm button
+stamps the room under the cursor (hold it to drag) and keeps the stamp when pressed on it again, Shift (the
+left trigger) with Confirm rerolls it, the Order button drops it, the shoulder buttons step through the stamps,
+and the tool button opens the list as for props.
+
+| Stamp | Tilesets | What it puts in |
+|---|---|---|
+| library | Cathedral, Catacombs, Crypt | bookcases round the walls, a book stand in the middle, candles, a torch |
+| shrine | Cathedral, Catacombs, Caves, Crypt | a statue or fountain, two candles round it, banners, a torch |
+| chapel | Cathedral, Catacombs, Crypt | an angel statue, candles round it, banners, a book stand, a torch |
+| crypt | Cathedral, Catacombs, Crypt | a crucifix in the middle, skull piles and crucifixes by the walls, crypt candles |
+| torture | all but the Nest | a blood fountain, impaled and tortured bodies, headless bodies, a torch |
+| prison | all but the Nest | impaled and tortured bodies round the walls, skull piles, a torch |
+| armoury | Catacombs, Caves, Hell, Crypt | weapon racks and armour stands round the walls, a banner, torches |
+| treasure | all but the Nest | a statue or fountain, armour stands, banners, candles round it, a torch |
+| altar | Hell, Nest | a blood fountain ringed with skull fires, crucifixes, impaled and tortured bodies |
+| bones | all | skull piles, crucifixes, headless bodies, a skull fire |
+
+A stamp names its props by name (`MapObjectName`), with choices: `Sarcophagus|Crucified skeleton` takes the
+first this build has that the tileset allows. Names for props still to come (sarcophagi, altars, shrines,
+statues, urns, chests, chains, wall skeletons, bone piles, wall banners, lecterns) are already in the stamps and
+are skipped until they exist. Each entry says where in the room its props go (round the edge, in the middle,
+two or three tiles round the centrepiece, or anywhere), how many (a range the seed picks from, more in a big
+room) and how far apart. Every prop is judged as the Dress pass judges its own: by the rules above, kept 2
+tiles off the heroes' route and the doors if solid, and taken back out if it changes the route, a lock's
+detour, a neck's way round or a barricade spot. The editor's stamps stop at the object caps (80 stored, 95 on
+the level with its doors) and say so; the stamps' table is `MakeRoomStamps` in `Source/keeper/keeper_dress.cpp`.
+
+In a level source, `stamp: <stamp> <x> <y> [seed=N]` stamps the room under world tile x, y as a click does, and
+`stamp: <stamp> <x1> <y1> <x2> <y2> [seed=N]` the floor in that rectangle as a drag does. Stamps go in after the
+`prop:` lines and before the `dress:` line, and a stamp that fits nothing fails the level.
 
 ## What makes a file bad
 

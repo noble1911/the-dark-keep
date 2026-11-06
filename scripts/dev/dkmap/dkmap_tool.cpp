@@ -21,12 +21,18 @@
  * the dressing pass (keeper_dress.hpp) after the prop lines: lights, then scenery for the themes (bones, library,
  * chapel, armoury, torture, prison, tomb, hell). Props and dressing go on the decorated level, as the game
  * builds it. Every level is also built bare, and it fails if its props changed the route or the door and neck
- * numbers.
+ * numbers. `rooms=N` on the dress line gives the N biggest rooms a theme-room stamp each, for the themes in turn
+ * (keeper_dress.hpp: RoomStampForTheme), before the lights and scenery; without it the dressing is as it was.
+ * A `stamp: <stamp> <x> <y> [seed=N]` line stamps the room under world tile x, y, as a click in the editor does,
+ * and `stamp: <stamp> <x1> <y1> <x2> <y2> [seed=N]` the floor in a rectangle of them, as a drag does; stamps go
+ * in after the prop lines and before the dressing. The stamps: library, shrine, chapel, crypt, torture, prison,
+ * armoury, treasure, altar, bones.
  *
  * Also:
  *   dkmap_tool --data <mpqs> --assets <assets> --map <source.txt> --out <file.dkmap>   one map, any name
  *   dkmap_tool --data <mpqs> --assets <assets> --selftest                               the file format, and every
  *                                                                  prop placed, loaded and found inert in each tileset
+ *   dkmap_tool --data <mpqs> --assets <assets> --stamptest [--levels <folder>]          theme-room stamps
  *   --hellfire with any of these: Hellfire's data too (the Nest, the Crypt and their props)
  * Exit code 0 only if every level passed.
  */
@@ -89,10 +95,20 @@ struct PendingProp {
 	uint8_t style;
 };
 
+/** A `stamp:` line: a theme-room stamp for the room under a world tile, or over a dragged rectangle of them. */
+struct PendingStamp {
+	const RoomStamp *stamp = nullptr;
+	Point from;
+	std::optional<Point> to;
+	uint32_t seed = 0;
+	std::string line;
+};
+
 struct Source {
 	KeepMap map;
 	std::string note;
 	std::vector<PendingProp> props;
+	std::vector<PendingStamp> stamps;
 	std::optional<DressOptions> dress;
 };
 
@@ -118,6 +134,8 @@ std::optional<DressOptions> ParseDress(const std::string &text, std::vector<std:
 				options.seed = static_cast<uint32_t>(value);
 			else if (key == "centre")
 				options.centrepiece = value != 0;
+			else if (key == "rooms")
+				options.themedRooms = value;
 			else
 				errors.push_back(fmt::format("unknown dress setting '{}'", key));
 		} else if (const std::optional<DressTheme> theme = DressThemeNamed(word); theme) {
@@ -191,6 +209,8 @@ struct Report {
 	int props = 0;
 	int levelObjects = 0;
 	std::optional<DressResult> dressed;
+	/** One line for each `stamp:` line: what went in. */
+	std::vector<std::string> stamped;
 };
 
 std::string Trim(std::string text)
@@ -208,6 +228,53 @@ std::optional<uint32_t> ParseSeed(const std::string &text)
 	if (end == text.c_str() || *end != '\0' || errno != 0 || text.find('-') != std::string::npos || value > 0xFFFFFFFFULL)
 		return std::nullopt;
 	return static_cast<uint32_t>(value);
+}
+
+/** `<name> <x> <y> [<x2> <y2>] [seed=N]`, world tiles. */
+std::optional<PendingStamp> ParseStamp(const std::string &text, std::string &error)
+{
+	std::istringstream in(text);
+	std::string name;
+	in >> name;
+	PendingStamp pending;
+	pending.line = Trim(text);
+	pending.line.erase(0, pending.line.find_first_not_of(' '));
+	pending.stamp = RoomStampNamed(name);
+	if (pending.stamp == nullptr) {
+		std::string names;
+		for (const RoomStamp &stamp : RoomStamps())
+			names += fmt::format("{}{}", names.empty() ? "" : ", ", stamp.name);
+		error = fmt::format("unknown stamp '{}' (there are {})", name, names);
+		return std::nullopt;
+	}
+	std::vector<int> numbers;
+	std::string word;
+	while (in >> word) {
+		if (word.rfind("seed=", 0) == 0) {
+			const std::optional<uint32_t> seed = ParseSeed(word.substr(5));
+			if (!seed) {
+				error = fmt::format("bad stamp seed '{}'", word);
+				return std::nullopt;
+			}
+			pending.seed = *seed;
+		} else {
+			char *end = nullptr;
+			const long value = std::strtol(word.c_str(), &end, 10);
+			if (end == word.c_str() || *end != '\0' || value < 0 || value >= MAXDUNX) {
+				error = fmt::format("bad stamp line '{}'", text);
+				return std::nullopt;
+			}
+			numbers.push_back(static_cast<int>(value));
+		}
+	}
+	if (numbers.size() != 2 && numbers.size() != 4) {
+		error = fmt::format("a stamp wants a tile, or two corners: '{}'", text);
+		return std::nullopt;
+	}
+	pending.from = { numbers[0], numbers[1] };
+	if (numbers.size() == 4)
+		pending.to = Point { numbers[2], numbers[3] };
+	return pending;
 }
 
 std::optional<Source> ReadSource(const std::string &path, std::vector<std::string> &errors)
@@ -252,6 +319,13 @@ std::optional<Source> ReadSource(const std::string &path, std::vector<std::strin
 			source.note += (source.note.empty() ? "" : " ") + note;
 		} else if (line.rfind("dress:", 0) == 0) {
 			source.dress = ParseDress(line.substr(6), errors);
+		} else if (line.rfind("stamp:", 0) == 0) {
+			std::string error;
+			const std::optional<PendingStamp> stamp = ParseStamp(line.substr(6), error);
+			if (stamp)
+				source.stamps.push_back(*stamp);
+			else
+				errors.push_back(error);
 		} else if (line.rfind("prop:", 0) == 0) {
 			const std::optional<PendingProp> prop = ParseProp(line.substr(5));
 			if (prop)
@@ -536,6 +610,7 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 	parsed = true;
 	if (bare) {
 		source.props.clear();
+		source.stamps.clear();
 		source.dress.reset();
 	}
 	if (!report.errors.empty())
@@ -586,7 +661,7 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 			report.errors.emplace_back("every roll of the decoration broke it");
 		}
 	}
-	if (playable && (!source.props.empty() || source.dress)) {
+	if (playable && (!source.props.empty() || !source.stamps.empty() || source.dress)) {
 		// Props go on the level as the game builds it: the decorated one, with the seed the bake settled on.
 		decorate = true;
 		// Props as the editor places them, with everything before it standing. The layout goes down again
@@ -617,6 +692,32 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 				continue;
 			}
 			map.objects.push_back(*snapped);
+		}
+		// Stamps after the props and before the dressing, which then lights and furnishes round them.
+		for (const PendingStamp &pending : source.stamps) {
+			if (!RoomStampSuits(*pending.stamp, map.tileset)) {
+				report.errors.push_back(fmt::format("stamp {}: not meant for {}", pending.stamp->name, MapTilesetName(map.tileset)));
+				continue;
+			}
+			const Point cell = CellOf(pending.from);
+			const std::vector<Point> cells = pending.to ? FloorCellsIn(map, cell, CellOf(*pending.to)) : RoomCellsAt(map, cell);
+			if (cells.empty()) {
+				report.errors.push_back(fmt::format("stamp {} at {},{}: not in a room (give two corners to stamp a rectangle)", pending.stamp->name, pending.from.x, pending.from.y));
+				continue;
+			}
+			StampOptions options;
+			options.seed = pending.seed;
+			// The dressing's room under the caps, as for its own props.
+			options.maxMapObjects = MaxMapObjects - 8;
+			options.maxLevelObjects = MaxLevelObjectsAtLoad - 5;
+			const StampResult stamped = StampRoom(map, *pending.stamp, cells, options);
+			report.stamped.push_back(fmt::format("{}: {} of {} props, {} lights", pending.line, stamped.placed, stamped.wanted, stamped.lights));
+			for (const std::string &note : stamped.notes)
+				report.errors.push_back(fmt::format("stamp {}: {}", pending.stamp->name, note));
+			if (stamped.capped)
+				report.errors.push_back(fmt::format("stamp {}: the object cap stopped it at {} of {}", pending.stamp->name, stamped.placed, stamped.wanted));
+			else if (stamped.placed == 0 && stamped.notes.empty())
+				report.errors.push_back(fmt::format("stamp {} at {},{}: nothing fits there", pending.stamp->name, pending.from.x, pending.from.y));
 		}
 		if (source.dress)
 			report.dressed = DressMap(map, *source.dress);
@@ -806,7 +907,11 @@ int RunLevels(const std::string &levelsDir, const std::string &outDir, const std
 		fmt::print("         {} lights, {} props, {} objects on the level; bare: route {}, buildable {}", report.lights, report.props, report.levelObjects, bare.route, bare.buildableTiles);
 		if (report.dressed)
 			fmt::print("; dressing: {} lights before, {} added, {} scenery, {} refused for the route", report.dressed->lightsBefore, report.dressed->lightsAdded, report.dressed->sceneryAdded, report.dressed->rejectedForRoute);
+		if (report.dressed && report.dressed->stampedRooms > 0)
+			fmt::print("; {} themed rooms, {} props", report.dressed->stampedRooms, report.dressed->stampedProps);
 		fmt::print("\n");
+		for (const std::string &line : report.stamped)
+			fmt::print("         stamp {}\n", line);
 		if (report.dressed) {
 			for (const std::string &note : report.dressed->notes)
 				errors.push_back("dressing: " + note);
@@ -1344,6 +1449,162 @@ int SelfTest()
 	return failures;
 }
 
+
+/** A campaign level, baked, as the live map on the decorated level: what the editor and the stamps work on. */
+KeepMap *LiveLevel(const std::string &levelsDir, int level, bool &decorate, std::optional<MapTileset> tileset = std::nullopt)
+{
+	std::vector<std::string> errors;
+	std::optional<Source> source = ReadSource((fs::path(levelsDir) / fmt::format("level_{:02}.txt", level)).string(), errors);
+	if (source && tileset)
+		source->map.tileset = *tileset; // the same layout in another tileset
+	if (!source || !errors.empty() || !LoadMapTilesetData(source->map.tileset).has_value())
+		return nullptr;
+	static KeepMap map;
+	map = std::move(source->map);
+	currlevel = KeepLevel;
+	setlevel = false;
+	gbIsMultiplayer = false;
+	SetCurrentSetup(SetupForMapEditor());
+	decorate = false;
+	SetLiveMap(&map, &decorate);
+	std::memset(dObject, 0, sizeof(dObject));
+	BuildMapLevel();
+	if (!BakePlayableMap(map))
+		return nullptr;
+	decorate = true;
+	BuildMapLevel();
+	std::memset(dObject, 0, sizeof(dObject));
+	InitObjects();
+	return &map;
+}
+
+/** What a stamp must never change, measured on the level as it stands. */
+std::string WayOf(const KeepMap &map)
+{
+	Report report;
+	Analyse(map, report);
+	return fmt::format("route {} | {} | {}", report.route, DoorSummary(report), RouteSummary(report));
+}
+
+/** The biggest room round a click, scanning the map, away from the entrance's stairs: where a test stamps. */
+Point BiggestRoomCell(const KeepMap &map)
+{
+	Point best = NoMapPosition;
+	size_t bestSize = 0;
+	for (int x = 2; x < DMAXX - 2; x += 2) {
+		for (int y = 2; y < DMAXY - 2; y += 2) {
+			if (std::abs(x - map.entrance.x) <= 8 && std::abs(y - map.entrance.y) <= 8)
+				continue;
+			const size_t size = RoomCellsAt(map, { x, y }).size();
+			if (size > bestSize) {
+				bestSize = size;
+				best = { x, y };
+			}
+		}
+	}
+	return best;
+}
+
+/** Theme-room stamps on four campaign levels, one per tileset. @return failures */
+int StampTest(const std::string &levelsDir)
+{
+	int failures = 0;
+	const auto check = [&failures](bool ok, std::string_view what) {
+		fmt::print("{} {}\n", ok ? "ok  " : "FAIL", what);
+		if (!ok)
+			failures++;
+	};
+	check(MapObjectKindNamed("skull PILE") == MapObjectKind::SkullPile, "prop names are found in any case");
+	check(!MapObjectKindNamed("Sarcophagus of tomorrow"), "an unknown prop name is nothing");
+	for (const RoomStamp &stamp : RoomStamps())
+		check(RoomStampNamed(stamp.name) == &stamp && !RoomStampsFor(MapTileset::Cathedral).empty(), fmt::format("stamp '{}' ({}) is found by name", stamp.name, stamp.label));
+
+	static bool decorate = true;
+	// One level of each campaign tileset; with Hellfire's data, two of the layouts again as the Crypt and the Nest.
+	std::vector<std::pair<int, std::optional<MapTileset>>> levels { { 3, std::nullopt }, { 10, std::nullopt }, { 15, std::nullopt }, { 18, std::nullopt } };
+	if (gbIsHellfire) {
+		levels.emplace_back(3, MapTileset::Crypt);
+		levels.emplace_back(16, MapTileset::Nest);
+	}
+	for (const auto &[level, tileset] : levels) {
+		KeepMap *live = LiveLevel(levelsDir, level, decorate, tileset);
+		if (live == nullptr) {
+			check(false, fmt::format("level {} builds", level));
+			continue;
+		}
+		const KeepMap base = *live;
+		const std::string tileset(MapTilesetName(base.tileset));
+		const Point roomCell = BiggestRoomCell(base);
+		const std::vector<Point> cells = RoomCellsAt(base, roomCell);
+		check(!cells.empty(), fmt::format("level {} ({}): a room at cell {},{} of {} cells", level, tileset, roomCell.x, roomCell.y, cells.size()));
+		KeepMap &map = *live; // the live map: SetLiveMap points at it
+		const auto reset = [&] {
+			map = base;
+			BuildMapLevel();
+			std::memset(dObject, 0, sizeof(dObject));
+			InitObjects();
+		};
+		reset();
+		const std::string way = WayOf(map);
+		for (const RoomStamp *stamp : RoomStampsFor(base.tileset)) {
+			reset();
+			const StampResult first = StampRoom(map, *stamp, cells, {});
+			const std::vector<MapObject> firstObjects = map.objects;
+			const std::string after = WayOf(map);
+			check(first.placed >= 3 && first.notes.empty(), fmt::format("level {} ({}): {} places {} of {} ({} lights, {} refused for the route)", level, tileset, stamp->name, first.placed, first.wanted, first.lights, first.rejectedForRoute));
+			check(after == way, fmt::format("level {} ({}): {} leaves the heroes' way as it was", level, tileset, stamp->name));
+			check(LeftOutMapObjects().empty(), fmt::format("level {} ({}): {} leaves nothing out of the level", level, tileset, stamp->name));
+			reset();
+			std::vector<Point> shuffled(cells.rbegin(), cells.rend());
+			const StampResult again = StampRoom(map, *stamp, shuffled, {});
+			check(again.added == first.added && map.objects == firstObjects, fmt::format("level {} ({}): {} stamps the same again, cells in any order", level, tileset, stamp->name));
+			reset();
+			const StampResult other = StampRoom(map, *stamp, cells, { .seed = 1 });
+			check(!(other.added == first.added), fmt::format("level {} ({}): {} rerolled is another layout", level, tileset, stamp->name));
+		}
+
+		// Unknown names: skipped, and the rest of the stamp still goes in.
+		RoomStamp partly { "test", "Test", 0xFF, { { "Not a prop yet|Nor this", StampSpot::Edge, 2, 2 }, { "nor THIS|Skull pile", StampSpot::Edge, 2, 2 } } };
+		reset();
+		const StampResult mixed = StampRoom(map, partly, cells, {});
+		check(mixed.unknownNames.size() == 3 && mixed.entriesWithoutKind == 1 && mixed.placed >= 2, fmt::format("level {}: unknown names skipped ({} of them, {} entries with no kind), {} of {} placed{}", level, mixed.unknownNames.size(), mixed.entriesWithoutKind, mixed.placed, mixed.wanted, mixed.notes.empty() ? std::string() : ": " + mixed.notes.front()));
+		RoomStamp none { "none", "None", 0xFF, { { "Not a prop yet", StampSpot::Centre, 1, 1 } } };
+		reset();
+		const StampResult nothing = StampRoom(map, none, cells, {});
+		check(nothing.placed == 0 && nothing.wanted == 0 && map.objects == base.objects, fmt::format("level {}: a stamp of nothing this build has adds nothing", level));
+
+		// The caps stop a stamp and say so.
+		const RoomStamp &bones = *RoomStampNamed("bones");
+		reset();
+		const StampResult capped = StampRoom(map, bones, cells, { .maxMapObjects = base.objects.size() + 2 });
+		check(capped.capped && capped.placed == 2 && map.objects.size() == base.objects.size() + 2, fmt::format("level {}: the map's object cap stops a stamp at 2 ({} placed)", level, capped.placed));
+		reset();
+		const int levelObjects = ActiveObjectCount;
+		const StampResult levelCapped = StampRoom(map, bones, cells, { .maxLevelObjects = levelObjects + 1 });
+		check(levelCapped.capped && levelCapped.placed == 1, fmt::format("level {}: the level's object cap stops a stamp at 1 ({} placed)", level, levelCapped.placed));
+
+		// A rectangle: only its floor.
+		reset();
+		const Point corner = cells.front();
+		const std::vector<Point> rectangle = FloorCellsIn(map, corner, corner + Displacement { 4, 4 });
+		check(!rectangle.empty() && std::all_of(rectangle.begin(), rectangle.end(), [&](Point cell) { return map.cell(cell.x, cell.y) == MapCell::Floor; }), fmt::format("level {}: a dragged rectangle is its floor ({} cells)", level, rectangle.size()));
+
+		// The dressing's themed rooms: deterministic, and the way unchanged.
+		reset();
+		DressOptions options;
+		options.themedRooms = 2;
+		const DressResult dressed = DressMap(map, options);
+		const std::vector<MapObject> dressedObjects = map.objects;
+		check(dressed.stampedRooms >= 1 && dressed.stampedProps >= 3 && WayOf(map) == way, fmt::format("level {}: dress rooms=2 stamps {} rooms ({} props), {} lights, {} scenery, the way unchanged", level, dressed.stampedRooms, dressed.stampedProps, dressed.lightsAdded, dressed.sceneryAdded));
+		reset();
+		DressMap(map, options);
+		check(map.objects == dressedObjects, fmt::format("level {}: dress rooms=2 dresses the same again", level));
+	}
+	SetLiveMap(nullptr, nullptr);
+	fmt::print("{} failure(s)\n", failures);
+	return failures;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -1355,6 +1616,7 @@ int main(int argc, char **argv)
 	std::string doc;
 	bool checkCampaign = false;
 	bool selfTest = false;
+	bool stampTest = false;
 	bool hellfire = false;
 	std::string single;
 	std::string fuzz;
@@ -1376,6 +1638,8 @@ int main(int argc, char **argv)
 			checkCampaign = true;
 		else if (arg == "--selftest")
 			selfTest = true;
+		else if (arg == "--stamptest")
+			stampTest = true;
 		else if (arg == "--hellfire")
 			hellfire = true;
 		else if (arg == "--map")
@@ -1385,7 +1649,7 @@ int main(int argc, char **argv)
 		else if (arg == "--runs")
 			runs = std::atoi(value().c_str());
 	}
-	if (data.empty() || assets.empty() || (!checkCampaign && !selfTest && fuzz.empty() && single.empty() && (levels.empty() || out.empty()))) {
+	if (data.empty() || assets.empty() || (!checkCampaign && !selfTest && !stampTest && fuzz.empty() && single.empty() && (levels.empty() || out.empty()))) {
 		std::cerr << "usage: dkmap_tool --data <mpq folder> --assets <assets folder> (--levels <folder> --out <folder> [--doc <file>] | --check-campaign)\n";
 		return 2;
 	}
@@ -1416,11 +1680,17 @@ int main(int argc, char **argv)
 		fmt::print("props: {} failure(s)\n", propFailures);
 		return formatFailures + propFailures == 0 ? 0 : 1;
 	}
+	if (stampTest)
+		return StampTest(levels.empty() ? std::string("scripts/dev/dkmap/levels") : levels) == 0 ? 0 : 1;
 	if (!single.empty()) {
 		Source source;
 		bool parsed = false;
 		const Report report = BuildLevel(single, out, source, parsed);
 		fmt::print("{} {:<10} route {:4} floor {:4} buildable {:4} {} bytes, {} objects\n", source.map.name, parsed ? MapTilesetName(source.map.tileset) : "?", report.route, report.floorCells, report.buildableTiles, report.fileSize, source.map.objects.size());
+		for (const std::string &line : report.stamped)
+			fmt::print("  stamp {}\n", line);
+		if (report.dressed && report.dressed->stampedRooms > 0)
+			fmt::print("  dressing: {} themed rooms, {} props\n", report.dressed->stampedRooms, report.dressed->stampedProps);
 		for (const std::string &warning : report.warnings)
 			fmt::print("  warning: {}\n", warning);
 		for (const std::string &error : report.errors)

@@ -67,6 +67,12 @@ struct DressOptions {
 	 * showing it plain). A variant can stand where a prop would, so this is what the game will judge too.
 	 */
 	bool decorated = true;
+	/**
+	 * The biggest rooms, this many, get a theme-room stamp each (RoomStampForTheme, the themes taken in turn)
+	 * before the lights and scenery go in. A stamped room gets no scattered scenery or centrepiece, and its
+	 * props don't count against maxScenery. 0, the default, dresses exactly as before stamps existed.
+	 */
+	int themedRooms = 0;
 };
 
 struct DressResult {
@@ -76,6 +82,9 @@ struct DressResult {
 	int sceneryAdded = 0;
 	/** Solid props the route check took back out. */
 	int rejectedForRoute = 0;
+	/** Props the theme-room stamps placed (themedRooms), lights among them, and how many rooms got one. */
+	int stampedProps = 0;
+	int stampedRooms = 0;
 	std::vector<std::string> notes;
 };
 
@@ -92,5 +101,104 @@ DressResult DressMap(KeepMap &map, const DressOptions &options);
 
 /** Light sources standing on the level now, the tileset's own included. */
 int CountLevelLights();
+
+// ---- theme-room stamps -----------------------------------------------------------------------------
+//
+// A stamp is a themed group of props for one room (a library corner, a torture room, ...), placed at once by
+// the same rules and route checks as the dressing pass. Stamps name their props by MapObjectName, never by
+// enum value: a name this build doesn't know, or a kind the tileset hasn't got, is skipped, and the next
+// name in its list is tried, so a stamp written for kinds still to come still makes a room of today's.
+
+/** Where in the room an entry's props go. The kind's own placement still decides how (wall, against, floor). */
+enum class StampSpot : uint8_t {
+	/** Round the room's edge: a wall kind on the walls, anything else on the floor by a wall. */
+	Edge,
+	/** The middle of the room, off the walls. The first one placed is the stamp's centrepiece. */
+	Centre,
+	/** Two or three tiles round the centrepiece (or the room's middle, without one). */
+	Ring,
+	/** Anywhere on the room's floor. */
+	Scatter,
+};
+
+struct RoomStampEntry {
+	/** MapObjectNames, '|' between them, any case: the first this build has, and the tileset, is used. */
+	std::string_view kinds;
+	StampSpot spot = StampSpot::Edge;
+	/** How many, from min to max, picked by the seed. Edge and Scatter entries scale up in a big room, to twice as many. */
+	uint8_t min = 1;
+	uint8_t max = 1;
+	/** Tiles (either axis) these keep from each other; 0: the stamp's spacing. */
+	uint8_t apart = 0;
+};
+
+struct RoomStamp {
+	/** Short and lower case: what level sources and devctl call it. */
+	std::string_view name;
+	/** What the editor's list shows. */
+	std::string_view label;
+	/** MapTileset bits (1 << tileset): the tilesets it is meant for. */
+	uint8_t tilesets = 0;
+	std::vector<RoomStampEntry> entries;
+	/** Tiles (either axis) between any two of its floor props, at least. */
+	uint8_t spacing = 2;
+};
+
+/** The built-in stamps, in the editor's order. */
+const std::vector<RoomStamp> &RoomStamps();
+const RoomStamp *RoomStampNamed(std::string_view name);
+bool RoomStampSuits(const RoomStamp &stamp, MapTileset tileset);
+/** The stamps meant for a tileset, in order. */
+std::vector<const RoomStamp *> RoomStampsFor(MapTileset tileset);
+/** The stamp a dressing theme puts in a themed room, if it suits the tileset. */
+const RoomStamp *RoomStampForTheme(DressTheme theme, MapTileset tileset);
+
+/**
+ * The room a click on `cell` (a megatile) means, by the map's layout alone: the megatiles of the room it is
+ * in (floor that some 3 by 3 block of floor covers). A room more than 10 megatiles across gives a 10 wide
+ * window of it holding the click, slid against the far walls (the ones the camera sees, which take wall props)
+ * when the click is near enough to them, else against the near ones: a hall or a cavern that is all one room
+ * gives a corner of it, with walls to stand by. Only cells joined to the click inside the window count, not a
+ * hall beyond a thin wall. Empty if the cell isn't in a room.
+ */
+std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell);
+/** The floor megatiles in a rectangle (corners in either order), for a dragged stamp. */
+std::vector<Point> FloorCellsIn(const KeepMap &map, Point a, Point b);
+
+struct StampOptions {
+	/** Mixed with the map's decoration seed and the room: the same map, room and seed always stamp the same. */
+	uint32_t seed = 0;
+	bool decorated = true;
+	/** Stored objects, at most, when done (default: what a map holds), and the level's with its doors. */
+	size_t maxMapObjects = MaxMapObjects;
+	int maxLevelObjects = MaxLevelObjectsAtLoad;
+};
+
+struct StampResult {
+	/** What the stamp asked for (with the kinds there are) and what went in. */
+	int wanted = 0;
+	int placed = 0;
+	int lights = 0;
+	/** The object caps stopped it. */
+	bool capped = false;
+	/** Props the route check took back out. */
+	int rejectedForRoute = 0;
+	/** Names this build doesn't know (once each), and entries with no kind for this tileset at all. */
+	std::vector<std::string> unknownNames;
+	int entriesWithoutKind = 0;
+	/** What was added, in order. */
+	std::vector<MapObject> added;
+	/** Why nothing went in, when it can't (no stairs, no route). */
+	std::vector<std::string> notes;
+};
+
+/**
+ * Stamps a room: adds the stamp's props on the room's megatiles `cells`, each judged as the dressing pass
+ * judges its own (WhyMapObjectCantStand with everything before it standing, taken back out if it changes the
+ * heroes' arrival, route, a lock's detour, a neck's way round or a barricade spot; solid props keep 2 tiles off
+ * the route and off doors). Same preconditions as DressMap: `map` is the live map with its tileset loaded.
+ * Leaves the level laid out with all its objects. Deterministic: no game random numbers are used.
+ */
+StampResult StampRoom(KeepMap &map, const RoomStamp &stamp, const std::vector<Point> &cells, const StampOptions &options);
 
 } // namespace devilution::keeper
