@@ -163,8 +163,20 @@ EditTool tool = EditTool::Floor;
 int brushSize = 1;
 MapObjectKind objectKind = MapObjectKind::Barrel;
 std::vector<MapProblem> problems;
-/** The kinds in the prop list, as it was opened. */
-std::vector<MapObjectKind> propListKinds;
+/** A row of the prop list: a group to open, a kind to pick, or the way back to the groups. */
+struct PropRow {
+	enum class Type : uint8_t {
+		Group,
+		Kind,
+		Back,
+	};
+	Type type;
+	MapObjectGroup group;
+	MapObjectKind kind;
+};
+/** The prop list's rows, as it was opened, and the group it shows (none: the list of groups). */
+std::vector<PropRow> propListRows;
+std::optional<MapObjectGroup> propListGroup;
 std::vector<Snapshot> undoStack;
 std::vector<Snapshot> redoStack;
 
@@ -618,10 +630,13 @@ void PlaceOpening(Point cell, MapCell kind, bool remove)
 	SetCell(cell.x, cell.y, kind);
 }
 
-/** The object a click on `tile` means: one standing there, or a wall prop on the wall beside it. */
+/** The object a click on `tile` means: one standing there (on any of a big one's tiles), or a wall prop on the wall beside it. */
 std::vector<MapObject>::iterator FindObjectForClick(Point tile)
 {
-	const auto found = std::find_if(model.objects.begin(), model.objects.end(), [&](const MapObject &object) { return object.position == tile; });
+	const auto found = std::find_if(model.objects.begin(), model.objects.end(), [&](const MapObject &object) {
+		const std::vector<Displacement> footprint = MapObjectFootprint(object.kind);
+		return std::any_of(footprint.begin(), footprint.end(), [&](Displacement offset) { return object.position + offset == tile; });
+	});
 	if (found != model.objects.end())
 		return found;
 	return std::find_if(model.objects.begin(), model.objects.end(), [&](const MapObject &object) {
@@ -681,6 +696,10 @@ void PlaceObject(Point tile, bool remove)
 		SetFeedback(fmt::format("A map can hold {} objects", MaxMapObjects), true);
 		return;
 	}
+	if (MapObjectFileCount(model, objectKind) > MaxLevelObjectFiles && MapObjectFileCount(model) <= MaxLevelObjectFiles) {
+		SetFeedback("A level can't load the art of more kinds of prop: use kinds it already has", true);
+		return;
+	}
 	if (!IsLegacyMapObject(objectKind) && ActiveObjectCount >= MaxLevelObjectsAtLoad) {
 		SetFeedback(fmt::format("A level holds {} objects with its doors", MaxLevelObjectsAtLoad), true);
 		return;
@@ -694,30 +713,65 @@ void PlaceObject(Point tile, bool remove)
 	levelStale = dirty = true;
 }
 
-void OpenPropList()
+/**
+ * The prop list: the groups (Light, Wall, Furniture, ...) with what each holds for the tileset, or one
+ * group's kinds with a row back to the groups first. Mouse, keys and pad all work it the same way.
+ */
+void OpenPropList(std::optional<MapObjectGroup> group)
 {
 	modal = Modal::PropList;
-	propListKinds = MapObjectPalette(model.tileset);
+	propListGroup = group;
+	propListRows.clear();
 	modalList.clear();
 	modalRow = 0;
-	for (size_t i = 0; i < propListKinds.size(); i++) {
-		const MapObjectKind kind = propListKinds[i];
-		const MapObjectTraits traits = GetMapObjectTraits(kind);
-		std::string label(MapObjectName(kind));
-		if (traits.light)
-			label += ", light";
-		if (traits.placement == MapObjectPlacement::OnWall)
-			label += ", on a wall";
-		if (traits.placement == MapObjectPlacement::AgainstWall)
-			label += ", against a wall";
-		if (traits.styles > 1)
-			label += fmt::format(", {} looks", traits.styles);
-		modalList.push_back(std::move(label));
-		if (kind == objectKind)
-			modalRow = static_cast<int>(i);
+	const std::vector<MapObjectKind> palette = MapObjectPalette(model.tileset);
+	const MapObjectGroup currentGroup = GetMapObjectTraits(objectKind).group;
+	if (!group) {
+		for (size_t i = 0; i < NumMapObjectGroups; i++) {
+			const auto each = static_cast<MapObjectGroup>(i);
+			const auto count = std::count_if(palette.begin(), palette.end(), [&](MapObjectKind kind) { return GetMapObjectTraits(kind).group == each; });
+			if (count == 0)
+				continue;
+			if (each == currentGroup)
+				modalRow = static_cast<int>(propListRows.size());
+			propListRows.push_back({ PropRow::Type::Group, each, MapObjectKind::Barrel });
+			modalList.push_back(fmt::format("{} ({})", MapObjectGroupName(each), count));
+		}
+	} else {
+		propListRows.push_back({ PropRow::Type::Back, *group, MapObjectKind::Barrel });
+		modalList.emplace_back("< All groups");
+		for (const MapObjectKind kind : palette) {
+			const MapObjectTraits traits = GetMapObjectTraits(kind);
+			if (traits.group != *group)
+				continue;
+			std::string label(MapObjectName(kind));
+			if (traits.light)
+				label += ", light";
+			if (traits.placement == MapObjectPlacement::OnWall)
+				label += ", on a wall";
+			if (traits.placement == MapObjectPlacement::AgainstWall)
+				label += ", against a wall";
+			if (traits.tiles > 1)
+				label += fmt::format(", {} tiles", traits.tiles);
+			if (traits.styles > 1)
+				label += fmt::format(", {} looks", traits.styles);
+			if (kind == objectKind)
+				modalRow = static_cast<int>(propListRows.size());
+			propListRows.push_back({ PropRow::Type::Kind, *group, kind });
+			modalList.push_back(std::move(label));
+		}
 	}
 	modalScroll = std::clamp(modalRow - ModalRows + 1, 0, std::max(0, static_cast<int>(modalList.size()) - ModalRows));
 	modalNote.clear();
+}
+
+/** Opens on the chosen kind's group, so picking another of the same sort is one click. */
+void OpenPropList()
+{
+	const MapObjectGroup group = GetMapObjectTraits(objectKind).group;
+	const std::vector<MapObjectKind> palette = MapObjectPalette(model.tileset);
+	const bool inPalette = std::find(palette.begin(), palette.end(), objectKind) != palette.end();
+	OpenPropList(inPalette ? std::optional<MapObjectGroup>(group) : std::nullopt);
 }
 
 void FinishStroke()
@@ -1058,7 +1112,7 @@ std::string_view ModalTitle()
 	case Modal::TilesetList:
 		return "Tileset";
 	case Modal::PropList:
-		return "Object";
+		return propListGroup ? MapObjectGroupName(*propListGroup) : "Object";
 	case Modal::ConfirmNew:
 		return "Start a new map?";
 	case Modal::None:
@@ -1117,8 +1171,10 @@ void DrawModal(const Surface &out)
 		bool current = modalList[index] == fileName;
 		if (modal == Modal::TilesetList)
 			current = index == static_cast<size_t>(model.tileset);
-		else if (modal == Modal::PropList)
-			current = index < propListKinds.size() && propListKinds[index] == objectKind;
+		else if (modal == Modal::PropList && index < propListRows.size()) {
+			const PropRow &propRow = propListRows[index];
+			current = propRow.type == PropRow::Type::Kind ? propRow.kind == objectKind : (propRow.type == PropRow::Type::Group && propRow.group == GetMapObjectTraits(objectKind).group);
+		}
 		DrawString(out, modalList[index], { at + Displacement { 4, 1 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | (current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 	if (!modalNote.empty())
@@ -1201,8 +1257,19 @@ void ClickModalRow(size_t row)
 		LoadMapNamed(name);
 	} else if (kind == Modal::TilesetList) {
 		ChangeTileset(static_cast<MapTileset>(row));
-	} else if (kind == Modal::PropList && row < propListKinds.size()) {
-		objectKind = propListKinds[row];
+	} else if (kind == Modal::PropList && row < propListRows.size()) {
+		const PropRow picked = propListRows[row];
+		switch (picked.type) {
+		case PropRow::Type::Group:
+			OpenPropList(picked.group);
+			break;
+		case PropRow::Type::Back:
+			OpenPropList(std::nullopt);
+			break;
+		case PropRow::Type::Kind:
+			objectKind = picked.kind;
+			break;
+		}
 	}
 }
 
@@ -1411,8 +1478,14 @@ void EditorUpdateFrame()
 			stroke.shift = IsShiftHeld();
 		}
 	}
+	SetWantedMapObjectArt(objectKind);
 	if (levelStale)
 		RefreshLevel();
+	// A prop whose art the level didn't load (placed, dressed, undone back): the art loads with the level.
+	if (!stroke.active && MapNeedsArtReload(model)) {
+		cameraToRestore = ViewPosition;
+		ReloadLevel();
+	}
 }
 
 bool EditorOnTestKey(SDL_Keycode key)
@@ -1436,6 +1509,20 @@ void DevEditor(const std::string &what, const std::string &arg)
 		Undo();
 	else if (what == "dress")
 		DressLevel();
+	else if (what == "kind") {
+		// editor kind <id>: the Object tool, with this kind
+		if (const std::optional<MapObjectKind> kind = MapObjectKindNamed(arg); kind) {
+			objectKind = *kind;
+			tool = EditTool::Object;
+		}
+	} else if (what == "proplist") {
+		// editor proplist [group number]: the list, as a click on the Object tool opens it
+		tool = EditTool::Object;
+		if (arg.empty())
+			OpenPropList();
+		else
+			OpenPropList(static_cast<MapObjectGroup>(std::clamp(std::atoi(arg.c_str()), 0, static_cast<int>(NumMapObjectGroups) - 1)));
+	}
 }
 #endif
 
