@@ -157,6 +157,20 @@ the keep's own use about 9 (barrels, chests, traps, sarcophagi, its tileset's do
 add up to 21 more, so they fit; a kind whose files wouldn't fit is left out with a log line. A prop whose art the
 game data lacks (Hellfire's, for the Crypt candles) isn't offered and is left out.
 
+### Dressing
+
+The editor's **Dress** button lights and furnishes a map in one go, with the same pass dkmap_tool runs on the
+campaign's levels (`Source/keeper/keeper_dress.cpp`; docs/CAMPAIGN-MAPS.md says what it does). It only adds
+ordinary props, each judged by the rules above, so the file format is unchanged and a dressed map is version 2.
+It is seeded from the map's decoration seed and keeps off the heroes' way: solid props stay 2 tiles from the
+route and the doors, and any prop that changes the route, a lock's detour, a neck's way round or where a
+barricade goes is taken back out. Pressing it again adds only what's missing; Undo takes the lot out.
+
+In a level source, `dress: <theme> [<theme>] [lights=N] [minlights=N] [spacing=N] [scenery=N] [seed=N] [centre=0]`
+runs it after the `prop:` lines. The themes are bones, library, chapel, armoury, torture, prison, tomb and hell;
+without one, the tileset's own (chapel for the Cathedral, tomb for the Catacombs and the Crypt, prison for the
+Caves, hell for Hell, bones for the Nest).
+
 ## What makes a file bad
 
 These are all refused with a message for the player, and the keep falls back to a random layout:

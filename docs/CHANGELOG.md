@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### The Dark Keep: atmosphere
+
+- The keep is dark: each tileset has its own ambient, darker in a raid, and heroes carry torches
+- Maps can hold props (version 2): candles, skull fires, wall torches, banners, bodies, racks, bookcases,
+  statues and more, all inert, placed by rules that never change where heroes can go
+- All 20 campaign levels are lit and furnished for their names by a dressing pass, proven to leave every
+  route, lock detour and neck as it was. The editor's Dress button runs the same pass on your own maps
+- Hell is darker (7 preparing, 10 in a raid) so its torches and skull fires read against the flat floor
+- The Cathedral levels' braziers became wall torches: radius 5 lit only a tile or two in the dark
+- Every monster and slain hero leaves a body that stays all level
+- Guards growl when heroes come near, and heroes speak their lines aloud
+
 ### Features
 
 #### Graphics / Audio
