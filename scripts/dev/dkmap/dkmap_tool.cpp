@@ -136,6 +136,17 @@ std::optional<DressOptions> ParseDress(const std::string &text, std::vector<std:
 				options.centrepiece = value != 0;
 			else if (key == "rooms")
 				options.themedRooms = value;
+			else if (key == "stamps") {
+				// stamps=crypt,treasure: the themed rooms' stamps, biggest room first
+				for (std::string rest = word.substr(equals + 1); !rest.empty();) {
+					const size_t comma = rest.find(',');
+					const std::string name = rest.substr(0, comma);
+					if (RoomStampNamed(name) == nullptr)
+						errors.push_back(fmt::format("unknown stamp '{}'", name));
+					options.roomStamps.push_back(name);
+					rest = comma == std::string::npos ? std::string() : rest.substr(comma + 1);
+				}
+			}
 			else
 				errors.push_back(fmt::format("unknown dress setting '{}'", key));
 		} else if (const std::optional<DressTheme> theme = DressThemeNamed(word); theme) {
@@ -1094,7 +1105,9 @@ int CheckCampaign()
 			}
 			InitObjects();
 			for (const MapObject &object : map->objects) {
-				const Object *found = FindObjectAtPosition(object.position);
+				// An impaled body facing +x is drawn from the floor in front of its wall.
+				const bool inFront = object.kind == MapObjectKind::ImpaledBody && !object.facesY();
+				const Object *found = FindObjectAtPosition(inFront ? object.position + Displacement { 1, 0 } : object.position);
 				if (found != nullptr && !found->isDoor())
 					placed++;
 				else
@@ -1717,6 +1730,10 @@ int main(int argc, char **argv)
 			fmt::print("  stamp {}\n", line);
 		if (report.dressed && report.dressed->stampedRooms > 0)
 			fmt::print("  dressing: {} themed rooms, {} props\n", report.dressed->stampedRooms, report.dressed->stampedProps);
+		if (report.dressed) {
+			for (const auto &[name, at] : report.dressed->stampedSites)
+				fmt::print("  themed room {} at {},{}\n", name, at.x, at.y);
+		}
 		for (const std::string &warning : report.warnings)
 			fmt::print("  warning: {}\n", warning);
 		for (const std::string &error : report.errors)

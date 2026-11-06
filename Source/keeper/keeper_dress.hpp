@@ -73,6 +73,11 @@ struct DressOptions {
 	 * props don't count against maxScenery. 0, the default, dresses exactly as before stamps existed.
 	 */
 	int themedRooms = 0;
+	/**
+	 * The stamps (RoomStampNamed) the themed rooms get, biggest room first, in place of the themes' own; one this
+	 * tileset can't have is passed over. Empty: by the themes.
+	 */
+	std::vector<std::string> roomStamps;
 };
 
 struct DressResult {
@@ -84,6 +89,8 @@ struct DressResult {
 	int rejectedForRoute = 0;
 	/** Props the theme-room stamps placed (themedRooms), lights among them, and how many rooms got one. */
 	int stampedProps = 0;
+	/** Each themed room: its stamp and the middle of what it furnished (a world tile), for reports and screenshots. */
+	std::vector<std::pair<std::string, Point>> stampedSites;
 	int stampedRooms = 0;
 	std::vector<std::string> notes;
 };

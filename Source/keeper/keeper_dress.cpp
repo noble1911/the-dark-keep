@@ -57,7 +57,7 @@ constexpr MapObjectKind None = MapObjectKind::Barrel; // a blank in the tables: 
 constexpr std::array<ThemeSpec, NumDressThemes> Themes { {
     { "bones", { { { MapObjectKind::SkullPile, 4 }, { MapObjectKind::CrucifiedSkeleton, 2 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::ImpaledBody, 1 }, { MapObjectKind::Pod, 1 }, { MapObjectKind::MushroomPatch, 1 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
     { "library", { { { MapObjectKind::Bookcase, 4 }, { MapObjectKind::BookStand, 3 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Bookshelf, 2 }, { MapObjectKind::Lectern, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BookStand }, MapObjectKind::Candle },
-    { "chapel", { { { MapObjectKind::Banner, 3 }, { MapObjectKind::BookStand, 2 }, { MapObjectKind::Bookcase, 1 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Pedestal, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BloodFountain }, MapObjectKind::Candle },
+    { "chapel", { { { MapObjectKind::Banner, 3 }, { MapObjectKind::BookStand, 2 }, { MapObjectKind::Bookcase, 1 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::Lectern, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::AngelStatue, MapObjectKind::BloodFountain }, MapObjectKind::Candle },
     { "armoury", { { { MapObjectKind::WeaponRack, 3 }, { MapObjectKind::ArmourStand, 3 }, { MapObjectKind::Banner, 2 }, { MapObjectKind::HeadlessBody, 1 }, { MapObjectKind::ClosedChest, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::Banner, None }, MapObjectKind::Candle },
     { "torture", { { { MapObjectKind::TorturedBody, 3 }, { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::HeadlessBody, 2 }, { MapObjectKind::SkullPile, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::BloodFountain, None }, MapObjectKind::SkullFire },
     { "prison", { { { MapObjectKind::ImpaledBody, 3 }, { MapObjectKind::SkullPile, 2 }, { MapObjectKind::TorturedBody, 2 }, { MapObjectKind::CrucifiedSkeleton, 1 }, { MapObjectKind::HangingBody, 1 }, { None, 0 }, { None, 0 } } }, { MapObjectKind::CrucifiedSkeleton, None }, MapObjectKind::SkullFire },
@@ -831,23 +831,28 @@ private:
 		return spots;
 	}
 
-	/** The biggest rooms get a stamp each, for the themes in turn, round the middle of the room. */
+	/**
+	 * The biggest rooms get a stamp each, for the themes (or the level's stamps) in turn, round the middle of the
+	 * room. A room much bigger than a stamp's window (a hall, Hell's caverns) can take more than one, in corners of
+	 * it far apart, once every room has had its first.
+	 */
 	void StampThemedRooms()
 	{
 		std::vector<int> rooms;
 		for (int id = 1; id < static_cast<int>(roomSizes_.size()); id++)
 			rooms.push_back(id);
 		std::stable_sort(rooms.begin(), rooms.end(), [&](int a, int b) { return roomSizes_[a] > roomSizes_[b]; });
-		int done = 0;
+		struct Site {
+			int room;
+			Point at;
+		};
+		std::vector<Site> sites;
+		std::vector<Site> extra;
+		constexpr int CellsPerExtraSite = 150;
+		constexpr int ExtraSitesApart = 8;
 		for (const int room : rooms) {
-			if (done >= options_.themedRooms || roomSizes_[room] < 12)
+			if (roomSizes_[room] < 12)
 				break;
-			const RoomStamp *stamp = nullptr;
-			for (size_t t = 0; t < themeIds_.size() && stamp == nullptr; t++)
-				stamp = RoomStampForTheme(themeIds_[(done + t) % themeIds_.size()], map_.tileset);
-			if (stamp == nullptr)
-				break;
-			// Round the middle of the room: a cavern that is all one room gets a corner of it.
 			long sumX = 0;
 			long sumY = 0;
 			for (int x = 0; x < DMAXX; x++) {
@@ -859,13 +864,67 @@ private:
 				}
 			}
 			const Point middle { static_cast<int>(sumX / roomSizes_[room]), static_cast<int>(sumY / roomSizes_[room]) };
-			const std::vector<Point> cells = RoomWindow(room_, room, middle, StampSpan);
+			sites.push_back({ room, middle });
+			// More sites in a big room: each the cell furthest from the room's sites so far, if far enough.
+			std::vector<Point> taken { middle };
+			for (int more = roomSizes_[room] / CellsPerExtraSite - 1; more > 0; more--) {
+				std::optional<Point> best;
+				int bestDistance = ExtraSitesApart - 1;
+				for (int x = 0; x < DMAXX; x++) {
+					for (int y = 0; y < DMAXY; y++) {
+						if (room_[x][y] != room)
+							continue;
+						int nearest = 1000;
+						for (const Point other : taken)
+							nearest = std::min(nearest, std::max(std::abs(other.x - x), std::abs(other.y - y)));
+						if (nearest > bestDistance) {
+							bestDistance = nearest;
+							best = Point { x, y };
+						}
+					}
+				}
+				if (!best)
+					break;
+				taken.push_back(*best);
+				extra.push_back({ room, *best });
+			}
+		}
+		sites.insert(sites.end(), extra.begin(), extra.end());
+		int done = 0;
+		for (const Site &site : sites) {
+			if (done >= options_.themedRooms)
+				break;
+			const RoomStamp *stamp = nullptr;
+			if (!options_.roomStamps.empty()) {
+				// As the level asks, in turn: past the end of the list, round again.
+				for (size_t s = 0; s < options_.roomStamps.size() && stamp == nullptr; s++) {
+					const RoomStamp *named = RoomStampNamed(options_.roomStamps[(done + s) % options_.roomStamps.size()]);
+					if (named != nullptr && RoomStampSuits(*named, map_.tileset))
+						stamp = named;
+				}
+			}
+			for (size_t t = 0; t < themeIds_.size() && stamp == nullptr; t++)
+				stamp = RoomStampForTheme(themeIds_[(done + t) % themeIds_.size()], map_.tileset);
+			if (stamp == nullptr)
+				break;
+			const std::vector<Point> cells = RoomWindow(room_, site.room, site.at, StampSpan);
 			const StampResult stamped = Stamp(*stamp, cells, options_.seed + static_cast<uint32_t>(done) * 7919U);
-			done++;
+			// A site the stamp couldn't furnish (a hall too narrow for it) doesn't use up a room: the next tries.
 			if (stamped.placed > 0) {
-				stampedRoom_[room] = true;
+				done++;
+				// The room gets no scattered scenery if the stamp took most of it; a corner of a hall leaves the rest.
+				if (3 * static_cast<int>(cells.size()) >= 2 * roomSizes_[site.room])
+					stampedRoom_[site.room] = true;
 				result_.stampedRooms++;
 				result_.stampedProps += stamped.placed;
+				int sumX = 0;
+				int sumY = 0;
+				for (const MapObject &object : stamped.added) {
+					sumX += object.position.x;
+					sumY += object.position.y;
+				}
+				const int count = static_cast<int>(stamped.added.size());
+				result_.stampedSites.emplace_back(std::string(stamp->name), Point { sumX / count, sumY / count });
 			}
 			if (stamped.capped) {
 				result_.notes.push_back(fmt::format("the object cap stopped the {} stamp", stamp->name));
@@ -1204,7 +1263,8 @@ constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest 
 
 /**
  * The stamps, by prop id (MapObjectId) or name, '|' between choices: the first that this build, the tileset and
- * the level's art budget allow, with somewhere to go, is used. `id/N` asks for style N (closed_chest/2 is the
+ * the level's art budget allow, with somewhere to go, is used. The cauldron and the empty pedestal aren't asked
+ * for: in the keep's dark their art reads as a black blob. `id/N` asks for style N (closed_chest/2 is the
  * large chest, magic_circle/1 the red pentagram); without one the style is picked by the seed. Names that aren't
  * kinds are skipped. Entries go in order, so the centrepiece comes first where the ring round it needs it.
  */
@@ -1225,7 +1285,7 @@ std::vector<RoomStamp> MakeRoomStamps()
 		{ "shrine", "Shrine alcove", InCathedral | InCatacombs | InCaves | InCrypt, {
 			{ "shrine|altar|angel_statue|blood_fountain", S::Centre, 1, 1 },
 			{ "crypt_candles|candles|skull_fire", S::Ring, 2, 2, 3 },
-			{ "pedestal", S::Edge, 1, 2, 3 },
+			{ "pedestal/2|pedestal/1", S::Edge, 1, 2, 3 },
 			{ "large_fountain|goat_shrine|tear_fountain", S::Scatter, 0, 1, 5 },
 			{ "banner", S::Edge, 0, 1, 3 },
 			{ "wall_torch", S::Edge, 1, 1, 6 },
@@ -1235,8 +1295,8 @@ std::vector<RoomStamp> MakeRoomStamps()
 			{ "crypt_candles|candles", S::Ring, 2, 2, 3 },
 			{ "banner", S::Edge, 1, 2, 4 },
 			{ "lectern|book_stand", S::Edge, 1, 1 },
-			{ "pedestal/0|shrine", S::Edge, 0, 1, 4 },
-			{ "magic_circle/0|magic_circle/2", S::Scatter, 0, 1, 4 },
+			{ "pedestal/1|shrine", S::Edge, 0, 1, 4 },
+			{ "magic_circle/0|magic_circle/2", S::Ring, 0, 1, 4 },
 			{ "tear_fountain|angel_statue", S::Edge, 0, 1, 5 },
 			{ "wall_torch", S::Edge, 1, 1, 6 },
 		} },
@@ -1251,7 +1311,7 @@ std::vector<RoomStamp> MakeRoomStamps()
 			{ "crypt_candles|candles", S::Edge, 1, 2, 4 },
 		} },
 		{ "torture", "Torture room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
-			{ "cauldron|blood_fountain", S::Centre, 1, 1 },
+			{ "blood_fountain|hanging_body", S::Centre, 1, 1 },
 			{ "impaled_body", S::Edge, 2, 3, 3 },
 			{ "hanging_body|tortured_body", S::Edge, 1, 2, 3 },
 			{ "tortured_body", S::Edge, 1, 1, 3 },
@@ -1278,7 +1338,7 @@ std::vector<RoomStamp> MakeRoomStamps()
 		{ "treasure", "Treasure room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
 			{ "closed_chest/2|angel_statue|blood_fountain", S::Centre, 1, 1 },
 			{ "closed_chest/1|closed_chest/0", S::Edge, 2, 3, 3 },
-			{ "pedestal/3|pedestal", S::Edge, 1, 2, 3 },
+			{ "pedestal/3|pedestal/2", S::Edge, 1, 2, 3 },
 			{ "staff_stand|rock_stand", S::Edge, 0, 1, 4 },
 			{ "urn|armour_stand", S::Scatter, 0, 1 },
 			{ "banner", S::Edge, 0, 1, 3 },
@@ -1291,7 +1351,6 @@ std::vector<RoomStamp> MakeRoomStamps()
 			{ "skull_fire", S::Ring, 2, 3, 3 },
 			{ "burning_cross", S::Edge, 0, 1, 6 },
 			{ "skull_switch|goat_shrine", S::Edge, 0, 1, 4 },
-			{ "cauldron", S::Scatter, 0, 1, 4 },
 			{ "crucified_skeleton", S::Edge, 1, 2, 3 },
 			{ "impaled_body", S::Edge, 0, 1, 3 },
 			{ "tortured_body", S::Edge, 0, 1, 3 },
