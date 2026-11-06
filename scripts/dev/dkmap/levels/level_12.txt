@@ -2,6 +2,7 @@ name: Shrouded Nave
 tileset: Catacombs
 seed: 8204
 note: A cross-shaped church. The nave runs straight to the altar door, but both transepts have back doors into aisles that come round to the same place, and the last door is well off to one side of them all. Three routes of different lengths: two locks to control it, and not many to spare.
+dress: chapel library lights=18
 ########################################
 ################........################
 ################..E.....################

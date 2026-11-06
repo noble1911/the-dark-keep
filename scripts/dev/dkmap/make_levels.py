@@ -24,6 +24,8 @@ class Level:
         self.seed = seed
         self.note = note
         self.grid = [['#'] * 40 for _ in range(40)]
+        self.props = []
+        self.dressing = None
 
     def room(self, x, y, w, h):
         for j in range(y, y + h):
@@ -62,10 +64,24 @@ class Level:
             self.grid[y][x] = kind
         return self
 
+    def prop(self, x, y, kind):
+        """A prop for a click on world tile x, y (not a megatile): `kind` is its name, with /style if wanted."""
+        self.props.append((x, y, kind))
+        return self
+
+    def dress(self, settings=''):
+        """The dressing pass, after the props: themes and settings for dkmap_tool's `dress:` line."""
+        self.dressing = settings
+        return self
+
     def write(self, folder):
         with open(os.path.join(folder, f'level_{self.number:02}.txt'), 'w', newline='\n') as out:
             out.write(f'name: {self.name}\ntileset: {self.tileset}\nseed: {self.seed}\n')
             out.write(f'note: {self.note}\n')
+            for x, y, kind in self.props:
+                out.write(f'prop: {x} {y} {kind}\n')
+            if self.dressing is not None:
+                out.write(f'dress: {self.dressing}\n')
             for row in self.grid:
                 out.write(''.join(row) + '\n')
 
@@ -139,7 +155,6 @@ l.room(7, 27, 24, 4)
 l.door(13, 31)
 l.room(7, 32, 16, 6).vault(13, 33)
 l.put('b', (12, 13), (25, 13), (12, 22), (25, 22))
-l.put('i', (18, 17))
 
 l = level(4, 'Bone Pits', 'Cathedral', 0x1004,
           'A hub with pits around it. The party crosses the central pit whatever it does, so whatever '
@@ -191,7 +206,6 @@ l.room(34, 7, 3, 1).room(3, 13, 3, 1).room(34, 19, 3, 1).room(3, 25, 3, 1).room(
 # the shortcuts
 l.door(28, 7).door(16, 13).door(26, 19).door(14, 25).door(24, 31)
 l.put('b', (4, 10), (20, 16), (6, 28), (35, 22))
-l.put('i', (19, 10), (19, 34))
 
 l = level(7, 'Ashen Crypts', 'Cathedral', 0x1007,
           'The vault sits at the centre of two rings, each with doors on opposite sides of it, so the '
@@ -237,7 +251,6 @@ for x in (4, 11, 18, 25):
 l.door(20, 19)
 l.put('b', (5, 15), (30, 15), (5, 23), (30, 23))
 l.put('c', (12, 15), (26, 23))
-l.put('i', (34, 12), (34, 22))
 
 # ---- Act two: the Catacombs. Doors still, and the loops get bigger. -----------------------------
 
@@ -492,6 +505,38 @@ l.room(2, 30, 36, 8).vault(30, 32)
 # Pillars in the throne room: cover for a last stand, none of them on the way to the throne.
 l.rock(12, 35, 2, 2).rock(19, 35, 2, 2).rock(26, 35, 2, 2).rock(19, 31, 2, 2).rock(26, 31, 2, 2)
 l.put('b', (36, 2), (3, 12), (36, 18), (3, 25), (36, 36), (3, 36))
+
+
+# ---- Dressing: lights and scenery, by dkmap_tool's dressing pass (Source/keeper/keeper_dress.hpp) ------
+# Themes from each level's name. The pass keeps solid props off the route and the doors and proves the
+# route, the locks and the necks unchanged, so this never touches balance. The Cathedral's braziers (radius
+# 5) light only a tile or two in the keep's dark, so the levels that had them get wall torches instead.
+DRESSING = {
+    1: 'bones library',          # Old Cellars
+    2: 'bones torture',          # Rat Warrens
+    3: 'chapel library',         # Sunken Chapel
+    4: 'bones tomb',             # Bone Pits
+    5: 'tomb chapel',            # Black Vaults
+    6: 'torture chapel',         # Weeping Halls
+    7: 'tomb bones',             # Ashen Crypts
+    8: 'prison torture',         # Iron Gaol
+    # The Catacombs' floor art is the darkest: a few more torches.
+    9: 'torture bones lights=18',          # Maggot Deeps
+    10: 'armoury chapel lights=18',        # Hollow Court
+    11: 'torture prison lights=18',        # Blood Galleries
+    12: 'chapel library lights=18',        # Shrouded Nave
+    13: 'prison torture lights=18',        # Gallows Reach
+    14: 'armoury bones lights=18',         # Cinder Keep
+    15: 'prison bones',          # Howling Stair
+    16: 'tomb armoury',          # Tomb of Kings
+    17: 'tomb bones',            # Silent Abbey
+    # Hell is the flattest art and the darkest: more of everything.
+    18: 'hell prison lights=18 scenery=24',     # Chains of Night
+    19: 'hell tomb lights=18 scenery=24',       # Burning Sepulcre
+    20: 'hell armoury lights=18 scenery=24',    # Throne of Ash
+}
+for made in LEVELS:
+    made.dress(DRESSING[made.number])
 
 
 if __name__ == '__main__':

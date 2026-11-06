@@ -2,6 +2,7 @@ name: Burning Sepulcre
 tileset: Hell
 seed: 16403
 note: A burial hall ringed by a broad ambulatory, with the vault below and behind it. The hall has two necks in, and the ring is cut on the east, so the party crosses the hall or walks the whole ring, and the only way down is at the far corner, with the vault back at the other end. Traps herd rather than block: there is always another way on, and lairs hold the ring.
+dress: hell tomb lights=18 scenery=24
 ########################################
 ##############....E.......##############
 ##############............##############

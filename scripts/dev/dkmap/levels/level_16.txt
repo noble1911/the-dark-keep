@@ -2,6 +2,7 @@ name: Tomb of Kings
 tileset: Caves
 seed: 12304
 note: A chain of burial chambers, each with two gated necks to the next. A locked gate or a trap seen once pushes the party through the other neck, so they work in pairs, and the chambers between are where the party is caught either way.
+dress: tomb armoury
 ########################################
 ########################################
 ##..........####...........#############

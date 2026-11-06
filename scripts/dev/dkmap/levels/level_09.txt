@@ -2,6 +2,7 @@ name: Maggot Deeps
 tileset: Catacombs
 seed: 8201
 note: Tunnels off a central chamber. Two tunnels reach the deep room, one by each flank, and the longer is near enough that one lock on the short one turns the party away. The deep room is wide, so the vault is still a walk. First level in the Catacombs: the same rules in a new stone.
+dress: torture bones lights=18
 ########################################
 ########################################
 ########################################

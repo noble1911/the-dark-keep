@@ -2,6 +2,7 @@ name: Howling Stair
 tileset: Caves
 seed: 12303
 note: A long winding gully with one short cut through a tight neck halfway, and in the Caves a door is a fence with a gate in it. Gates on the gully and the short cut decide which way the party goes, and the last two gates are forced, so the gully is worth garrisoning.
+dress: prison bones
 ########################################
 ########################################
 ########################################

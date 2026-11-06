@@ -2,6 +2,7 @@ name: Sunken Chapel
 tileset: Cathedral
 seed: 4099
 note: The first loop. Two aisles reach the chancel, one shorter, and a side chapel links them. A lock on the short aisle turns the party down the long one, so a single lock chooses which hall the traps go in. Both aisles meet at the one last door.
+dress: chapel library
 ########################################
 ########################################
 ###########..E.......###################
@@ -19,7 +20,7 @@ note: The first loop. Two aisles reach the chancel, one shorter, and a side chap
 #######...#................#...#########
 #######...#................#...#########
 #######...#................#...#########
-#######...D.......i........#...#########
+#######...D................#...#########
 #######...#................#...#########
 #######...#................#...#########
 #######...#................D...#########

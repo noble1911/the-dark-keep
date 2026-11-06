@@ -2,6 +2,7 @@ name: Chains of Night
 tileset: Hell
 seed: 16402
 note: Long chained halls in a switchback, with a broad neck at each turn and one bypass through the middle wall. No doors in Hell: the Barricade bars a neck instead, wall to wall, for what a lock costs. Each turn is a place to bar, and shoulders of rock narrow every hall to one more.
+dress: hell prison lights=18 scenery=24
 ########################################
 ########################################
 ###.E.........#####..................###
