@@ -36,6 +36,7 @@
 #include "items.h"
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_dress.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_lighting.hpp"
 #include "keeper/keeper_map.hpp"
@@ -105,6 +106,7 @@ enum class ActionKind : uint8_t {
 	Zoom,
 	Grid,
 	Decor,
+	Dress,
 	Test,
 };
 
@@ -867,6 +869,28 @@ void SelectTool(EditTool next)
 		brushSize = 2;
 }
 
+/**
+ * Lights and scenery for the tileset, by the same pass as the campaign's maps (keeper_dress.hpp): off the
+ * heroes' way, and never changing their route. Pressed again it adds only what's missing; Undo takes it out.
+ */
+void DressLevel()
+{
+	if (model.entrance == NoMapPosition || model.vault == NoMapPosition) {
+		SetFeedback("Place the entrance and the vault first: the dressing keeps off the heroes' way", true);
+		return;
+	}
+	const Snapshot before = TakeSnapshot();
+	const DressResult result = DressMap(model, DressOptions {});
+	levelStale = true;
+	if (result.lightsAdded + result.sceneryAdded == 0) {
+		SetFeedback(result.notes.empty() ? "Nothing more fits: it's dressed" : result.notes.front(), !result.notes.empty());
+		return;
+	}
+	PushUndo(before);
+	dirty = true;
+	SetFeedback(fmt::format("Added {} lights and {} props, off the heroes' way. Undo takes them out", result.lightsAdded, result.sceneryAdded));
+}
+
 void ToggleDecor()
 {
 	decorPreview = !decorPreview;
@@ -920,6 +944,7 @@ std::vector<Button> PanelButtons()
 	add(IsViewZoomed() ? "Zoom: 2x" : "Zoom: 1x", ActionKind::Zoom, 0, IsViewZoomed());
 	add("Grid", ActionKind::Grid, 0, showGrid);
 	add("Variants", ActionKind::Decor, 0, decorPreview);
+	add("Dress", ActionKind::Dress, 0, false, model.entrance != NoMapPosition && model.vault != NoMapPosition);
 	add(IsPadInUse() ? "Test" : "F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
 	return buttons;
 }
@@ -972,6 +997,9 @@ void DoAction(const Button &button)
 		break;
 	case ActionKind::Decor:
 		ToggleDecor();
+		break;
+	case ActionKind::Dress:
+		DressLevel();
 		break;
 	case ActionKind::Test:
 		StartTest();
@@ -1406,6 +1434,8 @@ void DevEditor(const std::string &what, const std::string &arg)
 		NewMap();
 	else if (what == "undo")
 		Undo();
+	else if (what == "dress")
+		DressLevel();
 }
 #endif
 
