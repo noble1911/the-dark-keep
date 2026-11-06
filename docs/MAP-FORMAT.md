@@ -74,7 +74,7 @@ floor in front is at +x, set if at +y. Those are the two walls the camera sees. 
 | 2 | Brazier | OBJ_L1LIGHT | 1 | radius 5 | yes | floor | Cathedral |
 | 3 | Candles | OBJ_CANDLE2 | 1 | radius 5 | yes | floor | all |
 | 4 | Skull fire | OBJ_SKFIRE | 1 | radius 5 | yes | floor | all |
-| 5 | Wall torch | OBJ_TORCHL (+x), OBJ_TORCHR (+y) | 1 | radius 8 | no | on a wall | all but the Nest |
+| 5 | Wall torch | OBJ_TORCHL2 (+x), OBJ_TORCHR2 (+y) | 1 | radius 8 | no | on a wall | all but the Nest |
 | 6 | Banner | OBJ_BANNERL, M, R | 3 | | yes | floor | Cathedral, Catacombs, Hell, Crypt |
 | 7 | Skull pile | OBJ_SKPILE | 1 | | yes | floor | all |
 | 8 | Crucified skeleton | OBJ_CRUX1 to 3 | 3 | | yes | floor | all |
@@ -107,8 +107,8 @@ leaves out the same ones.
   two tiles of open floor beside it along both axes, so it never narrows a way through to one tile or puts a
   pillar in the middle of a three-wide hall. In a room it only adds a step or two to a walk round it.
 - **Against a wall** (bookcase): all of that, and a straight wall right behind it.
-- **On a wall:** the tile and its two neighbours along the wall are solid, none is a door, and the tile in front
-  is bare floor. The editor snaps a click on the floor within two tiles of such a wall onto it.
+- **On a wall:** the tile and its two neighbours along the wall are solid, none is a door, the tile in front
+  is bare floor, and the wall is painted as rock (the Caves' wooden fence, on floor either side of its gate, isn't a wall). The editor snaps a click on the floor within two tiles of such a wall onto it.
 - At most 95 objects in the level with its doors: the rest of the engine's 127 are for what the game adds while
   it plays, which is mostly Barricades (a line of up to 12, one per lock). Props past that are left out.
 
@@ -124,7 +124,7 @@ none of which the keep runs. What each one is and why it is or isn't a prop:
 | OBJ_L1LIGHT brazier | Cathedral tiles (piece 269) | 5 | yes | | no | kind 2 |
 | OBJ_CANDLE2, OBJ_BOOKCANDLE, OBJ_STORYCANDLE | shrine and library themes (Cathedral, Catacombs), Lazarus (Hell) | 5 (3) | yes | | no | Candles |
 | OBJ_SKFIRE | skeleton room (Cathedral, Catacombs) | 5 | yes | | no | Skull fire |
-| OBJ_TORCHL/R, L2/R2 | AddL2Torches (Catacombs), on wall tiles | 8 | no | yes | no | Wall torch (L and R; L2 and R2 hang on walls the camera can't see) |
+| OBJ_TORCHL/R, L2/R2 | AddL2Torches (Catacombs): L2 and R2 on the wall tile of a wall with floor at +x or +y, L and R on the floor in front of a wall with floor at -x or -y | 8 | no | yes | no | Wall torch (L2 and R2, on the walls the camera sees; L and R drawn on those walls float clear of them or stand on top) |
 | OBJ_BANNERL/M/R | skeleton room | | yes | | no | Banner |
 | OBJ_SKPILE | set levels | | yes | | no | Skull pile |
 | OBJ_CRUX1 to 3 | Leoric's tomb | | yes | | breaks, opens a door | Crucified skeleton, unbreakable |

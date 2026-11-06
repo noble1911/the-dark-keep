@@ -364,8 +364,10 @@ const std::array<PropSpec, NumMapObjectKinds> Props = { {
 	{ "Brazier", SolidLight, { OBJ_L1LIGHT }, {}, {}, InCathedral },
 	{ "Candles", SolidLight, { OBJ_CANDLE2 }, {}, {}, InAll },
 	{ "Skull fire", SolidLight, { OBJ_SKFIRE }, {}, {}, InAll },
-	// The Nest's walls are never straight.
-	{ "Wall torch", { MapObjectPlacement::OnWall, false, true, false, 1 }, { OBJ_TORCHL }, { OBJ_TORCHR }, {}, InAll & ~InNest },
+	// The Nest's walls are never straight. On the wall tile, the art that hangs on the walls the camera sees:
+	// vanilla's AddL2Torches puts TORCHL2 and TORCHR2 there. TORCHL and TORCHR are for the near walls, from
+	// the floor in front, and drawn on these walls they float clear of the wall or stand on top of it.
+	{ "Wall torch", { MapObjectPlacement::OnWall, false, true, false, 1 }, { OBJ_TORCHL2 }, { OBJ_TORCHR2 }, {}, InAll & ~InNest },
 	{ "Banner", Styles(3), { OBJ_BANNERL, OBJ_BANNERM, OBJ_BANNERR }, {}, {}, InCathedral | InCatacombs | InHell | InCrypt },
 	{ "Skull pile", Solid, { OBJ_SKPILE }, {}, {}, InAll },
 	{ "Crucified skeleton", Styles(3), { OBJ_CRUX1, OBJ_CRUX2, OBJ_CRUX3 }, {}, {}, InAll },
@@ -1532,6 +1534,9 @@ std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapOb
 			return "It needs a straight stretch of wall";
 		if (!IsBareFloor(tile + facing) || IsDoorTile(tile + facing))
 			return "It needs open floor in front";
+		// A real wall, painted as rock: not the Caves' wooden fence, which stands on floor to either side of its gate.
+		if (map.cell((tile.x - 16) / 2, (tile.y - 16) / 2) != MapCell::Rock)
+			return "It needs a wall, not a fence";
 		return std::nullopt;
 	case MapObjectPlacement::AgainstWall:
 		if (!IsStraightWall(tile - facing, along))

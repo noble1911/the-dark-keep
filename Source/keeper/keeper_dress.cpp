@@ -101,12 +101,14 @@ struct Light {
 std::optional<Light> LightOf(const Object &object)
 {
 	switch (object._otype) {
-	case OBJ_TORCHL:
-		return Light { object.position + Displacement { 1, 0 }, 8 };
-	case OBJ_TORCHR:
-		return Light { object.position + Displacement { 0, 1 }, 8 };
+	// On a wall the camera sees, shining on the floor in front (+x, +y).
 	case OBJ_TORCHL2:
+		return Light { object.position + Displacement { 1, 0 }, 8 };
 	case OBJ_TORCHR2:
+		return Light { object.position + Displacement { 0, 1 }, 8 };
+	// From the floor in front of a near wall, which is where they stand.
+	case OBJ_TORCHL:
+	case OBJ_TORCHR:
 		return Light { object.position, 8 };
 	case OBJ_L1LIGHT:
 	case OBJ_CANDLE2:
@@ -540,6 +542,9 @@ private:
 					continue;
 				const Point lit = FrontOf(candidates[i]);
 				const bool torch = candidates[i].kind == MapObjectKind::WallTorch;
+				// Not crowding a body or torch already on the wall.
+				if (torch && !FarFromWallProps(candidates[i].position))
+					continue;
 				// No light reaches there at all: as dark as it gets.
 				const int far = std::min<int>(distance[lit.x][lit.y], FarFromAnyLight);
 				// A floor light's pool is smaller, so it wants more dark round it.
