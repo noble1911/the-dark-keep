@@ -4,8 +4,8 @@ seed: 4100
 note: A hub with pits around it. The party crosses the central pit whatever it does, so whatever stands there sees it. Two ways lead on from the hub, by the east pit and by the south pit, and the north and west pits are dead ends: places for lairs, not places anyone need go.
 dress: bones tomb rooms=2 stamps=bones,crypt
 ########################################
-########################################
-##..E.......###########............#####
+####E###################################
+#######################............#####
 ##..........###########.b........c.#####
 ##..........###########............#####
 ##....................D............#####
