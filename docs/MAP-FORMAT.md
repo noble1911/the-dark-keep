@@ -55,6 +55,16 @@ starts at world tile (16, 16).
   objects. A barrel, chest or brazier on solid ground is skipped; a prop is judged by the rules below.
 - The entrance and vault are the tileset's normal up and down stairs, stamped into the tiles. The
   game finds the vault through its usual stairs trigger.
+- Some stairs are built into a wall, as the generator only ever places them: the Cathedral's up stairs (Diablo's
+  own Cathedral set piece, `L5STAIRSUP`, which backs onto solid rock), the Crypt's up stairs, and both of the
+  Caves' and the Nest's. The Cathedral's, Crypt's and Caves' up stairs go in a room's top-right wall (the stairs'
+  top rows are rock: 2 deep, 3 for the Crypt) and the Caves' and Nest's down stairs in a top-left wall (the left
+  2 columns). Their rock must already be painted rock, the wall must run on one cell past both sides of them,
+  and their floor must be painted floor (`MapStairsWallProblem`), so the stamp never stands a wall in open floor.
+  The editor snaps a click to the nearest such spot within 5 cells, and says where they go if there is none;
+  dkmap_tool refuses a level that breaks it. A map saved before this rule still loads and plays as it was baked:
+  the editor says so when it opens it, and `ValidateMap` lists it as a warning. The Cathedral's and Crypt's down
+  stairs, and the Catacombs' and Hell's, stand free in a room, as the generator's do.
 
 ## Objects and props
 
