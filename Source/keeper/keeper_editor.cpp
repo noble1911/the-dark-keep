@@ -1826,6 +1826,21 @@ std::string DevEditor(const std::string &what, const std::string &arg)
 				CenterCamera(devStampMiddle);
 			}
 		}
+	} else if (what == "stairs" || what == "vaultstairs") {
+		// `editor stairs <x>,<y>` (or vaultstairs): as a click on that megatile with the Entrance (Vault) tool
+		const size_t comma = arg.find(',');
+		if (comma != std::string::npos) {
+			const bool entrance = what == "stairs";
+			feedback.clear();
+			PlaceStairs({ std::atoi(arg.c_str()), std::atoi(arg.c_str() + comma + 1) }, entrance, false);
+			const Point at = entrance ? model.entrance : model.vault;
+			return fmt::format("stairs {} at {},{}: {}", entrance ? "entrance" : "vault", at.x, at.y, feedback);
+		}
+	} else if (what == "stairsinfo") {
+		std::string said = fmt::format("stairs entrance {},{} vault {},{}; problems:", model.entrance.x, model.entrance.y, model.vault.x, model.vault.y);
+		for (const MapProblem &problem : problems)
+			said += fmt::format(" [{}{}]", problem.blocking ? "" : "warning: ", problem.text);
+		return said + "; feedback: " + feedback;
 	} else if (what == "stampcam") {
 		if (devStampMiddle != NoMapPosition)
 			CenterCamera(devStampMiddle);
