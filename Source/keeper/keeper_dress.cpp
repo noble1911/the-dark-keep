@@ -38,7 +38,7 @@ constexpr int FloorLightRadius = 5;
 /** Steps from a light that count as no light at all. */
 constexpr int FarFromAnyLight = 40;
 /** A stamp's room is this many megatiles across, at most, either axis: a bigger room gets a corner of it. */
-constexpr int StampSpan = 12;
+constexpr int StampSpan = 10;
 /** A stamp's room of this many megatiles gets each entry's count as written; bigger, up to twice as many. */
 constexpr int StampNominalCells = 36;
 
@@ -188,7 +188,8 @@ void MarkRoomsOf(const KeepMap &map, RoomGrid &rooms, std::vector<int> &sizes)
 
 /**
  * The cells of room `room` in a window at most `span` across round `at`: the whole room if it fits, otherwise
- * slid along each axis to the room's nearer wall (keeping `at` inside), so the window has walls to stand by.
+ * slid along each axis to the far wall (the one the camera sees) or else the near one, keeping `at` inside, so
+ * it has walls to stand by.
  */
 std::vector<Point> RoomWindow(const RoomGrid &rooms, int room, Point at, int span)
 {
@@ -208,18 +209,47 @@ std::vector<Point> RoomWindow(const RoomGrid &rooms, int room, Point at, int spa
 	const auto window = [span](int click, int first, int last) {
 		if (last - first + 1 <= span)
 			return std::pair { first, last };
-		// To the nearer wall, as far as the click stays in the window.
-		const int start = click - first <= last - click ? std::max(first, click - span + 1) : std::min(last - span + 1, click);
-		return std::pair { start, start + span - 1 };
+		// To the far wall if the click is near enough: the walls the camera sees, which take the wall props and the
+		// bookcases. Else to the near wall, else round the click.
+		if (click - first < span)
+			return std::pair { first, first + span - 1 };
+		if (last - click < span)
+			return std::pair { last - span + 1, last };
+		return std::pair { click - span / 2, click - span / 2 + span - 1 };
 	};
 	const auto [left, right] = window(at.x, low.x, high.x);
 	const auto [top, bottom] = window(at.y, low.y, high.y);
+	const auto inWindow = [&, left = left, right = right, top = top, bottom = bottom](Point cell) {
+		return cell.x >= left && cell.x <= right && cell.y >= top && cell.y <= bottom && rooms[cell.x][cell.y] == room;
+	};
+	// Only what joins `at` inside the window (or the room's cell nearest it): not the hall beyond a thin wall,
+	// which the room reaches the long way round.
+	Point start = NoMapPosition;
 	for (int x = left; x <= right; x++) {
 		for (int y = top; y <= bottom; y++) {
-			if (rooms[x][y] == room)
-				cells.push_back({ x, y });
+			if (inWindow({ x, y }) && (start == NoMapPosition || Point { x, y }.WalkingDistance(at) < start.WalkingDistance(at)))
+				start = { x, y };
 		}
 	}
+	if (start == NoMapPosition)
+		return cells;
+	std::array<std::array<bool, DMAXY>, DMAXX> seen {};
+	std::vector<Point> stack { start };
+	seen[start.x][start.y] = true;
+	while (!stack.empty()) {
+		const Point cell = stack.back();
+		stack.pop_back();
+		cells.push_back(cell);
+		for (const Displacement step : { Displacement { 1, 0 }, Displacement { -1, 0 }, Displacement { 0, 1 }, Displacement { 0, -1 } }) {
+			const Point next = cell + step;
+			if (inWindow(next) && !seen[next.x][next.y]) {
+				seen[next.x][next.y] = true;
+				stack.push_back(next);
+			}
+		}
+	}
+	// In order, so a stamp's seed and spots don't depend on the walk.
+	std::sort(cells.begin(), cells.end(), [](Point a, Point b) { return a.x != b.x ? a.x < b.x : a.y < b.y; });
 	return cells;
 }
 
@@ -861,7 +891,7 @@ private:
 		return kinds;
 	}
 
-	/** Where a stamp's prop of this kind could go in its area, before spacing: spots that pass the kind's own rules. */
+	/** Where a stamp's prop of this kind could go in its area, before spacing: spots that pass WhyMapObjectCantStand. */
 	std::vector<MapObject> StampSpots(MapObjectKind kind, StampSpot where, const TileGrid &area, Point centre) const
 	{
 		std::vector<MapObject> spots;
@@ -884,7 +914,7 @@ private:
 				if (traits.solid && lane_[x][y])
 					continue;
 				if (traits.placement == MapObjectPlacement::AgainstWall) {
-					if (const std::optional<MapObject> snapped = SnapMapObject(kind, tile, 0); snapped && snapped->position == tile)
+					if (const std::optional<MapObject> snapped = SnapMapObject(kind, tile, 0); snapped && snapped->position == tile && !WhyMapObjectCantStand(map_, *snapped))
 						spots.push_back(*snapped);
 					continue;
 				}
@@ -905,9 +935,14 @@ private:
 				case StampSpot::Scatter:
 					break;
 				}
-				spots.push_back({ kind, tile, 0 });
+				// The rules now, so the choice is among spots that can be: by an uneven wall (the Nest's) few can.
+				if (const MapObject spot { kind, tile, 0 }; !WhyMapObjectCantStand(map_, spot))
+					spots.push_back(spot);
 			}
 		}
+		// No wall in reach (the middle of a cavern): a floor kind goes anywhere in it instead.
+		if (spots.empty() && where == StampSpot::Edge && traits.placement == MapObjectPlacement::Floor)
+			return StampSpots(kind, StampSpot::Scatter, area, centre);
 		return spots;
 	}
 

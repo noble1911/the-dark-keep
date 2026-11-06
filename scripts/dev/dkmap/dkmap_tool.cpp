@@ -1223,10 +1223,12 @@ int SelfTest()
 
 
 /** A campaign level, baked, as the live map on the decorated level: what the editor and the stamps work on. */
-KeepMap *LiveLevel(const std::string &levelsDir, int level, bool &decorate)
+KeepMap *LiveLevel(const std::string &levelsDir, int level, bool &decorate, std::optional<MapTileset> tileset = std::nullopt)
 {
 	std::vector<std::string> errors;
 	std::optional<Source> source = ReadSource((fs::path(levelsDir) / fmt::format("level_{:02}.txt", level)).string(), errors);
+	if (source && tileset)
+		source->map.tileset = *tileset; // the same layout in another tileset
 	if (!source || !errors.empty() || !LoadMapTilesetData(source->map.tileset).has_value())
 		return nullptr;
 	static KeepMap map;
@@ -1256,14 +1258,14 @@ std::string WayOf(const KeepMap &map)
 	return fmt::format("route {} | {} | {}", report.route, DoorSummary(report), RouteSummary(report));
 }
 
-/** The biggest room round a click, scanning the map: where a test stamps. */
-Point BiggestRoomCell(const KeepMap &map, Point avoid = NoMapPosition)
+/** The biggest room round a click, scanning the map, away from the entrance's stairs: where a test stamps. */
+Point BiggestRoomCell(const KeepMap &map)
 {
 	Point best = NoMapPosition;
 	size_t bestSize = 0;
 	for (int x = 2; x < DMAXX - 2; x += 2) {
 		for (int y = 2; y < DMAXY - 2; y += 2) {
-			if (avoid != NoMapPosition && std::abs(x - avoid.x) <= 8 && std::abs(y - avoid.y) <= 8)
+			if (std::abs(x - map.entrance.x) <= 8 && std::abs(y - map.entrance.y) <= 8)
 				continue;
 			const size_t size = RoomCellsAt(map, { x, y }).size();
 			if (size > bestSize) {
@@ -1290,8 +1292,14 @@ int StampTest(const std::string &levelsDir)
 		check(RoomStampNamed(stamp.name) == &stamp && !RoomStampsFor(MapTileset::Cathedral).empty(), fmt::format("stamp '{}' ({}) is found by name", stamp.name, stamp.label));
 
 	static bool decorate = true;
-	for (const int level : { 3, 10, 15, 18 }) {
-		KeepMap *live = LiveLevel(levelsDir, level, decorate);
+	// One level of each campaign tileset; with Hellfire's data, two of the layouts again as the Crypt and the Nest.
+	std::vector<std::pair<int, std::optional<MapTileset>>> levels { { 3, std::nullopt }, { 10, std::nullopt }, { 15, std::nullopt }, { 18, std::nullopt } };
+	if (gbIsHellfire) {
+		levels.emplace_back(3, MapTileset::Crypt);
+		levels.emplace_back(16, MapTileset::Nest);
+	}
+	for (const auto &[level, tileset] : levels) {
+		KeepMap *live = LiveLevel(levelsDir, level, decorate, tileset);
 		if (live == nullptr) {
 			check(false, fmt::format("level {} builds", level));
 			continue;
@@ -1331,7 +1339,7 @@ int StampTest(const std::string &levelsDir)
 		RoomStamp partly { "test", "Test", 0xFF, { { "Not a prop yet|Nor this", StampSpot::Edge, 2, 2 }, { "nor THIS|Skull pile", StampSpot::Edge, 2, 2 } } };
 		reset();
 		const StampResult mixed = StampRoom(map, partly, cells, {});
-		check(mixed.unknownNames.size() == 3 && mixed.entriesWithoutKind == 1 && mixed.placed >= 2, fmt::format("level {}: unknown names skipped ({} of them, {} entries with no kind), {} placed", level, mixed.unknownNames.size(), mixed.entriesWithoutKind, mixed.placed));
+		check(mixed.unknownNames.size() == 3 && mixed.entriesWithoutKind == 1 && mixed.placed >= 2, fmt::format("level {}: unknown names skipped ({} of them, {} entries with no kind), {} of {} placed{}", level, mixed.unknownNames.size(), mixed.entriesWithoutKind, mixed.placed, mixed.wanted, mixed.notes.empty() ? std::string() : ": " + mixed.notes.front()));
 		RoomStamp none { "none", "None", 0xFF, { { "Not a prop yet", StampSpot::Centre, 1, 1 } } };
 		reset();
 		const StampResult nothing = StampRoom(map, none, cells, {});
