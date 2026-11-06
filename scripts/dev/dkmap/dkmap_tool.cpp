@@ -17,6 +17,11 @@
  * and any number of `prop: <x> <y> <kind>[/<style>]` lines: a prop (MapObjectName, any case) for a click
  * on world tile x, y, as the editor places it: a wall prop snaps to the wall beside that floor. Each must
  * pass the editor's rules, with the props before it standing.
+ * A `dress: <theme> [<theme>] [lights=N] [minlights=N] [spacing=N] [scenery=N] [seed=N] [centre=0]` line runs
+ * the dressing pass (keeper_dress.hpp) after the prop lines: lights, then scenery for the themes (bones, library,
+ * chapel, armoury, torture, prison, tomb, hell). Props and dressing go on the decorated level, as the game
+ * builds it. Every level is also built bare, and it fails if its props changed the route or the door and neck
+ * numbers.
  *
  * Also:
  *   dkmap_tool --data <mpqs> --assets <assets> --map <source.txt> --out <file.dkmap>   one map, any name
@@ -52,6 +57,7 @@
 #include "keeper/keeper.hpp"
 #include "keeper/keeper_barricade.hpp"
 #include "keeper/keeper_campaign.hpp"
+#include "keeper/keeper_dress.hpp"
 #include "keeper/keeper_game.hpp"
 #include "keeper/keeper_heroes.hpp"
 #include "keeper/keeper_map.hpp"
@@ -83,7 +89,43 @@ struct Source {
 	KeepMap map;
 	std::string note;
 	std::vector<PendingProp> props;
+	std::optional<DressOptions> dress;
 };
+
+/** `<theme> [<theme>] [key=value ...]` */
+std::optional<DressOptions> ParseDress(const std::string &text, std::vector<std::string> &errors)
+{
+	DressOptions options;
+	std::istringstream in(text);
+	std::string word;
+	while (in >> word) {
+		if (const size_t equals = word.find('='); equals != std::string::npos) {
+			const std::string key = word.substr(0, equals);
+			const int value = std::atoi(word.c_str() + equals + 1);
+			if (key == "lights")
+				options.maxLights = value;
+			else if (key == "minlights")
+				options.minLights = value;
+			else if (key == "spacing")
+				options.lightSpacing = value;
+			else if (key == "scenery")
+				options.maxScenery = value;
+			else if (key == "seed")
+				options.seed = static_cast<uint32_t>(value);
+			else if (key == "centre")
+				options.centrepiece = value != 0;
+			else
+				errors.push_back(fmt::format("unknown dress setting '{}'", key));
+		} else if (const std::optional<DressTheme> theme = DressThemeNamed(word); theme) {
+			options.themes.push_back(*theme);
+		} else {
+			errors.push_back(fmt::format("unknown dress theme '{}'", word));
+		}
+	}
+	if (!errors.empty())
+		return std::nullopt;
+	return options;
+}
 
 std::optional<MapObjectKind> KindNamed(std::string name)
 {
@@ -148,6 +190,11 @@ struct Report {
 	int arches = 0;
 	std::array<std::array<bool, DMAXY>, DMAXX> routeCells {};
 	std::string preview;
+	/** Light sources and props on the loaded level, and what the dressing pass did. */
+	int lights = 0;
+	int props = 0;
+	int levelObjects = 0;
+	std::optional<DressResult> dressed;
 };
 
 std::string Trim(std::string text)
@@ -207,6 +254,8 @@ std::optional<Source> ReadSource(const std::string &path, std::vector<std::strin
 			std::string note = line.substr(5);
 			note.erase(0, note.find_first_not_of(' '));
 			source.note += (source.note.empty() ? "" : " ") + note;
+		} else if (line.rfind("dress:", 0) == 0) {
+			source.dress = ParseDress(line.substr(6), errors);
 		} else if (line.rfind("prop:", 0) == 0) {
 			const std::optional<PendingProp> prop = ParseProp(line.substr(5));
 			if (prop)
@@ -479,8 +528,8 @@ std::string Preview(const KeepMap &map, const Report &report)
 	return text;
 }
 
-/** Bakes one level, writes it to `outPath`, reads it back and loads it as the game would. */
-Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Source &source, bool &parsed)
+/** Bakes one level, writes it to `outPath`, reads it back and loads it as the game would. `bare`: without its props and dressing. */
+Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Source &source, bool &parsed, bool bare = false)
 {
 	Report report;
 	parsed = false;
@@ -489,6 +538,10 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 		return report;
 	source = std::move(*read);
 	parsed = true;
+	if (bare) {
+		source.props.clear();
+		source.dress.reset();
+	}
 	if (!report.errors.empty())
 		return report;
 	KeepMap &map = source.map;
@@ -521,33 +574,6 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 	std::memset(dObject, 0, sizeof(dObject));
 	if (!BuildMapLevel())
 		report.errors.emplace_back("BuildMapLevel refused the live map");
-	// Props as the editor places them: each on the plain level, with everything before it standing.
-	for (const PendingProp &pending : source.props) {
-		std::memset(dObject, 0, sizeof(dObject));
-		InitObjects();
-		const std::optional<MapObject> snapped = SnapMapObject(pending.kind, pending.tile, pending.style);
-		if (!snapped) {
-			std::string around;
-			for (int dy = -2; dy <= 2; dy++) {
-				around += " |";
-				for (int dx = -3; dx <= 2; dx++) {
-					const Point at = pending.tile + Displacement { dx, dy };
-					around += IsTileSolid(at) ? '#' : (dObject[at.x][at.y] != 0 ? 'o' : '.');
-				}
-			}
-			report.errors.push_back(fmt::format("prop {} at {},{}: no straight wall beside it{}", MapObjectName(pending.kind), pending.tile.x, pending.tile.y, around));
-			continue;
-		}
-		if (const std::optional<std::string> why = WhyMapObjectCantStand(map, *snapped); why) {
-			report.errors.push_back(fmt::format("prop {} at {},{}: {}", MapObjectName(pending.kind), snapped->position.x, snapped->position.y, *why));
-			continue;
-		}
-		if (snapped->style() >= GetMapObjectTraits(pending.kind).styles) {
-			report.errors.push_back(fmt::format("prop {} at {},{}: no style {}", MapObjectName(pending.kind), pending.tile.x, pending.tile.y, snapped->style()));
-			continue;
-		}
-		map.objects.push_back(*snapped);
-	}
 	if (map.objects.size() > MaxMapObjects)
 		report.errors.push_back(fmt::format("{} objects, more than a map holds", map.objects.size()));
 	const bool playable = BakePlayableMap(map);
@@ -563,6 +589,44 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 		if (report.errors.empty()) {
 			report.errors.emplace_back("every roll of the decoration broke it");
 		}
+	}
+	if (playable && (!source.props.empty() || source.dress)) {
+		// Props go on the level as the game builds it: the decorated one, with the seed the bake settled on.
+		decorate = true;
+		// Props as the editor places them, with everything before it standing. The layout goes down again
+		// each time: a door changes the tile under it as it's placed (the Catacombs' do).
+		for (const PendingProp &pending : source.props) {
+			BuildMapLevel();
+			std::memset(dObject, 0, sizeof(dObject));
+			InitObjects();
+			const std::optional<MapObject> snapped = SnapMapObject(pending.kind, pending.tile, pending.style);
+			if (!snapped) {
+				std::string around;
+				for (int dy = -2; dy <= 2; dy++) {
+					around += " |";
+					for (int dx = -3; dx <= 2; dx++) {
+						const Point at = pending.tile + Displacement { dx, dy };
+						around += IsTileSolid(at) ? '#' : (dObject[at.x][at.y] != 0 ? 'o' : '.');
+					}
+				}
+				report.errors.push_back(fmt::format("prop {} at {},{}: no straight wall beside it{}", MapObjectName(pending.kind), pending.tile.x, pending.tile.y, around));
+				continue;
+			}
+			if (const std::optional<std::string> why = WhyMapObjectCantStand(map, *snapped); why) {
+				report.errors.push_back(fmt::format("prop {} at {},{}: {}", MapObjectName(pending.kind), snapped->position.x, snapped->position.y, *why));
+				continue;
+			}
+			if (snapped->style() >= GetMapObjectTraits(pending.kind).styles) {
+				report.errors.push_back(fmt::format("prop {} at {},{}: no style {}", MapObjectName(pending.kind), pending.tile.x, pending.tile.y, snapped->style()));
+				continue;
+			}
+			map.objects.push_back(*snapped);
+		}
+		if (source.dress)
+			report.dressed = DressMap(map, *source.dress);
+		decorate = false;
+		if (map.objects.size() > MaxMapObjects)
+			report.errors.push_back(fmt::format("{} objects, more than a map holds", map.objects.size()));
 	}
 	const std::vector<std::byte> bytes = SerializeMap(map);
 	report.fileSize = bytes.size();
@@ -606,6 +670,11 @@ Report BuildLevel(const std::string &sourcePath, const std::string &outPath, Sou
 		else
 			report.warnings.push_back(problem.text);
 	}
+	if (!LeftOutMapObjects().empty())
+		report.errors.push_back(fmt::format("{} props left out of the loaded level", LeftOutMapObjects().size()));
+	report.lights = CountLevelLights();
+	report.levelObjects = ActiveObjectCount;
+	report.props = static_cast<int>(std::count_if(loaded->objects.begin(), loaded->objects.end(), [](const MapObject &object) { return !IsLegacyMapObject(object.kind); }));
 	Analyse(*loaded, report);
 	report.preview = Preview(*loaded, report);
 	ForgetMapCache();
@@ -715,13 +784,35 @@ int RunLevels(const std::string &levelsDir, const std::string &outDir, const std
 		}
 		Source source;
 		bool parsed = false;
+		// Bare first: the props must leave every number about the heroes' way as it was.
+		const fs::path barePath = fs::path(outDir) / (fileName + ".dkmap.bare");
+		Source bareSource;
+		bool bareParsed = false;
+		const Report bare = BuildLevel(sourcePath.string(), barePath.string(), bareSource, bareParsed, /*bare=*/true);
+		fs::remove(barePath, fileError);
 		const Report report = BuildLevel(sourcePath.string(), newPath.string(), source, parsed);
 		const std::string_view expected = CampaignLevelRules(level).name;
 		std::vector<std::string> errors = report.errors;
 		if (parsed && source.map.name != expected)
 			errors.push_back(fmt::format("named '{}', but the campaign calls it '{}'", source.map.name, expected));
+		if (bare.errors.empty() && report.errors.empty()) {
+			if (bare.route != report.route)
+				errors.push_back(fmt::format("the props changed the route: {} tiles bare, {} dressed", bare.route, report.route));
+			if (DoorSummary(bare) != DoorSummary(report))
+				errors.push_back(fmt::format("the props changed what locks do: bare '{}'", DoorSummary(bare)));
+			if (RouteSummary(bare) != RouteSummary(report))
+				errors.push_back(fmt::format("the props changed the necks: bare '{}'", RouteSummary(bare)));
+		}
 		fmt::print("level {:2} {:<18} {:<10} route {:4} floor {:4} buildable {:4} {} bytes\n", level, source.map.name, parsed ? MapTilesetName(source.map.tileset) : "?", report.route, report.floorCells, report.buildableTiles, report.fileSize);
 		fmt::print("         {}\n         {}\n", DoorSummary(report), RouteSummary(report));
+		fmt::print("         {} lights, {} props, {} objects on the level; bare: route {}, buildable {}", report.lights, report.props, report.levelObjects, bare.route, bare.buildableTiles);
+		if (report.dressed)
+			fmt::print("; dressing: {} lights before, {} added, {} scenery, {} refused for the route", report.dressed->lightsBefore, report.dressed->lightsAdded, report.dressed->sceneryAdded, report.dressed->rejectedForRoute);
+		fmt::print("\n");
+		if (report.dressed) {
+			for (const std::string &note : report.dressed->notes)
+				errors.push_back("dressing: " + note);
+		}
 		for (const std::string &warning : report.warnings)
 			fmt::print("         warning: {}\n", warning);
 		for (const std::string &error : errors)
@@ -739,7 +830,7 @@ int RunLevels(const std::string &levelsDir, const std::string &outDir, const std
 			continue;
 		}
 		doc += fmt::format("## Level {}: {}\n\n", level, source.map.name);
-		doc += fmt::format("**{}.** Route {} tiles, {} floor cells, {} tiles to build on. {}. {}.{}\n\n", MapTilesetName(source.map.tileset), report.route, report.floorCells, report.buildableTiles, DoorSummary(report), RouteSummary(report), report.arches > 0 ? fmt::format(" {} arches.", report.arches) : "");
+		doc += fmt::format("**{}.** Route {} tiles, {} floor cells, {} tiles to build on. {}. {}.{} {} light sources, {} props.\n\n", MapTilesetName(source.map.tileset), report.route, report.floorCells, report.buildableTiles, DoorSummary(report), RouteSummary(report), report.arches > 0 ? fmt::format(" {} arches.", report.arches) : "", report.lights, report.props);
 		doc += source.note + "\n\n```\n" + report.preview + "```\n\n";
 	}
 	if (docHead && failures == 0) {
@@ -1107,6 +1198,12 @@ int main(int argc, char **argv)
 			const MapObjectTraits traits = GetMapObjectTraits(object.kind);
 			fmt::print("  {} at {},{} style {}{}\n", MapObjectName(object.kind), object.position.x, object.position.y, object.style(),
 			    traits.placement == MapObjectPlacement::Floor ? "" : (object.facesY() ? ", faces +y" : ", faces +x"));
+		}
+		// What the tileset adds by itself: doors, and the Cathedral's braziers on its candlestick tiles.
+		for (int i = 0; i < ActiveObjectCount; i++) {
+			const Object &object = Objects[ActiveObjects[i]];
+			if (std::none_of(source.map.objects.begin(), source.map.objects.end(), [&](const MapObject &placed) { return placed.position == object.position; }))
+				fmt::print("  level object type {} at {},{}{}\n", static_cast<int>(object._otype), object.position.x, object.position.y, object.isDoor() ? " (door)" : "");
 		}
 		return report.errors.empty() ? 0 : 1;
 	}

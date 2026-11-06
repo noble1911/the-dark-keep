@@ -160,6 +160,7 @@ set(libdevilutionx_SRCS
   keeper/keeper_upgrades.cpp
   keeper/keeper_barricade.cpp
   keeper/keeper_map.cpp
+  keeper/keeper_dress.cpp
   keeper/keeper_editor.cpp
   keeper/keeper_flow.cpp
   keeper/keeper_resume.cpp
