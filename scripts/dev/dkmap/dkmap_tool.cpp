@@ -1218,7 +1218,9 @@ int PropTest()
 		decorate = true;
 		// A version 1 chest, which must still open, then one of each kind, a few tiles from the rest.
 		map.objects.push_back({ MapObjectKind::Chest, { 40, 40 } });
-		const std::vector<MapObjectKind> palette = MapObjectPalette(tileset);
+		std::vector<MapObjectKind> palette = MapObjectPalette(tileset);
+		// The wall kinds first: the floor kinds fill the room in scan order, and would crowd the walls.
+		std::stable_partition(palette.begin(), palette.end(), [](MapObjectKind kind) { return GetMapObjectTraits(kind).placement != MapObjectPlacement::Floor; });
 		std::vector<MapObjectKind> unplaced;
 		for (const MapObjectKind kind : palette) {
 			if (IsLegacyMapObject(kind))

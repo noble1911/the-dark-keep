@@ -332,6 +332,9 @@ constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest 
 
 constexpr size_t MaxPropStyles = 8;
 
+constexpr uint8_t FacesX = 1;
+constexpr uint8_t FacesY = 2;
+
 /** The tiles a kind takes, as the engine's own AddXxx marks them in dObject. */
 enum class Footprint : uint8_t {
 	One,
@@ -368,6 +371,8 @@ struct PropSpec {
 	bool scenery = false;
 	/** Drawn under anyone standing on its tile (_oPreFlag), as vanilla does bodies and magic circles. */
 	bool underUnits = false;
+	/** For a wall kind, the walls its art is drawn for: FacesX (floor at +x), FacesY (floor at +y) or both. */
+	uint8_t facings = FacesX | FacesY;
 };
 
 constexpr MapObjectTraits Kind(MapObjectGroup group, uint8_t styles = 1, MapObjectPlacement placement = MapObjectPlacement::Floor, bool solid = true, bool light = false)
@@ -428,7 +433,9 @@ const std::array<PropSpec, NumMapObjectKinds> Props = { {
 	{ "Rock stand", "rock_stand", Kind(G::Furniture), { OBJ_STAND }, {}, { 1 }, InAll, false, Footprint::One, true },
 	{ "Magic circle", "magic_circle", Kind(G::SetPieces, 4, MapObjectPlacement::Floor, false), { OBJ_MCIRCLE1, OBJ_MCIRCLE1, OBJ_MCIRCLE1, OBJ_MCIRCLE1 }, {}, { 1, 2, 3, 4 }, InAll, false, Footprint::One, true, true },
 	{ "Burning cross", "burning_cross", Kind(G::SetPieces, 1, MapObjectPlacement::Floor, true, true), { OBJ_TBCROSS }, {}, {}, InAll, false, Footprint::One, true },
-	{ "Hanging body", "hanging_body", Kind(G::Bodies), { OBJ_NUDEW2R }, {}, {}, InAll, false, Footprint::One, true },
+	// Chained up by the arms to a wall with the floor at +y (the "R" in its name): drawn against the other wall
+	// it stands a tile out from it, and on open floor it floats.
+	{ "Hanging body", "hanging_body", Kind(G::Bodies, 1, MapObjectPlacement::AgainstWall), { OBJ_NUDEW2R }, { OBJ_NUDEW2R }, {}, NotNest, false, Footprint::One, true, false, FacesY },
 	{ "Bookshelf", "bookshelf", Kind(G::Furniture, 1, MapObjectPlacement::AgainstWall), { OBJ_BOOKSHELF }, { OBJ_BOOKSHELFR }, {}, InCathedral | InCatacombs | InCrypt, false, Footprint::One, true },
 	{ "Mushroom patch", "mushroom_patch", Kind(G::Clutter), { OBJ_MUSHPATCH }, {}, { 1 }, InCaves | InNest, false, Footprint::Square, true },
 	{ "Urn", "urn", Kind(G::Clutter), { OBJ_URN }, {}, { 1 }, InCrypt, false, Footprint::One, true },
@@ -1729,6 +1736,8 @@ std::optional<MapObject> SnapMapObject(MapObjectKind kind, Point tile, uint8_t s
 		return std::nullopt;
 	// A wall faces the floor on its +x or +y side: the two walls seen from the room, in the game's view.
 	for (const bool facesY : { false, true }) {
+		if ((Spec(kind).facings & (facesY ? FacesY : FacesX)) == 0)
+			continue; // its art is only drawn for the other wall
 		MapObject candidate = object;
 		if (facesY)
 			candidate.variant |= MapObjectFacesY;
@@ -1780,6 +1789,8 @@ std::optional<std::string> WhyMapObjectCantStand(const KeepMap &map, const MapOb
 			return "Too close to the stairs";
 	}
 	const MapObjectTraits traits = GetMapObjectTraits(object.kind);
+	if (traits.placement != MapObjectPlacement::Floor && (Spec(object.kind).facings & (object.facesY() ? FacesY : FacesX)) == 0)
+		return object.facesY() ? "Its art only hangs on a wall with the floor at +x" : "Its art only hangs on a wall with the floor at +y";
 	const Displacement facing = Facing(object);
 	const Displacement along = Along(object);
 	switch (traits.placement) {

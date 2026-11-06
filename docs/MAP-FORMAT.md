@@ -121,7 +121,7 @@ are at -y (two tiles) or -x, -y and both (four).
 | 35 | rock_stand | Rock stand | OBJ_STAND, frame 1 | 1 | | yes | floor | 1 | all | Magic Rock quest, floor |
 | 36 | magic_circle | Magic circle | OBJ_MCIRCLE1, frames 1 to 4, drawn under units | 4: pentagram and rings, grey and red | | no | floor | 1 | all | Lazarus's set level, painted on the floor |
 | 37 | burning_cross | Burning cross | OBJ_TBCROSS, animated | 1 | radius 5 | yes | floor | 1 | all | middle of 3 by 3 floor (Theme_BrnCross) |
-| 38 | hanging_body | Hanging body | OBJ_NUDEW2R, animated | 1 | | yes | floor | 1 | all | set levels, floor |
+| 38 | hanging_body | Hanging body | OBJ_NUDEW2R, animated | 1 | | yes | against a wall, floor at +y only | 1 | all but the Nest | chained by the arms to the wall behind it; its art is drawn for the wall with the floor at +y (it stands a tile out from the other) |
 | 39 | bookshelf | Bookshelf | OBJ_BOOKSHELF (+x), OBJ_BOOKSHELFR (+y), the bare shelves | 1 | | yes | against a wall | 1 | Cathedral, Catacombs, Crypt | set levels, as the bookcase |
 | 40 | mushroom_patch | Mushroom patch | OBJ_MUSHPATCH, frame 1 | 1 | | yes | floor | 4 | Caves, Nest | AddMushPatch marks -x, -y |
 | 41 | urn | Urn | OBJ_URN, frame 1 (whole) | 1 | | yes | floor | 1 | Crypt | random floor tile (as barrels) |
@@ -273,7 +273,7 @@ and the tool button opens the list as for props.
 | shrine | Cathedral, Catacombs, Caves, Crypt | a shrine against the wall, two candles round it, pedestals, a fountain or goat shrine, a banner, a torch |
 | chapel | Cathedral, Catacombs, Crypt | an altar, candles round it, banners, a lectern, a pedestal, a grey magic circle, a tear fountain, a torch |
 | crypt | Cathedral, Catacombs, Crypt | a sarcophagus in the middle (the Crypt's own there), more by the walls, urns or skull piles, a story book, a closed chest, crypt candles |
-| torture | all but the Nest | a hanging body ringed with skull fires, impaled and more hanging bodies, tortured bodies, a pulled lever, headless bodies, a torch |
+| torture | all but the Nest | a body on a stake ringed with skull fires, impaled bodies and bodies chained to the walls, tortured bodies, a pulled lever, headless bodies, a torch |
 | prison | all but the Nest | impaled, hanging and tortured bodies round the walls, a lever, skull piles, a torch |
 | armoury | Catacombs, Caves, Hell, Crypt | weapon racks and armour stands round the walls, a banner, a large closed chest, torches |
 | treasure | all but the Nest | a large closed chest, smaller ones by the walls, a pedestal of stones, a staff stand, candles round it, a torch |
