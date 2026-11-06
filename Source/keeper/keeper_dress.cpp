@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 
@@ -36,6 +37,10 @@ constexpr int TorchRadius = 8;
 constexpr int FloorLightRadius = 5;
 /** Steps from a light that count as no light at all. */
 constexpr int FarFromAnyLight = 40;
+/** A themed room's stamp covers megatiles this far from its middle, at most, either axis. */
+constexpr int ThemedRoomReach = 5;
+/** A stamp's room of this many megatiles gets each entry's count as written; bigger, up to twice as many. */
+constexpr int StampNominalCells = 36;
 
 struct ThemeSpec {
 	std::string_view name;
@@ -133,6 +138,54 @@ bool InMapArea(Point tile)
 	return tile.x >= 16 && tile.y >= 16 && tile.x < 16 + 2 * DMAXX && tile.y < 16 + 2 * DMAXY;
 }
 
+using RoomGrid = std::array<std::array<int, DMAXY>, DMAXX>;
+
+/** [x][y] by megatile: which room (some 3 by 3 block of floor) a cell is part of, 0 for none; and each room's size. */
+void MarkRoomsOf(const KeepMap &map, RoomGrid &rooms, std::vector<int> &sizes)
+{
+	for (auto &column : rooms)
+		column.fill(0);
+	std::array<std::array<bool, DMAXY>, DMAXX> inBlock {};
+	for (int x = 0; x + 2 < DMAXX; x++) {
+		for (int y = 0; y + 2 < DMAXY; y++) {
+			bool all = true;
+			for (int dx = 0; dx < 3 && all; dx++) {
+				for (int dy = 0; dy < 3 && all; dy++)
+					all = map.cell(x + dx, y + dy) == MapCell::Floor;
+			}
+			if (!all)
+				continue;
+			for (int dx = 0; dx < 3; dx++) {
+				for (int dy = 0; dy < 3; dy++)
+					inBlock[x + dx][y + dy] = true;
+			}
+		}
+	}
+	sizes.assign(1, 0);
+	for (int x = 0; x < DMAXX; x++) {
+		for (int y = 0; y < DMAXY; y++) {
+			if (!inBlock[x][y] || rooms[x][y] != 0)
+				continue;
+			const int id = static_cast<int>(sizes.size());
+			sizes.push_back(0);
+			std::vector<Point> stack { { x, y } };
+			rooms[x][y] = id;
+			while (!stack.empty()) {
+				const Point cell = stack.back();
+				stack.pop_back();
+				sizes[id]++;
+				for (const Displacement step : { Displacement { 1, 0 }, Displacement { -1, 0 }, Displacement { 0, 1 }, Displacement { 0, -1 } }) {
+					const Point next = cell + step;
+					if (next.x < 0 || next.y < 0 || next.x >= DMAXX || next.y >= DMAXY || !inBlock[next.x][next.y] || rooms[next.x][next.y] != 0)
+						continue;
+					rooms[next.x][next.y] = id;
+					stack.push_back(next);
+				}
+			}
+		}
+	}
+}
+
 class Dresser {
 public:
 	Dresser(KeepMap &map, const DressOptions &options)
@@ -140,10 +193,11 @@ public:
 	    , options_(options)
 	    , random_ { (map.decorSeed ^ (options.seed * 2654435761U)) | 1U }
 	{
-		for (const DressTheme theme : options.themes)
+		themeIds_ = options.themes;
+		if (themeIds_.empty())
+			themeIds_.push_back(DefaultDressTheme(map.tileset));
+		for (const DressTheme theme : themeIds_)
 			themes_.push_back(&Themes[static_cast<size_t>(theme)]);
-		if (themes_.empty())
-			themes_.push_back(&Themes[static_cast<size_t>(DefaultDressTheme(map.tileset))]);
 		const std::vector<MapObjectKind> palette = MapObjectPalette(map.tileset);
 		for (const MapObjectKind kind : palette)
 			available_[static_cast<size_t>(kind)] = true;
@@ -151,17 +205,31 @@ public:
 
 	DressResult run()
 	{
+		if (!Prepare())
+			return result_;
+		if (options_.themedRooms > 0)
+			StampThemedRooms();
+		PlaceLights();
+		PlaceCentrepiece();
+		PlaceScenery();
+		Reinit();
+		return result_;
+	}
+
+	/** Lays the level out, measures the heroes' way and marks the rooms and lanes. False (with a note) if there's no way to measure. */
+	bool Prepare()
+	{
 		Reinit();
 		InitMapTriggers(map_.tileset);
 		vault_ = FindVault(NoMapPosition);
 		if (vault_ == NoMapPosition) {
 			result_.notes.emplace_back("no vault stairs: nothing dressed");
-			return result_;
+			return false;
 		}
 		const std::optional<RouteMeasure> measured = Measure();
 		if (!measured || measured->route == Unreachable) {
 			result_.notes.push_back(fmt::format("no route from the entrance ({}) to the vault at {},{}: nothing dressed", measured ? fmt::format("{},{} route {}", measured->arrival.x, measured->arrival.y, measured->route) : "nowhere to appear", vault_.x, vault_.y));
-			return result_;
+			return false;
 		}
 		baseline_ = *measured;
 		MarkRooms();
@@ -181,24 +249,35 @@ public:
 			for (const MapObjectKind centre : themes_.front()->centre)
 				hasCentrepiece_ = hasCentrepiece_ || object.kind == centre;
 		}
-		PlaceLights();
-		PlaceCentrepiece();
-		PlaceScenery();
-		Reinit();
-		return result_;
+		return true;
 	}
+
+	/** For a stamp placed by hand: the caps are what a map holds, not the dressing's. */
+	void SetCaps(size_t mapObjects, int levelObjects)
+	{
+		maxMapObjects_ = mapObjects;
+		maxLevelObjects_ = levelObjects;
+	}
+
+	const std::vector<std::string> &Notes() const { return result_.notes; }
+
+	StampResult Stamp(const RoomStamp &stamp, const std::vector<Point> &cells, uint32_t seed);
+
+	/** The level again with everything placed, as DressMap leaves it. */
+	void Finish() const { Reinit(); }
 
 private:
 	KeepMap &map_;
 	const DressOptions &options_;
 	DressRandom random_;
 	std::vector<const ThemeSpec *> themes_;
+	std::vector<DressTheme> themeIds_;
 	std::array<bool, NumMapObjectKinds> available_ {};
 	DressResult result_;
 	Point vault_ = NoMapPosition;
 	RouteMeasure baseline_;
 	/** [x][y] by megatile: part of a room (some 3 by 3 block of floor), and which one. */
-	std::array<std::array<int, DMAXY>, DMAXX> room_ {};
+	RoomGrid room_ {};
 	std::vector<int> roomSizes_;
 	/** Tiles solid props keep off: near the route or a door. */
 	TileGrid lane_ {};
@@ -209,6 +288,10 @@ private:
 	std::vector<Point> wallProps_;
 	int sceneryBefore_ = 0;
 	bool hasCentrepiece_ = false;
+	size_t maxMapObjects_ = MaxDressedMapObjects;
+	int maxLevelObjects_ = MaxDressedLevelObjects;
+	/** Rooms a theme-room stamp furnished: the scattered scenery and the centrepiece leave them be. */
+	std::vector<bool> stampedRoom_;
 
 	/**
 	 * The level again, with map.objects as they are now. The layout too, not just the objects: placing a
@@ -287,45 +370,8 @@ private:
 
 	void MarkRooms()
 	{
-		std::array<std::array<bool, DMAXY>, DMAXX> inBlock {};
-		for (int x = 0; x + 2 < DMAXX; x++) {
-			for (int y = 0; y + 2 < DMAXY; y++) {
-				bool all = true;
-				for (int dx = 0; dx < 3 && all; dx++) {
-					for (int dy = 0; dy < 3 && all; dy++)
-						all = map_.cell(x + dx, y + dy) == MapCell::Floor;
-				}
-				if (!all)
-					continue;
-				for (int dx = 0; dx < 3; dx++) {
-					for (int dy = 0; dy < 3; dy++)
-						inBlock[x + dx][y + dy] = true;
-				}
-			}
-		}
-		roomSizes_.assign(1, 0);
-		for (int x = 0; x < DMAXX; x++) {
-			for (int y = 0; y < DMAXY; y++) {
-				if (!inBlock[x][y] || room_[x][y] != 0)
-					continue;
-				const int id = static_cast<int>(roomSizes_.size());
-				roomSizes_.push_back(0);
-				std::vector<Point> stack { { x, y } };
-				room_[x][y] = id;
-				while (!stack.empty()) {
-					const Point cell = stack.back();
-					stack.pop_back();
-					roomSizes_[id]++;
-					for (const Displacement step : { Displacement { 1, 0 }, Displacement { -1, 0 }, Displacement { 0, 1 }, Displacement { 0, -1 } }) {
-						const Point next = cell + step;
-						if (next.x < 0 || next.y < 0 || next.x >= DMAXX || next.y >= DMAXY || !inBlock[next.x][next.y] || room_[next.x][next.y] != 0)
-							continue;
-						room_[next.x][next.y] = id;
-						stack.push_back(next);
-					}
-				}
-			}
-		}
+		MarkRoomsOf(map_, room_, roomSizes_);
+		stampedRoom_.assign(roomSizes_.size(), false);
 	}
 
 	int RoomOf(Point tile) const
@@ -401,10 +447,15 @@ private:
 		return InDungeonBounds(tile) && IsTileNotSolid(tile) && dObject[tile.x][tile.y] == 0;
 	}
 
+	bool AtCap() const
+	{
+		return map_.objects.size() >= maxMapObjects_ || ActiveObjectCount >= maxLevelObjects_;
+	}
+
 	/** Adds it if the rules and the route check allow, and says so. */
 	bool Place(const MapObject &object)
 	{
-		if (map_.objects.size() >= MaxDressedMapObjects || ActiveObjectCount >= MaxDressedLevelObjects)
+		if (AtCap())
 			return false;
 		if (WhyMapObjectCantStand(map_, object))
 			return false;
@@ -614,6 +665,8 @@ private:
 		for (const int room : rooms) {
 			if (roomSizes_[room] < 12)
 				break;
+			if (stampedRoom_[room])
+				continue;
 			// The middle of the room's floor.
 			long sumX = 0;
 			long sumY = 0;
@@ -701,6 +754,132 @@ private:
 		return spots;
 	}
 
+	/** The biggest rooms get a stamp each, for the themes in turn, round the middle of the room. */
+	void StampThemedRooms()
+	{
+		std::vector<int> rooms;
+		for (int id = 1; id < static_cast<int>(roomSizes_.size()); id++)
+			rooms.push_back(id);
+		std::stable_sort(rooms.begin(), rooms.end(), [&](int a, int b) { return roomSizes_[a] > roomSizes_[b]; });
+		int done = 0;
+		for (const int room : rooms) {
+			if (done >= options_.themedRooms || roomSizes_[room] < 12)
+				break;
+			const RoomStamp *stamp = nullptr;
+			for (size_t t = 0; t < themeIds_.size() && stamp == nullptr; t++)
+				stamp = RoomStampForTheme(themeIds_[(done + t) % themeIds_.size()], map_.tileset);
+			if (stamp == nullptr)
+				break;
+			// Round the middle cell of the room: a cavern that is all one room gets a part of it.
+			long sumX = 0;
+			long sumY = 0;
+			for (int x = 0; x < DMAXX; x++) {
+				for (int y = 0; y < DMAXY; y++) {
+					if (room_[x][y] == room) {
+						sumX += x;
+						sumY += y;
+					}
+				}
+			}
+			const Point middle { static_cast<int>(sumX / roomSizes_[room]), static_cast<int>(sumY / roomSizes_[room]) };
+			std::vector<Point> cells;
+			for (int x = 0; x < DMAXX; x++) {
+				for (int y = 0; y < DMAXY; y++) {
+					if (room_[x][y] == room && std::abs(x - middle.x) <= ThemedRoomReach && std::abs(y - middle.y) <= ThemedRoomReach)
+						cells.push_back({ x, y });
+				}
+			}
+			const StampResult stamped = Stamp(*stamp, cells, options_.seed + static_cast<uint32_t>(done) * 7919U);
+			done++;
+			if (stamped.placed > 0) {
+				stampedRoom_[room] = true;
+				result_.stampedRooms++;
+				result_.stampedProps += stamped.placed;
+			}
+			if (stamped.capped) {
+				result_.notes.push_back(fmt::format("the object cap stopped the {} stamp", stamp->name));
+				break;
+			}
+		}
+	}
+
+	/** The kinds an entry names that this build and tileset have, in its order. */
+	std::vector<MapObjectKind> ResolveKinds(std::string_view names, StampResult &out) const
+	{
+		std::vector<MapObjectKind> kinds;
+		while (!names.empty()) {
+			const size_t bar = names.find('|');
+			std::string_view name = names.substr(0, bar);
+			names = bar == std::string_view::npos ? std::string_view() : names.substr(bar + 1);
+			while (!name.empty() && name.front() == ' ')
+				name.remove_prefix(1);
+			while (!name.empty() && name.back() == ' ')
+				name.remove_suffix(1);
+			if (name.empty())
+				continue;
+			const std::optional<MapObjectKind> kind = MapObjectKindNamed(name);
+			if (!kind) {
+				if (std::find(out.unknownNames.begin(), out.unknownNames.end(), name) == out.unknownNames.end())
+					out.unknownNames.emplace_back(name);
+				continue;
+			}
+			// Never the barrel, the chest or the brazier: those are the keep's own, and aren't judged as props.
+			if (!IsLegacyMapObject(*kind) && Available(*kind) && std::find(kinds.begin(), kinds.end(), *kind) == kinds.end())
+				kinds.push_back(*kind);
+		}
+		return kinds;
+	}
+
+	/** Where a stamp's prop of this kind could go in its area, before spacing: spots that pass the kind's own rules. */
+	std::vector<MapObject> StampSpots(MapObjectKind kind, StampSpot where, const TileGrid &area, Point centre) const
+	{
+		std::vector<MapObject> spots;
+		const MapObjectTraits traits = GetMapObjectTraits(kind);
+		for (int y = 16; y < 16 + 2 * DMAXY; y++) {
+			for (int x = 16; x < 16 + 2 * DMAXX; x++) {
+				const Point tile { x, y };
+				if (!area[x][y] || !IsBare(tile))
+					continue;
+				if (traits.placement == MapObjectPlacement::OnWall) {
+					// The floor is in the room; the wall the camera sees is behind it.
+					for (const bool facesY : { false, true }) {
+						const Point wall = tile - (facesY ? Displacement { 0, 1 } : Displacement { 1, 0 });
+						const MapObject spot { kind, wall, static_cast<uint8_t>(facesY ? MapObjectFacesY : 0) };
+						if (!WhyMapObjectCantStand(map_, spot))
+							spots.push_back(spot);
+					}
+					continue;
+				}
+				if (traits.solid && lane_[x][y])
+					continue;
+				if (traits.placement == MapObjectPlacement::AgainstWall) {
+					if (const std::optional<MapObject> snapped = SnapMapObject(kind, tile, 0); snapped && snapped->position == tile)
+						spots.push_back(*snapped);
+					continue;
+				}
+				const int fromCentre = std::max(std::abs(x - centre.x), std::abs(y - centre.y));
+				switch (where) {
+				case StampSpot::Edge:
+					if (!HugsWall(tile))
+						continue;
+					break;
+				case StampSpot::Centre:
+					if (HugsWall(tile))
+						continue;
+					break;
+				case StampSpot::Ring:
+					if (HugsWall(tile) || fromCentre < 2 || fromCentre > 3)
+						continue;
+					break;
+				case StampSpot::Scatter:
+					break;
+				}
+				spots.push_back({ kind, tile, 0 });
+			}
+		}
+		return spots;
+	}
+
 	void PlaceScenery()
 	{
 		std::vector<int> rooms;
@@ -712,7 +891,7 @@ private:
 		constexpr int MostPerRoom = 12;
 		std::vector<int> wanted(roomSizes_.size());
 		for (const int room : rooms)
-			wanted[room] = std::clamp(roomSizes_[room] / 30, 1, MostPerRoom);
+			wanted[room] = stampedRoom_[room] ? 0 : std::clamp(roomSizes_[room] / 30, 1, MostPerRoom);
 		for (int round = 0; round < MostPerRoom; round++) {
 			for (const int room : rooms) {
 				if (sceneryBefore_ + result_.sceneryAdded >= options_.maxScenery)
@@ -740,7 +919,391 @@ private:
 	}
 };
 
+int Chebyshev(Point a, Point b)
+{
+	return std::max(std::abs(a.x - b.x), std::abs(a.y - b.y));
+}
+
+bool AllApart(const std::vector<Point> &others, Point tile, int distance)
+{
+	return std::none_of(others.begin(), others.end(), [&](Point other) { return Chebyshev(other, tile) < distance; });
+}
+
+int NearestOf(const std::vector<Point> &others, Point tile, int cap)
+{
+	int nearest = cap;
+	for (const Point other : others)
+		nearest = std::min(nearest, Chebyshev(other, tile));
+	return nearest;
+}
+
+StampResult Dresser::Stamp(const RoomStamp &stamp, const std::vector<Point> &cells, uint32_t seed)
+{
+	StampResult out;
+	const int routeRejectsBefore = result_.rejectedForRoute;
+	static TileGrid area;
+	for (auto &column : area)
+		column.fill(false);
+	long sumX = 0;
+	long sumY = 0;
+	int tiles = 0;
+	// The room goes into the seed: the same cells, in any order, stamp the same.
+	uint32_t roomHash = 2166136261U;
+	std::vector<Point> sorted = cells;
+	std::sort(sorted.begin(), sorted.end(), [](Point a, Point b) { return a.x != b.x ? a.x < b.x : a.y < b.y; });
+	sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+	int cellCount = 0;
+	for (const Point cell : sorted) {
+		if (cell.x < 0 || cell.y < 0 || cell.x >= DMAXX || cell.y >= DMAXY)
+			continue;
+		cellCount++;
+		roomHash = (roomHash ^ static_cast<uint32_t>(cell.x * 64 + cell.y)) * 16777619U;
+		for (int dx = 0; dx < 2; dx++) {
+			for (int dy = 0; dy < 2; dy++) {
+				const Point tile = cell.megaToWorld() + Displacement { dx, dy };
+				area[tile.x][tile.y] = true;
+				sumX += tile.x;
+				sumY += tile.y;
+				tiles++;
+			}
+		}
+	}
+	if (tiles == 0) {
+		out.notes.emplace_back("no room there");
+		return out;
+	}
+	const Point middle { static_cast<int>(sumX / tiles), static_cast<int>(sumY / tiles) };
+	// And the open floor round it: in some tilesets (the Catacombs) a wall is one tile thick, and the floor along
+	// it lies in the rock's megatile.
+	static TileGrid grown;
+	grown = area;
+	for (int x = 17; x < 16 + 2 * DMAXX - 1; x++) {
+		for (int y = 17; y < 16 + 2 * DMAXY - 1; y++) {
+			if (!area[x][y])
+				continue;
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = -1; dy <= 1; dy++) {
+					if (IsTileNotSolid({ x + dx, y + dy }))
+						grown[x + dx][y + dy] = true;
+				}
+			}
+		}
+	}
+	area = grown;
+	DressRandom random { (map_.decorSeed ^ (seed * 2654435761U) ^ roomHash) | 1U };
+	const int scale = std::clamp(cellCount * 100 / StampNominalCells, 100, 200);
+	std::optional<Point> centre;
+	// The stamp's own floor props, with the floor in front of its wall props; and its wall props.
+	std::vector<Point> floorTaken;
+	std::vector<Point> wallTaken;
+	for (const RoomStampEntry &entry : stamp.entries) {
+		const std::vector<MapObjectKind> kinds = ResolveKinds(entry.kinds, out);
+		if (kinds.empty()) {
+			out.entriesWithoutKind++;
+			continue;
+		}
+		const int low = std::min(entry.min, entry.max);
+		int count = low + random.below(entry.max - low + 1);
+		if (entry.spot == StampSpot::Edge || entry.spot == StampSpot::Scatter)
+			count = (count * scale + 50) / 100;
+		if (entry.spot == StampSpot::Centre && centre)
+			count = 0; // one centrepiece a stamp
+		out.wanted += count;
+		const int apart = entry.apart != 0 ? entry.apart : stamp.spacing;
+		std::vector<Point> mine;
+		for (int i = 0; i < count && !out.capped; i++) {
+			if (AtCap()) {
+				out.capped = true;
+				break;
+			}
+			std::vector<Point> refused;
+			bool placed = false;
+			for (int attempt = 0; attempt < 8 && !placed; attempt++) {
+				std::optional<MapObject> best;
+				int bestScore = 0;
+				for (const MapObjectKind kind : kinds) {
+					const MapObjectTraits traits = GetMapObjectTraits(kind);
+					const bool onWall = traits.placement == MapObjectPlacement::OnWall;
+					for (const MapObject &spot : StampSpots(kind, entry.spot, area, centre.value_or(middle))) {
+						if (std::find(refused.begin(), refused.end(), spot.position) != refused.end())
+							continue;
+						const Point front = FrontOf(spot);
+						if (onWall) {
+							// Not crowding another on the wall, and a light further off one.
+							if (!AllApart(wallTaken, spot.position, 2) || !AllApart(wallProps_, spot.position, traits.light ? 3 : 2) || !AllApart(mine, spot.position, apart))
+								continue;
+						} else if (!AllApart(floorTaken, spot.position, stamp.spacing) || !AllApart(mine, spot.position, apart) || !AllApart(scenery_, spot.position, 2) || !AllApart(wallProps_, spot.position, 2)) {
+							continue;
+						}
+						int score = 0;
+						switch (entry.spot) {
+						case StampSpot::Centre:
+							score = 1000 - 4 * front.WalkingDistance(middle) + random.below(3);
+							break;
+						case StampSpot::Edge:
+							// Spread round the room: the furthest from the entry's others.
+							score = 1 + 4 * NearestOf(mine, front, 10) + random.below(8);
+							break;
+						case StampSpot::Ring:
+							score = 1 + random.below(100);
+							break;
+						case StampSpot::Scatter:
+							score = 1 + 2 * NearestOf(floorTaken, front, 6) + random.below(10);
+							break;
+						}
+						if (score > bestScore) {
+							bestScore = score;
+							best = spot;
+						}
+					}
+					if (best)
+						break; // the first kind on the line with somewhere to go
+				}
+				if (!best)
+					break;
+				MapObject object = *best;
+				object.variant = static_cast<uint8_t>((object.variant & MapObjectFacesY) | random.below(GetMapObjectTraits(object.kind).styles));
+				if (AtCap()) {
+					out.capped = true;
+					break;
+				}
+				if (!Place(object)) {
+					refused.push_back(object.position);
+					continue;
+				}
+				placed = true;
+				const MapObjectTraits traits = GetMapObjectTraits(object.kind);
+				const Point front = FrontOf(object);
+				out.added.push_back(object);
+				out.placed++;
+				if (traits.light)
+					out.lights++;
+				mine.push_back(traits.placement == MapObjectPlacement::OnWall ? object.position : front);
+				floorTaken.push_back(front);
+				scenery_.push_back(front);
+				if (traits.placement == MapObjectPlacement::OnWall) {
+					wallTaken.push_back(object.position);
+					wallProps_.push_back(object.position);
+				}
+				if (entry.spot == StampSpot::Centre && !centre)
+					centre = object.position;
+			}
+			if (!placed)
+				break; // nowhere left for this entry
+		}
+		if (out.capped)
+			break;
+	}
+	out.rejectedForRoute = result_.rejectedForRoute - routeRejectsBefore;
+	return out;
+}
+
+constexpr uint8_t TilesetBit(MapTileset tileset)
+{
+	return static_cast<uint8_t>(1U << static_cast<unsigned>(tileset));
+}
+
+constexpr uint8_t InCathedral = TilesetBit(MapTileset::Cathedral);
+constexpr uint8_t InCatacombs = TilesetBit(MapTileset::Catacombs);
+constexpr uint8_t InCaves = TilesetBit(MapTileset::Caves);
+constexpr uint8_t InHell = TilesetBit(MapTileset::Hell);
+constexpr uint8_t InNest = TilesetBit(MapTileset::Nest);
+constexpr uint8_t InCrypt = TilesetBit(MapTileset::Crypt);
+constexpr uint8_t InAll = InCathedral | InCatacombs | InCaves | InHell | InNest | InCrypt;
+
+/**
+ * The stamps, by prop name. Names that aren't kinds yet (sarcophagi, altars, urns, chains, wall skeletons, ...)
+ * are for props still to come: they're skipped until a build has them, and the next name on the line stands in.
+ * Entries go in order, so the centrepiece comes first where the ring round it needs it.
+ */
+std::vector<RoomStamp> MakeRoomStamps()
+{
+	using S = StampSpot;
+	// clang-format off
+	return {
+		{ "library", "Library corner", InCathedral | InCatacombs | InCrypt, {
+			{ "Bookcase|Bookshelf", S::Edge, 3, 5 },
+			{ "Lectern|Book stand", S::Centre, 1, 1 },
+			{ "Book stand", S::Edge, 0, 1, 4 },
+			{ "Crypt candles|Candles", S::Edge, 1, 2, 5 },
+			{ "Wall torch", S::Edge, 0, 1, 6 },
+			{ "Urn", S::Scatter, 0, 1 },
+		} },
+		{ "shrine", "Shrine alcove", InCathedral | InCatacombs | InCaves | InCrypt, {
+			{ "Shrine|Altar|Angel statue|Blood fountain", S::Centre, 1, 1 },
+			{ "Crypt candles|Candles|Skull fire", S::Ring, 2, 2, 3 },
+			{ "Wall banner|Banner", S::Edge, 1, 2, 3 },
+			{ "Statue", S::Edge, 0, 2, 4 },
+			{ "Wall torch", S::Edge, 1, 1, 6 },
+		} },
+		{ "chapel", "Chapel", InCathedral | InCatacombs | InCrypt, {
+			{ "Altar|Angel statue", S::Centre, 1, 1 },
+			{ "Crypt candles|Candles", S::Ring, 2, 2, 3 },
+			{ "Wall banner|Banner", S::Edge, 2, 2, 4 },
+			{ "Lectern|Book stand", S::Edge, 1, 1 },
+			{ "Statue", S::Edge, 0, 2, 4 },
+			{ "Wall torch", S::Edge, 1, 1, 6 },
+		} },
+		{ "crypt", "Crypt", InCathedral | InCatacombs | InCrypt, {
+			{ "Sarcophagus|Crucified skeleton", S::Centre, 1, 1 },
+			{ "Sarcophagus|Tomb|Skull pile", S::Edge, 1, 2, 3 },
+			{ "Urn|Skull pile", S::Edge, 1, 3 },
+			{ "Wall skeleton|Crucified skeleton", S::Edge, 1, 2, 3 },
+			{ "Bone pile|Headless body", S::Scatter, 0, 1 },
+			{ "Crypt candles|Candles", S::Edge, 1, 2, 4 },
+		} },
+		{ "torture", "Torture room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
+			{ "Torture rack|Blood fountain", S::Centre, 1, 1 },
+			{ "Impaled body", S::Edge, 2, 3, 3 },
+			{ "Chains|Shackles|Wall chains", S::Edge, 1, 2, 3 },
+			{ "Tortured body", S::Edge, 1, 2, 3 },
+			{ "Headless body", S::Scatter, 1, 2 },
+			{ "Skull pile", S::Scatter, 0, 1 },
+			{ "Wall torch|Skull fire", S::Edge, 1, 1, 6 },
+		} },
+		{ "prison", "Prison cells", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
+			{ "Chains|Shackles|Wall chains|Impaled body", S::Edge, 2, 3, 3 },
+			{ "Tortured body", S::Edge, 1, 2, 3 },
+			{ "Skull pile", S::Edge, 1, 1 },
+			{ "Headless body", S::Scatter, 1, 1 },
+			{ "Wall torch|Skull fire", S::Edge, 1, 1, 6 },
+		} },
+		{ "armoury", "Armoury", InCatacombs | InCaves | InHell | InCrypt, {
+			{ "Weapon rack", S::Edge, 2, 3, 3 },
+			{ "Armour stand", S::Edge, 2, 3, 3 },
+			{ "Wall banner|Banner", S::Edge, 0, 1 },
+			{ "Closed chest|Treasure chest", S::Centre, 0, 1 },
+			{ "Wall torch|Candles", S::Edge, 1, 2, 6 },
+		} },
+		{ "treasure", "Treasure room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
+			{ "Treasure chest|Gold pile|Angel statue|Blood fountain", S::Centre, 1, 1 },
+			{ "Open chest|Closed chest|Urn|Armour stand", S::Edge, 2, 3, 3 },
+			{ "Wall banner|Banner", S::Edge, 1, 2, 3 },
+			{ "Crypt candles|Candles", S::Ring, 2, 2, 3 },
+			{ "Wall torch", S::Edge, 1, 1, 6 },
+		} },
+		{ "altar", "Hell altar", InHell | InNest, {
+			{ "Altar|Hell altar|Blood fountain", S::Centre, 1, 1 },
+			{ "Skull fire", S::Ring, 2, 3, 3 },
+			{ "Crucified skeleton", S::Edge, 1, 2, 3 },
+			{ "Impaled body", S::Edge, 1, 2, 3 },
+			{ "Wall skeleton|Tortured body", S::Edge, 1, 2, 3 },
+			{ "Bone pile|Skull pile", S::Scatter, 1, 2 },
+		} },
+		{ "bones", "Bone room", InAll, {
+			{ "Bone pile|Skull pile", S::Centre, 1, 1 },
+			{ "Skull pile", S::Edge, 2, 3 },
+			{ "Wall skeleton|Crucified skeleton", S::Edge, 1, 2, 3 },
+			{ "Headless body", S::Scatter, 2, 3 },
+			{ "Impaled body", S::Edge, 0, 1 },
+			{ "Skull fire", S::Edge, 1, 1, 5 },
+		} },
+	};
+	// clang-format on
+}
+
 } // namespace
+
+const std::vector<RoomStamp> &RoomStamps()
+{
+	static const std::vector<RoomStamp> stamps = MakeRoomStamps();
+	return stamps;
+}
+
+const RoomStamp *RoomStampNamed(std::string_view name)
+{
+	for (const RoomStamp &stamp : RoomStamps()) {
+		if (stamp.name == name)
+			return &stamp;
+	}
+	return nullptr;
+}
+
+bool RoomStampSuits(const RoomStamp &stamp, MapTileset tileset)
+{
+	return (stamp.tilesets & TilesetBit(tileset)) != 0;
+}
+
+std::vector<const RoomStamp *> RoomStampsFor(MapTileset tileset)
+{
+	std::vector<const RoomStamp *> stamps;
+	for (const RoomStamp &stamp : RoomStamps()) {
+		if (RoomStampSuits(stamp, tileset))
+			stamps.push_back(&stamp);
+	}
+	return stamps;
+}
+
+const RoomStamp *RoomStampForTheme(DressTheme theme, MapTileset tileset)
+{
+	constexpr std::array<std::string_view, NumDressThemes> ByTheme { "bones", "library", "chapel", "armoury", "torture", "prison", "crypt", "altar" };
+	const RoomStamp *stamp = RoomStampNamed(ByTheme[static_cast<size_t>(theme)]);
+	return stamp != nullptr && RoomStampSuits(*stamp, tileset) ? stamp : nullptr;
+}
+
+std::optional<MapObjectKind> MapObjectKindNamed(std::string_view name)
+{
+	const auto same = [](std::string_view a, std::string_view b) {
+		return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y)); });
+	};
+	for (size_t i = 0; i < NumMapObjectKinds; i++) {
+		if (same(MapObjectName(static_cast<MapObjectKind>(i)), name))
+			return static_cast<MapObjectKind>(i);
+	}
+	return std::nullopt;
+}
+
+std::vector<Point> RoomCellsAt(const KeepMap &map, Point cell, int reach)
+{
+	std::vector<Point> cells;
+	if (cell.x < 0 || cell.y < 0 || cell.x >= DMAXX || cell.y >= DMAXY)
+		return cells;
+	static RoomGrid rooms;
+	std::vector<int> sizes;
+	MarkRoomsOf(map, rooms, sizes);
+	const int room = rooms[cell.x][cell.y];
+	if (room == 0)
+		return cells;
+	for (int x = std::max(cell.x - reach, 0); x <= std::min(cell.x + reach, DMAXX - 1); x++) {
+		for (int y = std::max(cell.y - reach, 0); y <= std::min(cell.y + reach, DMAXY - 1); y++) {
+			if (rooms[x][y] == room)
+				cells.push_back({ x, y });
+		}
+	}
+	return cells;
+}
+
+std::vector<Point> FloorCellsIn(const KeepMap &map, Point a, Point b)
+{
+	std::vector<Point> cells;
+	for (int x = std::max(std::min(a.x, b.x), 0); x <= std::min(std::max(a.x, b.x), DMAXX - 1); x++) {
+		for (int y = std::max(std::min(a.y, b.y), 0); y <= std::min(std::max(a.y, b.y), DMAXY - 1); y++) {
+			if (map.cell(x, y) == MapCell::Floor)
+				cells.push_back({ x, y });
+		}
+	}
+	return cells;
+}
+
+StampResult StampRoom(KeepMap &map, const RoomStamp &stamp, const std::vector<Point> &cells, const StampOptions &options)
+{
+	DressOptions dress;
+	dress.decorated = options.decorated;
+	Dresser dresser(map, dress);
+	if (!dresser.Prepare()) {
+		StampResult result;
+		for (std::string note : dresser.Notes()) {
+			if (const size_t at = note.find("nothing dressed"); at != std::string::npos)
+				note.replace(at, 15, "nothing stamped");
+			result.notes.push_back(std::move(note));
+		}
+		return result;
+	}
+	dresser.SetCaps(options.maxMapObjects, options.maxLevelObjects);
+	StampResult result = dresser.Stamp(stamp, cells, options.seed);
+	dresser.Finish();
+	return result;
+}
 
 std::string_view DressThemeName(DressTheme theme)
 {
