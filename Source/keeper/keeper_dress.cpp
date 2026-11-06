@@ -1302,6 +1302,7 @@ std::vector<RoomStamp> MakeRoomStamps()
 		} },
 		{ "crypt", "Crypt", InCathedral | InCatacombs | InCrypt, {
 			{ "crypt_sarcophagus|sarcophagus|crucified_skeleton", S::Centre, 1, 1 },
+			{ "crypt_candles|candles", S::Ring, 1, 2, 3 },
 			{ "crypt_sarcophagus|sarcophagus|skull_pile", S::Edge, 1, 2, 3 },
 			{ "urn|skull_pile", S::Edge, 1, 3 },
 			{ "crypt_book_stand|story_book", S::Edge, 0, 1, 4 },
@@ -1312,6 +1313,8 @@ std::vector<RoomStamp> MakeRoomStamps()
 		} },
 		{ "torture", "Torture room", InCathedral | InCatacombs | InCaves | InHell | InCrypt, {
 			{ "blood_fountain|hanging_body", S::Centre, 1, 1 },
+			// The dark eats a centrepiece with no light by it: a blood fountain reads as a black pool.
+			{ "skull_fire|candles", S::Ring, 1, 2, 3 },
 			{ "impaled_body", S::Edge, 2, 3, 3 },
 			{ "hanging_body|tortured_body", S::Edge, 1, 2, 3 },
 			{ "tortured_body", S::Edge, 1, 1, 3 },
