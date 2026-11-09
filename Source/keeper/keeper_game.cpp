@@ -1641,7 +1641,7 @@ void HostBuyUpgrade(uint8_t id, uint8_t tierSeenByBuyer)
 	BroadcastState();
 }
 
-void ApplyCast(Player &caster, size_t spell, Point tile)
+void ApplyCast(Player &caster, size_t spell, Point tile, bool turned)
 {
 	// The engine's spells only ever start where a player can stand: right by the map's edge, far outside any
 	// level, they read past its tables. A spell's own positions also travel as bytes, and would wrap there.
@@ -1670,9 +1670,10 @@ void ApplyCast(Player &caster, size_t spell, Point tile)
 	switch (kind.missile) {
 	case MissileID::FireWallControl:
 	case MissileID::LightningWallControl:
-		// A wall needs a direction: run it across the screen (north-east to south-west).
-		dir = Direction::SouthEast;
-		src = tile + Displacement(Direction::NorthWest);
+		// A wall needs a direction: it runs at right angles to it, north-east to south-west across the
+		// screen, or turned, north-west to south-east.
+		dir = turned ? Direction::SouthWest : Direction::SouthEast;
+		src = tile + Opposite(dir);
 		break;
 	case MissileID::FlameWaveControl:
 	case MissileID::InfernoControl:
@@ -1729,7 +1730,11 @@ void FireTrap(Trap &trap, Point victim)
 	const int damage = ScaleByHeroStrength(kind.baseDamage + kind.damagePerWave * State.wave) * (100 + TrapDamagePerLevel * (level - 1)) / 100;
 	switch (trap.kind) {
 	case 0:
-		AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 2);
+		// The wall isn't lit again while the last one burns: a hero waiting by the trap kept it alight for good.
+		// At spell level 0 it burns about nine seconds (the engine adds the level for a trap's fire), near the
+		// rearm time, where level 2 burnt for some 25 and the trap's walls overlapped.
+		if (!IsBurning(trap.position))
+			AddMissile(trap.position + Displacement(Direction::NorthWest), trap.position, Direction::SouthEast, MissileID::FireWallControl, TARGET_PLAYERS, -1, 0, 0);
 		AddMissile(trap.position, victim, dir, MissileID::Firebolt, TARGET_PLAYERS, -1, damage, 0);
 		break;
 	case 1:
@@ -2370,9 +2375,9 @@ void RequestPlaceBait(Point tile)
 	Send(Action::RequestBait, 0, 0, tile);
 }
 
-void RequestCastSpell(size_t spell, Point tile)
+void RequestCastSpell(size_t spell, Point tile, bool turned)
 {
-	Send(Action::Cast, static_cast<uint8_t>(spell), 0, tile);
+	Send(Action::Cast, static_cast<uint8_t>(spell), turned ? 1 : 0, tile);
 }
 
 void RequestRestart(const KeepSetup &next)
@@ -2652,7 +2657,7 @@ size_t HandleNetCommand(Player &player, const TCmd *cmd, size_t maxCmdSize)
 			ApplyBuilt(message.a, message.b, tile);
 		break;
 	case Action::Cast:
-		ApplyCast(player, message.a, tile);
+		ApplyCast(player, message.a, tile, message.b != 0);
 		break;
 	case Action::EarlyCallPaid:
 		NoteEarlyCallBonus(Swap16LE(message.w));

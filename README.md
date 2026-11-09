@@ -110,6 +110,7 @@ Most keys can be rebound under Settings > Keymapping.
 | O | The scout card: what the next raid brings |
 | U | Show or hide the heroes' expected route |
 | N | Game speed: 1x, 2x, 3x |
+| K | Turn Fire Wall and Shock Wall to run the other way |
 | M | Mark a spot for the other masters |
 | J | Single player: stop the preparation clock |
 | Click an alert | Jump the camera to what it is about |

@@ -438,18 +438,18 @@ Rectangle ReadyButtonRect()
 	return { { status.position.x, status.position.y + status.size.height - 24 }, { StatusWidth, 20 } };
 }
 
-/** The speed toggle, at the right of the phase line. */
+/** The speed toggle, at the right of the phase line, just left of the help button ("?" in the corner). */
 Rectangle SpeedButtonRect()
 {
 	const Rectangle status = StatusRect();
-	return { { status.position.x + status.size.width - 20, status.position.y + 3 }, { 20, 15 } };
+	return { { status.position.x + status.size.width - 42, status.position.y + 3 }, { 20, 15 } };
 }
 
 /** The phase line up to the speed toggle: clicking the clock holds it. */
 Rectangle PhaseLineRect()
 {
 	const Rectangle status = StatusRect();
-	return { { status.position.x, status.position.y + 3 }, { status.size.width - 22, 15 } };
+	return { { status.position.x, status.position.y + 3 }, { status.size.width - 44, 15 } };
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -1155,11 +1155,15 @@ std::optional<Point> StoneCurseTarget(Point tile)
 	return best;
 }
 
-/** Fire Wall runs north-east / south-west from the target until something blocks it. */
+/** The master's choice for wall spells (K): false runs them north-east / south-west, true the other way. */
+bool wallsTurned = false;
+
+/** Fire Wall runs north-east / south-west from the target (north-west / south-east turned) until something blocks it. */
 void DrawFireWallPreview(const Surface &out, Point tile)
 {
 	DrawTileDiamond(out, tile, PAL16_ORANGE + 2);
-	for (const Direction dir : { Direction::NorthEast, Direction::SouthWest }) {
+	const std::array<Direction, 2> ends = wallsTurned ? std::array { Direction::NorthWest, Direction::SouthEast } : std::array { Direction::NorthEast, Direction::SouthWest };
+	for (const Direction dir : ends) {
 		Point at = tile;
 		for (int step = 0; step < 6; step++) {
 			at += dir;
@@ -1761,7 +1765,7 @@ bool TryCastSpell(size_t index, Point tile)
 		SetFeedback("Not enough mana");
 		return false;
 	}
-	RequestCastSpell(index, tile);
+	RequestCastSpell(index, tile, wallsTurned);
 	AlertsNoteSpellCast();
 	return true;
 }
@@ -2141,6 +2145,10 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 		return;
 	case KeeperAction::CycleSpeed:
 		CycleGameSpeed();
+		return;
+	case KeeperAction::TurnWalls:
+		wallsTurned = !wallsTurned;
+		SetFeedback(wallsTurned ? "Walls now run north-west to south-east" : "Walls now run north-east to south-west");
 		return;
 	case KeeperAction::Ping:
 		if (IsMouseOverUi())
@@ -2590,8 +2598,8 @@ void DrawUi(const Surface &out)
 	std::string phaseLine = std::string(PhaseName(State.phase));
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		phaseLine += IsPrepTimerHeld() ? std::string("  held") : fmt::format("  {}", FormatTicks(State.phaseTicks));
-	// Clear of the help button at the column's end: the widest time, 4:00, needs the room.
-	if (const size_t gap = phaseLine.find("  "); gap != std::string::npos && GetLineWidth(phaseLine) > columnWidth - 24)
+	// Clear of the speed toggle and the help button at the column's end: the widest time, 4:00, needs the room.
+	if (const size_t gap = phaseLine.find("  "); gap != std::string::npos && GetLineWidth(phaseLine) > columnWidth - 46)
 		phaseLine.erase(gap, 1);
 	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
 	const Rectangle speedButton = SpeedButtonRect();

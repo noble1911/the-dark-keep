@@ -296,7 +296,8 @@ void RequestWaypoint(size_t lair, Point tile);
 void RequestBuild(size_t kind, Point tile);
 void RequestLockDoor(Point doorPosition);
 void RequestPlaceBait(Point tile);
-void RequestCastSpell(size_t spell, Point tile);
+/** `turned`: a wall spell runs north-west / south-east instead of north-east / south-west. */
+void RequestCastSpell(size_t spell, Point tile, bool turned = false);
 /** Single player: opens the gates. Co-op: says this master is ready; the raid comes when all are, or the host insists. */
 void RequestStartRaid();
 /** The ready vote, for the HUD and the masters list. */

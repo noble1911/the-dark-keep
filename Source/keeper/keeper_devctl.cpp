@@ -886,8 +886,19 @@ void Execute(const std::string &line)
 		else
 			RequestBuild(static_cast<size_t>(a), { b, c });
 	} else if (command == "cast") {
+		// cast <spell> <x> <y> [1: a wall turned, as K does]
 		in >> a >> b >> c;
-		RequestCastSpell(static_cast<size_t>(a), { b, c });
+		int turned = 0;
+		in >> turned;
+		RequestCastSpell(static_cast<size_t>(a), { b, c }, turned != 0);
+	} else if (command == "fires") {
+		// The tiles burning with a wall of fire or lightning now.
+		std::string fires = "fires";
+		for (const Missile &missile : Missiles) {
+			if (!missile._miDelFlag && (missile._mitype == MissileID::FireWall || missile._mitype == MissileID::LightningWall))
+				fires += fmt::format(" {},{}", missile.position.tile.x, missile.position.tile.y);
+		}
+		Output(fires);
 	} else if (command == "casthero") {
 		// At the living hero nearest the entrance.
 		in >> a;

@@ -55,7 +55,8 @@ struct InputToken {
 	KeeperAction action;
 	size_t index;
 };
-constexpr std::array<InputToken, 19> InputTokens { {
+constexpr std::array<InputToken, 20> InputTokens { {
+	{ "walls", KeeperAction::TurnWalls, 0 },
 	{ "speed", KeeperAction::CycleSpeed, 0 },
 	{ "ping", KeeperAction::Ping, 0 },
 	{ "hold", KeeperAction::HoldTimer, 0 },
@@ -168,7 +169,7 @@ constexpr std::array<HelpRow, 21> HelpKeys { {
 	{ {}, "Shift + right", "Add a patrol point" },
 	{ {}, "{tab}", "Next card tab" },
 	{ {}, "{card1} - {card9}", "Pick a card on the current tab" },
-	{ {}, "{spell1} {spell2} {spell3} {spell4} {spell5} {spell6}", "Cast a spell at the cursor" },
+	{ {}, "{spell1} {spell2} {spell3} {spell4} {spell5} {spell6}", "Cast a spell at the cursor ({walls}: turn the walls)" },
 	{ {}, "{lock} / {bait}", "Pick a door lock / fool's gold" },
 	{ {}, "{sell}", "Sell what is selected" },
 	{ {}, "{possess}", "Possess or release a monster" },
