@@ -96,6 +96,7 @@ struct BotState {
 	bool huntingLord = false;
 	/** HeroClock time until which it keeps clear of every floor hazard. */
 	uint32_t hazardWaryUntil = 0;
+	FirePatience firePatience;
 };
 
 constexpr uint8_t SaidDash = 1;
@@ -290,12 +291,13 @@ Direction WalkDirection(int8_t step)
  * Heroes aren't stupid: stop before walking into a wall of fire (unless already in one). Lightning takes them
  * by surprise, once: having just been caught in a hazard, a bot keeps clear of them all and doesn't pace back in.
  */
-void AvoidFire(Player &bot, const BotState &state)
+void AvoidFire(Player &bot, BotState &state)
 {
 	const auto avoided = state.hazardWaryUntil > HeroClock() ? IsHazardous : IsBurning;
 	if (bot.walkpath[0] == WALK_NONE || avoided(bot.position.future))
 		return;
-	if (avoided(bot.position.future + WalkDirection(bot.walkpath[0]))) {
+	// Not for ever, though: kept from its way long enough, it goes through (FirePatienceTicks).
+	if (avoided(bot.position.future + WalkDirection(bot.walkpath[0])) && !LoseFirePatience(state.firePatience)) {
 		ClrPlrPath(bot);
 		bot.destAction = ACTION_NONE;
 	}
@@ -304,7 +306,7 @@ void AvoidFire(Player &bot, const BotState &state)
 /** Standing in fire, lightning or any other floor hazard: walk to the nearest tile that is clear. */
 bool StepOutOfHazard(Player &bot, BotState &state)
 {
-	if (!IsHazardous(bot.position.tile))
+	if (!IsHazardous(bot.position.tile) || IsBravingFire(state.firePatience))
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		const Point tile = bot.position.tile + dir;

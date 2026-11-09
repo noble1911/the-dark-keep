@@ -136,6 +136,27 @@ constexpr int KiteCooldownTicks = 40;
 constexpr int MonkHealCooldownTicks = 100;
 /** Ticks a hero who has just been caught in a floor hazard keeps clear of all of them, not only the fire it can see coming. */
 constexpr int HazardWaryTicks = 100;
+
+/**
+ * A hero won't walk into fire, but it won't wait at it for ever either: a doorway a trap keeps burning
+ * would hold a raid there for good. Kept from its way by fire this long, it goes through and takes the burn.
+ */
+constexpr int FirePatienceTicks = 60;
+/** Once it has made up its mind: how long it keeps walking through fire before it is wary of it again. */
+constexpr int BraveFireTicks = 40;
+/** A wait broken off this long (it found another way, or stood still for something else) starts again. */
+constexpr int FireWaitGapTicks = 30;
+
+/** How long a hero has been kept from its way by fire, in HeroClock times. */
+struct FirePatience {
+	uint32_t waitingSince = 0;
+	uint32_t lastKept = 0;
+	uint32_t braveUntil = 0;
+};
+/** Fire stands in the hero's way again. @return true once its patience is gone: it walks on through. */
+bool LoseFirePatience(FirePatience &patience);
+/** Walking through fire on purpose just now: it doesn't step back out of it. */
+bool IsBravingFire(const FirePatience &patience);
 /** What a hero said, for its voice (keeper_sound.hpp). */
 enum class HeroLine : uint8_t;
 /** One short line in the event log, if nobody spoke a moment ago, and the class voice that fits it. @return true if it was said. */

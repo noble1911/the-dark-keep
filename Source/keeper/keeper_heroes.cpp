@@ -217,6 +217,7 @@ struct HeroState {
 	uint32_t kiteReady = 0;
 	uint32_t healReady = 0;
 	uint32_t hazardWaryUntil = 0;
+	FirePatience firePatience;
 	/** Lines this hero has already said, a bit each: nobody repeats itself. */
 	uint8_t said = 0;
 	HeroProgress progress;
@@ -527,9 +528,12 @@ bool IsAliveMonster(const Monster &monster)
 bool IsSafeStep(const Monster &monster, Direction dir)
 {
 	const size_t id = monster.getId();
-	if (id < MaxMonsters && Heroes[id].active && Heroes[id].hazardWaryUntil > heroClock)
-		return !IsHazardous(monster.position.tile + dir) || IsHazardous(monster.position.tile);
-	return !IsBurning(monster.position.tile + dir) || IsBurning(monster.position.tile);
+	const bool hero = id < MaxMonsters && Heroes[id].active;
+	const auto avoided = hero && Heroes[id].hazardWaryUntil > heroClock ? IsHazardous : IsBurning;
+	if (!avoided(monster.position.tile + dir) || avoided(monster.position.tile))
+		return true;
+	// Not for ever, though: kept from its way long enough, it goes through.
+	return hero && LoseFirePatience(Heroes[id].firePatience);
 }
 
 /** Heroes of a fast raid skip part of each step. Every client does it, and it only depends on the raid. */
@@ -558,7 +562,7 @@ bool StepTowards(Monster &monster, Direction dir)
 /** Standing in fire, lightning or any other floor hazard: step out to the nearest tile that is clear. */
 bool StepOutOfHazard(Monster &monster)
 {
-	if (!IsHazardous(monster.position.tile))
+	if (!IsHazardous(monster.position.tile) || IsBravingFire(Heroes[monster.getId()].firePatience))
 		return false;
 	for (const Direction dir : { Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest, Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast }) {
 		if (!IsHazardous(monster.position.tile + dir) && DirOK(monster, dir)) {
@@ -1176,6 +1180,15 @@ void UpdateEnemy(Monster &monster)
 	const auto isBetter = [](bool seen, int distance, bool bestSeen, int bestDistance) {
 		return (seen && !bestSeen) || (seen == bestSeen && distance < bestDistance);
 	};
+	// Out of sight, a target near the post counts only if the monster can walk to it. The engine plans a
+	// monster's path at most MaxPathLengthMonsters steps; past that it walks straight at the target and
+	// presses against the wall between them, tracking a hero through solid rock.
+	const bool opensDoors = (monster.flags & MFLAG_CAN_OPEN_DOOR) != 0;
+	const auto canReach = [&](Point tile) {
+		int8_t path[MaxPathLengthMonsters];
+		const auto walkable = [opensDoors](Point step) { return InDungeonBounds(step) && IsTileWalkable(step, opensDoors); };
+		return FindPath(CanStep, walkable, position, tile, path, MaxPathLengthMonsters) > 0;
+	};
 
 	int best = -1;
 	int bestDistance = 0;
@@ -1200,6 +1213,8 @@ void UpdateEnemy(Monster &monster)
 		if ((hero || !nearPost) && !seen)
 			continue;
 		if (best == -1 || isBetter(seen, distance, bestSeen, bestDistance)) {
+			if (!seen && !canReach(tile))
+				continue; // only looked for when it would win: a path is dear
 			best = static_cast<int>(otherId);
 			bestDistance = distance;
 			bestSeen = seen;
@@ -1223,6 +1238,8 @@ void UpdateEnemy(Monster &monster)
 			if (!nearPost && !seen)
 				continue;
 			if (bestBot == -1 || isBetter(seen, distance, bestBotSeen, bestBotDistance)) {
+				if (!seen && !canReach(tile))
+					continue;
 				bestBot = static_cast<int>(FirstBotId + i);
 				bestBotDistance = distance;
 				bestBotSeen = seen;
@@ -1712,6 +1729,25 @@ bool IsThiefDashing(HeroClassKind cls, int carried, bool fleeing, Point tile)
 uint32_t HeroClock()
 {
 	return heroClock;
+}
+
+bool LoseFirePatience(FirePatience &patience)
+{
+	if (IsBravingFire(patience))
+		return true;
+	if (patience.lastKept == 0 || heroClock - patience.lastKept > FireWaitGapTicks)
+		patience.waitingSince = heroClock;
+	patience.lastKept = heroClock;
+	if (heroClock - patience.waitingSince < FirePatienceTicks)
+		return false;
+	patience.braveUntil = heroClock + BraveFireTicks;
+	patience.lastKept = 0; // past the fire, a new one is waited at afresh
+	return true;
+}
+
+bool IsBravingFire(const FirePatience &patience)
+{
+	return patience.braveUntil > heroClock;
 }
 
 void TickHeroClock()
