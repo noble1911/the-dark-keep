@@ -12,6 +12,7 @@
 
 #include <fmt/format.h>
 
+#include "cursor.h"
 #include "engine/displacement.hpp"
 #include "engine/world_tile.hpp"
 #include "keeper/keeper.hpp"
@@ -24,6 +25,7 @@
 #include "objects.h"
 #include "player.h"
 #include "utils/is_of.hpp"
+#include "vision.hpp"
 
 namespace devilution::keeper {
 
@@ -338,6 +340,40 @@ std::string DevLightingReport()
 	const Ambient ambient = TilesetAmbient();
 	return fmt::format("lighting ambient={} target={} tileset={}/{} heroLights={} heroesInDark={} activeLights={}/{}",
 	    currentAmbient, TargetAmbient(), ambient.prep, ambient.raid, heroLightCount, heroesInDark, ActiveLightCount, MAXLIGHTS);
+}
+
+namespace {
+
+/** Rooms (dTransVal) the cursor sees into this frame, as a hero standing there would. */
+std::array<bool, 256> cursorSeeThrough {};
+
+/** As far as a hero sees (the engine's default player light radius), so the cursor cuts walls like one. */
+constexpr uint8_t CursorSightRadius = 10;
+
+} // namespace
+
+void UpdateCursorSeeThrough()
+{
+	cursorSeeThrough = {};
+	if ((!IsActive() && !IsEditorActive()) || leveltype == DTYPE_TOWN || !InDungeonBounds(cursPosition))
+		return;
+	// The engine's own vision cast, marking rooms only: nothing becomes visible or explored.
+	DoVision(
+	    cursPosition, CursorSightRadius,
+	    [](Point) {},
+	    [](Point rayPoint) {
+		    const int8_t trans = dTransVal[rayPoint.x][rayPoint.y];
+		    if (trans != 0)
+			    cursorSeeThrough[static_cast<uint8_t>(trans)] = true;
+	    },
+	    [](Point rayPoint) { return InDungeonBounds(rayPoint) && !TileHasAny(rayPoint, TileProperties::BlockLight); },
+	    [](Point rayPoint) { return InDungeonBounds(rayPoint); });
+}
+
+bool IsRoomSeeThrough(int8_t trans)
+{
+	const auto index = static_cast<uint8_t>(trans);
+	return TransList[index] || cursorSeeThrough[index];
 }
 
 } // namespace devilution::keeper

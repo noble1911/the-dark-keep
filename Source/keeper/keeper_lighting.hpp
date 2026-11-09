@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "engine/point.hpp"
@@ -36,6 +37,15 @@ void LightingTick();
  * engine draws other players (5 steps brighter), so the master's army doesn't vanish into its own dark.
  */
 int MonsterLightIndex(int lightTableIndex);
+
+/**
+ * Each frame before drawing the keep: the rooms seen from the cursor's tile, cast as a hero's sight is.
+ * Their walls are drawn see-through just as walls in a hero's sight are, so the master can look past a
+ * wall at what the cursor is on. Drawing only: no tile becomes visible or explored.
+ */
+void UpdateCursorSeeThrough();
+/** Whether a room's walls (dTransVal) are drawn see-through: a hero or the cursor sees into it. */
+bool IsRoomSeeThrough(int8_t trans);
 
 /** Dev/test: overrides the ambient (prep and raid; -1 = the tileset's own). */
 void DevSetAmbient(int prep, int raid);

@@ -88,8 +88,8 @@
 #include "keeper/keeper_tutorial.hpp" // [DARK KEEP]
 #ifdef KEEPER_DEVCTL
 #include "keeper/keeper_devctl.hpp" // [DARK KEEP]
-#include "keeper/keeper_lighting.hpp" // [DARK KEEP]
 #endif
+#include "keeper/keeper_lighting.hpp" // [DARK KEEP]
 #include "keeper/keeper_units.hpp" // [DARK KEEP]
 #ifdef DUN_RENDER_STATS
 #include "utils/format_int.hpp"
@@ -582,7 +582,7 @@ void DrawCell(const Surface &out, const Lightmap lightmap, Point tilePosition, P
 	}
 #endif
 
-	bool transparency = TileHasAny(tilePosition, TileProperties::Transparent) && TransList[dTransVal[tilePosition.x][tilePosition.y]];
+	bool transparency = TileHasAny(tilePosition, TileProperties::Transparent) && keeper::IsRoomSeeThrough(dTransVal[tilePosition.x][tilePosition.y]); // [DARK KEEP] the cursor sees through walls too
 #ifdef _DEBUG
 	if ((SDL_GetModState() & SDL_KMOD_ALT) != 0) {
 		transparency = false;
@@ -947,7 +947,7 @@ void DrawDungeon(const Surface &out, const Lightmap &lightmap, Point tilePositio
 		const bool perPixelLighting = *GetOptions().Graphics.perPixelLighting;
 		const int8_t bArch = dSpecial[tilePosition.x][tilePosition.y] - 1;
 		if (bArch >= 0) {
-			bool transparency = TransList[bMap];
+			bool transparency = keeper::IsRoomSeeThrough(bMap); // [DARK KEEP] the cursor sees through walls too
 #ifdef _DEBUG
 			// Turn transparency off here for debugging
 			transparency = transparency && (SDL_GetModState() & SDL_KMOD_ALT) == 0;
@@ -1308,6 +1308,7 @@ void DrawGame(const Surface &fullOut, Point position, Displacement offset)
 	}
 
 	keeper::GrowViewRange(rows, columns); // [DARK KEEP] free camera margin
+	keeper::UpdateCursorSeeThrough(); // [DARK KEEP] walls part where the cursor looks, as for a hero
 
 #ifdef DUN_RENDER_STATS
 	DunRenderStats.clear();
