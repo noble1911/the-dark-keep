@@ -1,13 +1,13 @@
-# Nintendo Switch Port of DevilutionX (Diablo)
+# The Dark Keep for Nintendo Switch (built on DevilutionX)
 
 # How To Install:
- - Put `devilutionx.nro` into `/switch/devilutionx`
- - Copy diabdat.mpq from your CD (or GoG install folder) to `/switch/devilutionx`.
+ - Put `the-dark-keep.nro` and the `mods` folder into `/switch/the-dark-keep`
+ - Copy diabdat.mpq from your CD (or GoG install folder) to `/switch/the-dark-keep`.
  - To run the Diablo: Hellfire expansion you will need to also copy hellfire.mpq, hfmonk.mpq, hfmusic.mpq, hfvoice.mpq.
  - For Chinese, Japanese, and Korean text support download https://github.com/diasurgical/devilutionx-assets/releases/latest/download/fonts.mpq and add it to the game folder.
  - For the Polish voice pack download https://github.com/diasurgical/devilutionx-assets/releases/latest/download/pl.mpq.
  - For the Russian voice pack download https://github.com/diasurgical/devilutionx-assets/releases/latest/download/ru.mpq.
- - Launch `devilutionx.nro`. (Do not use album to launch; see the note below.)
+ - Launch `the-dark-keep.nro`. (Do not use album to launch; see the note below.)
  - *Note:* Hold R on any installed game and launch it. Do not use album to launch. If you use album, the homebrew will only have a small amount memory available, and the touch keyboard won't work. This is true for all homebrew, not just DevilutionX.
 
 # The Dark Keep: controls in the keep
@@ -16,7 +16,9 @@
 - L / R: previous / next tab of cards.
 - A: select, place, or cast at the cursor (hold and aim to box-select). B: cancel, deselect.
 - X: rally the selected monsters. ZL+X: add a patrol waypoint. ZL+B: sell what is selected.
-- Y: possess the monster at the cursor, or release it.
+- Y: possess the monster at the cursor, or release it. ZL+Y: scout card.
+- ZL+Minus: change game speed. ZL+L: help. ZL+R: hold the timer.
+- ZL+Left stick click: route preview. ZL+Right stick click: ping.
 - ZR with X, Y, B, A, L or R: cast the spell in that slot at the cursor.
 - Minus: open the gates. Plus: game menu. Left stick click: zoom. Right stick click: jump between the entrance and the vault.
 - Keeper screen: D-pad or stick to move, A: buy, X: spell bar, Y: respec, L / R: tabs, B: done.

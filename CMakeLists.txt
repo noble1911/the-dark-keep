@@ -502,9 +502,9 @@ endif()
 
 if(NINTENDO_SWITCH)
   nx_generate_nacp (${BIN_TARGET}.nacp
-    NAME    "DevilutionX"
-    AUTHOR  "Devilution Team"
-    VERSION "${PROJECT_VERSION}"
+    NAME    "The Dark Keep"
+    AUTHOR  "noble1911, built on DevilutionX"
+    VERSION "${KEEPER_VERSION}"
   )
 
   file(MAKE_DIRECTORY "${DEVILUTIONX_ASSETS_OUTPUT_DIRECTORY}")
