@@ -388,6 +388,31 @@ std::string_view FamilyName(KindFamily family)
 	return FamilyNames[static_cast<size_t>(family)];
 }
 
+DungeonGroup GroupOfFamily(KindFamily family)
+{
+	// Dungeon levels 1-4 are the Cathedral, then four each of the Catacombs, Caves and Hell; Hellfire adds the Hive (17-20) and Crypt (21-24).
+	int lowest = 99;
+	for (const RosterEntry &entry : Roster) {
+		if (entry.family == family && static_cast<size_t>(entry.type) < MonstersData.size() && !MonstersData[entry.type].name.empty())
+			lowest = std::min<int>(lowest, MonstersData[entry.type].minDunLvl);
+	}
+	if (lowest <= 4)
+		return DungeonGroup::Cathedral;
+	if (lowest <= 8)
+		return DungeonGroup::Catacombs;
+	if (lowest <= 12)
+		return DungeonGroup::Caves;
+	if (lowest <= 16)
+		return DungeonGroup::Hell;
+	return lowest <= 20 ? DungeonGroup::Hive : DungeonGroup::Crypt;
+}
+
+std::string_view GroupName(DungeonGroup group)
+{
+	constexpr std::array<std::string_view, NumDungeonGroups> names { "Cathedral", "Catacombs", "Caves", "Hell", "Hive", "Crypt" };
+	return names[static_cast<size_t>(group)];
+}
+
 int UnlockRankOf(size_t kind)
 {
 	if (kind >= NumLairKinds)

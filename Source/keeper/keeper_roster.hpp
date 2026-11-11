@@ -69,6 +69,17 @@ enum class KindFamily : uint8_t {
 };
 constexpr size_t NumKindFamilies = static_cast<size_t>(KindFamily::Reapers) + 1;
 
+/** Where a family is first met, from its monsters' dungeon levels: the Keeper screen groups its list by it. */
+enum class DungeonGroup : uint8_t {
+	Cathedral,
+	Catacombs,
+	Caves,
+	Hell,
+	Hive,
+	Crypt,
+};
+constexpr size_t NumDungeonGroups = static_cast<size_t>(DungeonGroup::Crypt) + 1;
+
 /** Fills in the prices from the loaded monster data (called right after monstdat.tsv is loaded). */
 void InitRoster();
 
@@ -76,6 +87,9 @@ void InitRoster();
 std::string_view KindFlavor(size_t kind);
 KindFamily FamilyOfKind(size_t kind);
 std::string_view FamilyName(KindFamily family);
+/** The dungeon a family first spawns in: its lowest tier's lowest dungeon level in the monster data. */
+DungeonGroup GroupOfFamily(KindFamily family);
+std::string_view GroupName(DungeonGroup group);
 int UnlockRankOf(size_t kind);
 /** False for kinds this game's data can't provide (Hellfire monsters without Hellfire, the shareware game). */
 bool IsKindOnRoster(size_t kind);
