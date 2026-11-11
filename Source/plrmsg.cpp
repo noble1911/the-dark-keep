@@ -21,6 +21,7 @@
 #include "engine/render/primitive_render.hpp"
 #include "engine/render/text_render.hpp"
 #include "inv.h"
+#include "keeper/keeper.hpp" // [DARK KEEP]
 #include "keeper/keeper_devctl.hpp" // [DARK KEEP]
 #include "qol/chatlog.h"
 #include "qol/stash.h"
@@ -107,7 +108,7 @@ void DrawPlrMsg(const Surface &out)
 		return;
 
 	int x = 10;
-	int y = GetMainPanel().position.y - 13;
+	int y = (keeper::IsActive() ? keeper::ViewBottom() : GetMainPanel().position.y) - 13; // [DARK KEEP] the keep's strip is lower than the hero's panel
 	int width = gnScreenWidth - 20;
 
 	if (!ChatFlag && IsLeftPanelOpen()) {
