@@ -35,6 +35,9 @@ These are the rules every UI change is checked against. Every agent working on t
 ## Plan
 
 ### Step 1: Slim strip
+**Done** on branch `ui/strip`. The strip is 72 UI pixels (10% at 720p, 1440p and TV scale, 6.7% at 1080p), in separate panels.
+Not done: the map editor keeps its own 128-pixel bar, and the view is still centred for the old panel height.
+
 Halve the bar from 144 to 72 UI pixels and make it a set of panels instead of a band.
 
 - Cards shrink from 62x84 to about 46x56: portrait, key and price. The name moves to the hover text.
