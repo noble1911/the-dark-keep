@@ -99,6 +99,8 @@ bool IsViewZoomed();
 int UiPixelScale();
 Point UiMousePosition();
 int UiBarHeight();
+/** The screen row where the strip along the bottom starts (in the editor, its bar). */
+int ViewBottom();
 
 /** @brief Dev/test (--keeper-devctl): points the camera at a tile. */
 void DevCenterCamera(Point tile);

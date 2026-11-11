@@ -273,7 +273,7 @@ void ResetUnits()
 void DrawUnitBars(const Surface &out)
 {
 	const int zoom = *GetOptions().Graphics.zoom ? 2 : 1;
-	const int maxY = GetMainPanel().position.y;
+	const int maxY = out.h(); // the strip's panels are drawn over them, and the keep shows between the panels
 	const BarColors &colors = GetBarColors();
 	for (const DrawnUnit &unit : drawnUnits) {
 		int hp = 0;

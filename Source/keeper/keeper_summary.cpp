@@ -47,7 +47,7 @@ constexpr int UnlockImageHeight = 56;
 constexpr int UnlockGap = 6;
 constexpr size_t MaxAdviceLines = 3;
 /** Roughly the height of the command bar: the panel centres itself above it if there is room. */
-constexpr int HudBarAllowance = 128;
+constexpr int HudBarAllowance = 72;
 
 /** Worked out once: the panel is drawn every frame, and these look through the whole roster. */
 struct Report {
