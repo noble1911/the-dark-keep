@@ -76,7 +76,7 @@ constexpr int MonsterTitleHeight = 13;
 constexpr int MonsterRowGap = 2;
 constexpr int MonsterColumnGap = 8;
 /** Room for a family's name and count above a one-card block. */
-constexpr int MonsterTitleMinWidth = 84;
+constexpr int MonsterTitleMinWidth = 108;
 constexpr int GroupHeadingHeight = 15;
 constexpr int ChipHeight = 20;
 constexpr int ChipGap = 3;
@@ -474,10 +474,13 @@ int LayoutBar(int width, std::vector<Chip> &chips)
 	for (const FamilyRow *row : VisibleFamilies())
 		present[static_cast<size_t>(row->group)] = true;
 
+	// A narrow list gets shorter labels, so the bar takes fewer lines.
+	const bool narrow = width < 400;
+	constexpr std::array<std::string_view, NumDungeonGroups> shortGroups { "Cath", "Cata", "Caves", "Hell", "Hive", "Crypt" };
 	int x = 0;
 	int y = 0;
 	const auto add = [&](std::string label, bool isFilter, size_t index) {
-		const int w = GetLineWidth(label) + 12;
+		const int w = GetLineWidth(label) + (narrow ? 8 : 12);
 		if (x > 0 && x + w > width) {
 			x = 0;
 			y += ChipHeight + ChipGap;
@@ -486,11 +489,11 @@ int LayoutBar(int width, std::vector<Chip> &chips)
 		x += w + ChipGap;
 	};
 	for (size_t i = 0; i < FilterNames.size(); i++)
-		add(std::string(FilterNames[i]), true, i);
+		add(narrow && i == static_cast<size_t>(Filter::Afford) ? "Afford" : std::string(FilterNames[i]), true, i);
 	x += 8;
 	for (size_t i = 0; i < NumDungeonGroups; i++) {
 		if (present[i])
-			add(std::string(GroupName(static_cast<DungeonGroup>(i))), false, i);
+			add(std::string(narrow ? shortGroups[i] : GroupName(static_cast<DungeonGroup>(i))), false, i);
 	}
 	return y + ChipHeight;
 }
@@ -629,9 +632,11 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		if (!onShow)
 			continue;
 		const int owned = static_cast<int>(std::count_if(row.kinds.begin(), row.kinds.end(), OwnsKind));
-		DrawString(clip, Fit(FamilyName(static_cast<KindFamily>(row.family)), block.width - 30), { { 2 + block.x, top }, { block.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		DrawString(clip, fmt::format("{}/{}", owned, row.kinds.size()), { { 2 + block.x, top }, { block.width - 2, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (owned > 0 ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark) });
+		DrawString(clip, Fit(FamilyName(static_cast<KindFamily>(row.family)), row.kinds.size() > 1 ? block.width - 30 : block.width - 2), { { 2 + block.x, top }, { block.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+		if (row.kinds.size() > 1) {
+			DrawString(clip, fmt::format("{}/{}", owned, row.kinds.size()), { { 2 + block.x, top }, { block.width - 2, 14 } },
+			    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (owned > 0 ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark) });
+		}
 		for (size_t t = 0; t < row.kinds.size(); t++) {
 			const size_t kind = row.kinds[t];
 			const int x = 2 + block.x + static_cast<int>(t % perLine) * (cardWidth + MonsterArrowWidth);

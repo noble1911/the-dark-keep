@@ -60,6 +60,8 @@ Independent of steps 1 and 2. It only touches `Source/keeper/keeper_hall.cpp`.
 - Jump buttons by dungeon group down the side instead of a long scroll.
 - The empty details panel shows the whole family ladder with costs.
 
+**Done 11 November 2026** (`ui/hall`): families flow across the list (two across at 1280, three from about 1500 UI pixels wide), grouped by dungeon with jump buttons, a filter row (All, Owned, Can afford, Locked), and the family ladder in the details panel. About 14 families show at 1280x720, 19 at 3440x1440 and 30 at 1920x1080.
+
 ### Step 4: Scale and menus
 Small and independent.
 
