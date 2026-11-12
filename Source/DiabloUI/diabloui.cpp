@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -45,6 +46,7 @@
 #include "engine/render/text_render.hpp"
 #include "engine/sound.h"
 #include "engine/surface.hpp"
+#include "keeper/keeper_pad.hpp" // [DARK KEEP]
 #include "engine/ticks.hpp"
 #include "headless_mode.hpp"
 #include "hwcursor.hpp"
@@ -402,6 +404,108 @@ bool HandleMenuAction(MenuAction menuAction)
 	}
 }
 
+/** [DARK KEEP] The canvas the menus draw on when they are scaled up, see UiApplyScale(). */
+std::optional<OwnedSurface> FrontEndCanvas;
+
+/** Blows the canvas up onto the screen by a whole factor. What is left over at the right and bottom stays black. */
+void BlowUpFrontEndCanvas()
+{
+	if (!FrontEndCanvas || PalSurface == nullptr)
+		return;
+	const int scale = GetFrontEndUiScale();
+	const Surface &canvas = *FrontEndCanvas;
+	const int width = std::min(canvas.w() * scale, static_cast<int>(PalSurface->w));
+	const int height = PalSurface->h;
+	for (int y = 0; y < height; y++) {
+		uint8_t *dst = static_cast<uint8_t *>(PalSurface->pixels) + static_cast<size_t>(y) * PalSurface->pitch;
+		if (y / scale >= canvas.h()) {
+			std::memset(dst, 0, PalSurface->w);
+			continue;
+		}
+		if (y % scale != 0) {
+			// The row above is the same one.
+			std::memcpy(dst, dst - PalSurface->pitch, PalSurface->w);
+			continue;
+		}
+		const uint8_t *src = canvas.at(0, y / scale);
+		for (int x = 0; x < width; x++)
+			dst[x] = src[x / scale];
+		if (width < PalSurface->w)
+			std::memset(dst + width, 0, PalSurface->w - width);
+	}
+}
+
+/** Puts what the menus drew on the screen. */
+void BlitFrontEnd()
+{
+	BlowUpFrontEndCanvas();
+	if (PalSurface != nullptr)
+		BltFast(nullptr, nullptr);
+}
+
+/** Mouse events come in screen pixels; the menus' items are in canvas pixels. */
+void MapEventToFrontEndCanvas(SDL_Event &event)
+{
+	const int scale = GetFrontEndUiScale();
+	if (scale <= 1)
+		return;
+	switch (event.type) {
+	case SDL_EVENT_MOUSE_MOTION:
+		event.motion.x /= scale;
+		event.motion.y /= scale;
+		break;
+	case SDL_EVENT_MOUSE_BUTTON_DOWN:
+	case SDL_EVENT_MOUSE_BUTTON_UP:
+		event.button.x /= scale;
+		event.button.y /= scale;
+		break;
+	default:
+		break;
+	}
+}
+} // namespace
+
+SDL_Surface *DiabloUiSurface()
+{
+	return FrontEndCanvas ? FrontEndCanvas->surface : PalSurface;
+}
+
+int UiScreenWidth()
+{
+	return gnScreenWidth / GetFrontEndUiScale();
+}
+
+int UiScreenHeight()
+{
+	return gnScreenHeight / GetFrontEndUiScale();
+}
+
+void UiApplyScale()
+{
+	const int scale = (gnScreenWidth == 0 || HeadlessMode) ? 1 : keeper::KeeperUiScale();
+	FrontEndCanvas = std::nullopt;
+	SetFrontEndUiScale(scale);
+	if (scale > 1)
+		FrontEndCanvas.emplace(gnScreenWidth / scale, gnScreenHeight / scale);
+}
+
+UiScaleSuspend::UiScaleSuspend()
+    : saved(GetFrontEndUiScale())
+{
+	FrontEndCanvas = std::nullopt;
+	SetFrontEndUiScale(1);
+}
+
+UiScaleSuspend::~UiScaleSuspend()
+{
+	if (saved <= 1)
+		return;
+	SetFrontEndUiScale(saved);
+	FrontEndCanvas.emplace(gnScreenWidth / saved, gnScreenHeight / saved);
+}
+
+namespace {
+
 void UiOnBackgroundChange()
 {
 	StartUiFadeIn();
@@ -416,7 +520,9 @@ void UiOnBackgroundChange()
 	//
 	// Black out the screen immediately to make it appear more smooth.
 	SDL_FillSurfaceRect(DiabloUiSurface(), nullptr, 0);
-	if (DiabloUiSurface() == PalSurface)
+	if (DiabloUiSurface() != PalSurface && PalSurface != nullptr)
+		SDL_FillSurfaceRect(PalSurface, nullptr, 0);
+	if (PalSurface != nullptr)
 		BltFast(nullptr, nullptr);
 	RenderPresent();
 }
@@ -677,6 +783,7 @@ void UnloadUiGFX()
 void UiInitialize()
 {
 	LoadUiGFX();
+	UiApplyScale(); // [DARK KEEP]
 
 	if (ArtCursor) {
 		if (!SDLC_HideCursor()) ErrSdl();
@@ -685,6 +792,8 @@ void UiInitialize()
 
 void UiDestroy()
 {
+	FrontEndCanvas = std::nullopt; // [DARK KEEP]
+	SetFrontEndUiScale(1);
 	UnloadFonts();
 	UnloadUiGFX();
 }
@@ -734,7 +843,7 @@ bool UiValidPlayerName(std::string_view name)
 Sint16 GetCenterOffset(Sint16 w, Sint16 bw)
 {
 	if (bw == 0) {
-		bw = gnScreenWidth;
+		bw = UiScreenWidth();
 	}
 
 	return (bw - w) / 2;
@@ -801,9 +910,7 @@ void UiFadeIn()
 {
 	if (HeadlessMode) return;
 	UiUpdateFadePalette();
-	if (DiabloUiSurface() == PalSurface) {
-		BltFast(nullptr, nullptr);
-	}
+	BlitFrontEnd();
 	RenderPresent();
 }
 
@@ -837,7 +944,7 @@ void DrawSelector(const SDL_Rect &rect)
 
 void UiClearScreen()
 {
-	if (!ArtBackground || gnScreenWidth > (*ArtBackground)[0].width() || gnScreenHeight > (*ArtBackground)[0].height()) {
+	if (!ArtBackground || UiScreenWidth() > (*ArtBackground)[0].width() || UiScreenHeight() > (*ArtBackground)[0].height()) {
 		SDL_FillSurfaceRect(DiabloUiSurface(), nullptr, 0);
 	}
 }
@@ -852,6 +959,7 @@ void UiPollAndRender(std::optional<tl::function_ref<bool(SDL_Event &)>> eventHan
 			LogWarn(LogCategory::Application, "SDL_ConvertEventToRenderCoordinates: {}", SDL_GetError());
 			SDL_ClearError();
 		}
+		MapEventToFrontEndCanvas(event);
 		UiFocusNavigation(&event);
 		UiHandleEvents(&event);
 	}

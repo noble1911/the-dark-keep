@@ -66,6 +66,8 @@ Small and independent.
 - A UI scale setting in the options, defaulting to today's rule.
 - Front-end list screens drawn at the same scale.
 
+Done: the `UI Scale` option (Graphics settings: Auto, 1x to 4x) feeds `KeeperUiScale()`. All front-end screens draw on a canvas of the screen divided by that scale, blown up by a whole factor in `UiFadeIn`, with mouse events mapped back in `UiPollAndRender` (`Source/DiabloUI/diabloui.cpp`). The Keeper screen steps out of it with `UiScaleSuspend`.
+
 ### Who does what
 
 | Step | Size | Suggested model | Can run alongside |

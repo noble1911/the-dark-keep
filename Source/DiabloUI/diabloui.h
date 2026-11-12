@@ -82,10 +82,25 @@ extern OptionalOwnedClxSpriteList ArtCursor;
 
 extern bool (*gfnHeroInfo)(bool (*fninfofunc)(_uiheroinfo *));
 
-inline SDL_Surface *DiabloUiSurface()
-{
-	return PalSurface;
-}
+/** What the menus draw on: the screen, or the smaller canvas that is blown up onto it, see UiApplyScale(). */
+SDL_Surface *DiabloUiSurface();
+/** The size of that, which is what the menus lay out in. */
+int UiScreenWidth();
+int UiScreenHeight();
+/** Sets the menus' scale from the UI scale option and the screen size. Called whenever the menus' graphics are (re)loaded. */
+void UiApplyScale();
+
+/** [DARK KEEP] Draws the menus at the screen's own size for as long as it lives, for a screen that does its own scaling. */
+class UiScaleSuspend {
+public:
+	UiScaleSuspend();
+	~UiScaleSuspend();
+	UiScaleSuspend(const UiScaleSuspend &) = delete;
+	UiScaleSuspend &operator=(const UiScaleSuspend &) = delete;
+
+private:
+	int saved;
+};
 
 void UiDestroy();
 void UiTitleDialog();

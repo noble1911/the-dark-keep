@@ -90,9 +90,16 @@ uint16_t GetViewportHeight()
 }
 
 Rectangle UIRectangle;
+/** [DARK KEEP] The front end draws on a canvas this many times smaller than the screen, see UiApplyScale(). */
+int FrontEndUiScale = 1;
 const Rectangle &GetUIRectangle()
 {
 	return UIRectangle;
+}
+
+int GetFrontEndUiScale()
+{
+	return FrontEndUiScale;
 }
 
 namespace {
@@ -138,7 +145,7 @@ void CalculateUIRectangle()
 {
 	constexpr Size UISize { 640, 480 };
 	UIRectangle = {
-		{ (gnScreenWidth - UISize.width) / 2, (gnScreenHeight - UISize.height) / 2 },
+		{ (gnScreenWidth / FrontEndUiScale - UISize.width) / 2, (gnScreenHeight / FrontEndUiScale - UISize.height) / 2 },
 		UISize
 	};
 }
@@ -428,6 +435,12 @@ void AdjustToScreenGeometry(Size windowSize)
 	gnScreenHeight = windowSize.height;
 	CalculateUIRectangle();
 	CalculatePanelAreas();
+}
+
+void SetFrontEndUiScale(int scale)
+{
+	FrontEndUiScale = std::max(1, scale);
+	CalculateUIRectangle();
 }
 
 float GetDpiScalingFactor()
