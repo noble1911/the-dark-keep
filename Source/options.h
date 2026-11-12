@@ -72,6 +72,15 @@ enum class ScalingQuality : uint8_t {
 	AnisotropicFiltering,
 };
 
+/** [DARK KEEP] How many screen pixels make one pixel of the menus and the keep's interface. Auto picks from the screen height. */
+enum class UiScaleSetting : uint8_t {
+	Auto = 0,
+	X1 = 1,
+	X2 = 2,
+	X3 = 3,
+	X4 = 4,
+};
+
 enum class FrameRateControl : uint8_t {
 	None = 0,
 #ifndef USE_SDL1
@@ -531,6 +540,8 @@ struct GraphicsOptions : OptionCategoryBase {
 	/** @brief Only scale by values divisible by the width and height. */
 	OptionEntryBoolean integerScaling;
 #endif
+	/** @brief [DARK KEEP] Size of the menus and the keep's interface, see KeeperUiScale(). */
+	OptionEntryEnum<UiScaleSetting> uiScale;
 	/** @brief Limit frame rate either for vsync or CPU load. */
 	OptionEntryEnum<FrameRateControl> frameRateControl;
 	/** @brief Brightness level. */

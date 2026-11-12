@@ -361,6 +361,12 @@ bool DevTvUiScale = false;
 
 int KeeperUiScale()
 {
+	const int chosen = static_cast<int>(*GetOptions().Graphics.uiScale);
+	if (chosen > 0) {
+		// A fixed factor, but never so big that less than 640x480 UI pixels are left: that is the least the HUD lays out in.
+		const int largestFit = std::max(1, std::min(gnScreenWidth / 640, gnScreenHeight / 480));
+		return std::min(chosen, largestFit);
+	}
 #ifdef __SWITCH__
 	constexpr bool Tv = true;
 #elif defined(KEEPER_DEVCTL)
