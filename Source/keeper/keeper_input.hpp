@@ -56,8 +56,8 @@ enum class KeeperAction : uint8_t {
 	TurnWalls,
 };
 
-/** Hotkeys bind "card slot N of the current tab", never a kind: the roster can grow freely. */
-constexpr size_t NumCardSlotKeys = 9;
+/** Hotkeys bind "card slot N of the current tab", never a kind: the roster can grow freely. The number row, 1 to 0, then [ and ]: - and = zoom. */
+constexpr size_t NumCardSlotKeys = 12;
 
 /** Settings lists what a dungeon master can use: no hero options, other games' modes or hero keys. */
 bool IsSettingShown(const OptionCategoryBase &category, const OptionEntryBase &entry);

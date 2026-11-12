@@ -141,6 +141,8 @@ bool PadHudNeedsFocus();
 bool PadHudScroll(const Rectangle &focused, AxisDirection dir);
 /** Moves `delta` tabs along. @return where the tab's first card is. */
 Rectangle PadSwitchTab(int delta);
+/** The other button on a focused target: on a family's card, its next tier. */
+void PadHudSecondary(const Rectangle &focused);
 void PadToggleZoom();
 /** Identifies the armed tool; 0 if there is none. */
 uint32_t PadToolStamp();
