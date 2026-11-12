@@ -19,7 +19,7 @@ Screens were captured invisibly at 3440x1440 with a profile that owns most monst
 
 These are the rules every UI change is checked against. Every agent working on the UI reads them first.
 
-1. **Screen budget.** Everything that is always on screen during play takes at most 10% of the screen height, at every supported size. Today's figure is 20% to 29%.
+1. **Screen budget.** The bottom strip takes at most 10% of the screen height, at every supported size. Two things may go over: the orbs at the strip's ends may poke above it, as Diablo's do, and one status line of at most 2.5% may sit at the top right.
 2. **No dead black.** A panel is only as big as what it holds. The keep stays visible beside and between panels.
 3. **One strip.** Status, cards and spells share one row at the bottom. Nothing permanent floats above it.
 4. **Detail on demand.** Descriptions, stats and controls appear on hover, selection or the help key, and go away afterwards.
@@ -73,6 +73,19 @@ Small and independent.
 - A UI scale setting in the options, defaulting to today's rule.
 - Front-end list screens drawn at the same scale.
 
+### Step 5: Orbs and a status line
+Follows step 2, on the same branch.
+
+**Done** on branch `ui/families`. The orbs stand 16 UI pixels above a 72 pixel strip (12 above a 54 pixel one), and the status line is 18 pixels at 720 (12 to 13 on lower screens).
+The view is now the whole screen on a 640 pixel wide window too, where the engine used to stop it at the hero panel.
+
+- The status box leaves the strip, which frees about 250 UI pixels for cards.
+- A red orb at the left end of the strip shows the Keep Lord's health. A blue orb at the right end, past the spell slots, shows mana. They use Diablo's own orb art and may poke above the strip.
+- One line at the top right holds phase and clock, raid, pop, gold and loot, the speed toggle and help. The raid roster sits under it.
+- Gold stays a number: it has no maximum to fill against.
+- Open the gates becomes a small button by the tabs.
+- On small screens, where the strip is 48 pixels high, the orbs are drawn smaller.
+
 ### Who does what
 
 | Step | Size | Suggested model | Can run alongside |
@@ -81,6 +94,7 @@ Small and independent.
 | 2. Families on the strip | Medium, new interaction | Fable or Opus | After 1 |
 | 3. Keeper screen | Medium, one file | Sonnet | 1, 2 and 4 |
 | 4. Scale and menus | Small | Sonnet | 1 and 3 |
+| 5. Orbs and a status line | Medium | Fable or Opus | After 2 |
 
 Each agent works in its own hand-made worktree under `../dark-keep-worktrees`, tests invisibly with `scripts/dev/testrun.ps1` and `ctl.ps1`, and reports before and after captures.
 
@@ -92,3 +106,4 @@ Agreed with Ron on 11 November 2026.
 2. **Monster picking.** Family cards with a tier pop-up. No loadout.
 3. **Names on cards.** Names come off the cards and go in the hover text.
 4. **Step 4.** Menu scaling and the UI scale setting are in this round.
+5. **Status.** Orbs for the Lord's health and mana at the ends of the strip, poking above it. The rest of the status goes in one line at the top right.

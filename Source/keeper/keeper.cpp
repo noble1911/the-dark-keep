@@ -781,7 +781,7 @@ int TabWidth(const BarPage &page, bool full)
 /** The most the gates button may take of the tab row. The tabs leave it this even during a raid, so they stay where they are. */
 int GatesButtonRoom()
 {
-	return std::max(BarRect().size.width / 5, 90);
+	return std::max(BarRect().size.width / 5, 100);
 }
 
 TabStyle CurrentTabStyle()
