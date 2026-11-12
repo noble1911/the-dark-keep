@@ -168,7 +168,7 @@ constexpr std::array<HelpRow, 21> HelpKeys { {
 	{ {}, "Right click", "Cancel, or send the selected monsters. On a card: its tiers" },
 	{ {}, "Shift + right", "Add a patrol point" },
 	{ {}, "{tab}", "Next card tab" },
-	{ {}, "{card1} - {card9}", "Pick a card. Again: the monster's next tier" },
+	{ {}, "{card1} - {card12}", "Pick a card. Again: the monster's next tier" },
 	{ {}, "{spell1} {spell2} {spell3} {spell4} {spell5} {spell6}", "Cast a spell at the cursor ({walls}: turn the walls)" },
 	{ {}, "{lock} / {bait}", "Pick a door lock / fool's gold" },
 	{ {}, "{sell}", "Sell what is selected" },
@@ -591,8 +591,8 @@ std::string ExpandInputs(std::string_view text)
 				out += InputLabel(KeeperAction::CameraUp) + InputLabel(KeeperAction::CameraLeft) + InputLabel(KeeperAction::CameraDown) + InputLabel(KeeperAction::CameraRight);
 			} else if (token == "help") {
 				out += InputLabel(KeeperAction::Help);
-			} else if (token.size() == 5 && token.substr(0, 4) == "card") {
-				out += InputLabel(KeeperAction::CardSlot, static_cast<size_t>(token[4] - '1'));
+			} else if (token.size() >= 5 && token.substr(0, 4) == "card") {
+				out += InputLabel(KeeperAction::CardSlot, static_cast<size_t>(std::atoi(std::string(token.substr(4)).c_str()) - 1));
 			} else {
 				out += text.substr(open, close - open + 1);
 			}

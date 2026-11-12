@@ -108,7 +108,7 @@ void DrawPlrMsg(const Surface &out)
 		return;
 
 	int x = 10;
-	int y = (keeper::IsActive() ? keeper::ViewBottom() : GetMainPanel().position.y) - 13; // [DARK KEEP] the keep's strip is lower than the hero's panel
+	int y = (keeper::IsActive() ? keeper::MessagesBottom() : GetMainPanel().position.y) - 13; // [DARK KEEP] the keep's strip is lower than the hero's panel
 	int width = gnScreenWidth - 20;
 
 	if (!ChatFlag && IsLeftPanelOpen()) {

@@ -28,6 +28,8 @@ namespace devilution::keeper {
 void DrawRaidRoster(const Surface &out, Point mouse);
 /** The roster's rectangle, for hit tests; nullopt when hidden. */
 std::optional<Rectangle> RaidRosterRect(const Surface &out);
+/** The roster's top: it goes under the status line at the top right. */
+void SetRaidRosterTop(int y);
 /** Click on the roster: selects the hero and returns the tile to centre the camera on. */
 std::optional<Point> OnRaidRosterClick(const Surface &out, Point mouse);
 /** The roster's rows, for a controller to go through. */
