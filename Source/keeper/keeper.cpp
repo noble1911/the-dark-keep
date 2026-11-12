@@ -245,11 +245,18 @@ constexpr int StripMaxHeight = 72;
 constexpr int StripMinHeight = 48;
 /** The flask's art is this size, and is drawn at it where the strip is its full height. */
 constexpr int OrbArtSize = 88;
-/** Rows of the art above the panel it was cut from: only the flask's dome is in them. */
-constexpr int OrbDomeRows = 16;
 /** The liquid's rows in the art: empty at the foot, full at the top. */
 constexpr int OrbFullRow = 3;
 constexpr int OrbEmptyRow = 85;
+/** The glass in the art: a circle about this row, this far across. The Lord's and the mana flask differ by a column. */
+constexpr int OrbCentreY = 44;
+constexpr int OrbLifeCentreX = 42;
+constexpr int OrbManaCentreX = 41;
+constexpr int OrbGlassRadius = 41;
+/** The rim drawn round the glass, in the art's pixels. */
+constexpr int OrbRimWidth = 3;
+/** The orbs stand this far off the foot of the screen, so the rim is whole. */
+constexpr int OrbLift = 2;
 /** The status line at the top right: a fortieth of the UI's height, within these. */
 constexpr int StatusLineMinHeight = 12;
 constexpr int StatusLineMaxHeight = 18;
@@ -514,7 +521,7 @@ int OrbSize()
 /** How far an orb stands above the strip. */
 int OrbPoke()
 {
-	return OrbSize() - StripHeight();
+	return OrbSize() + OrbLift - StripHeight();
 }
 
 /** The Keep Lord's orb at the left end of the strip, or the mana orb at the right end. */
@@ -522,7 +529,21 @@ Rectangle OrbRect(bool mana)
 {
 	const Rectangle hud = HudRect();
 	const int size = OrbSize();
-	return { { mana ? hud.position.x + hud.size.width - size : hud.position.x, hud.position.y + hud.size.height - size }, { size, size } };
+	return { { mana ? hud.position.x + hud.size.width - size : hud.position.x, hud.position.y + hud.size.height - size - OrbLift }, { size, size } };
+}
+
+/**
+ * How far a point of an orb's square is from the middle of its glass, in half pixels of the art:
+ * the glass, its rim and the hit test all measure with this.
+ */
+int OrbDistance(bool mana, int size, int x, int y)
+{
+	const int dx = (2 * x + 1) * OrbArtSize / size - (2 * (mana ? OrbManaCentreX : OrbLifeCentreX) + 1);
+	const int dy = (2 * y + 1) * OrbArtSize / size - (2 * OrbCentreY + 1);
+	int distance = 0;
+	while (distance * distance < dx * dx + dy * dy)
+		distance++;
+	return distance;
 }
 
 int StatusLineHeight()
@@ -925,16 +946,14 @@ Rectangle ReadyButtonRect()
 	return { { tabs.position.x + tabs.size.width + SectionGap, tabs.position.y }, { GetLineWidth(ReadyButtonText()) + 12, TabHeight } };
 }
 
-/** The part of an orb's square that is the flask and its socket: the corners above the strip are the keep. */
+/** True over an orb's glass or rim: its square's corners are the keep. */
 bool IsOverOrb(bool mana, Point p)
 {
 	const Rectangle orb = OrbRect(mana);
-	if (!Contains(orb, p))
+	const int margin = OrbRimWidth + 1;
+	if (p.x < orb.position.x - margin || p.y < orb.position.y - margin || p.x >= orb.position.x + orb.size.width + margin || p.y >= orb.position.y + orb.size.height + margin)
 		return false;
-	if (p.y >= HudRect().position.y)
-		return true;
-	// Above the strip only the dome is there: the middle two thirds, near enough.
-	return p.x >= orb.position.x + orb.size.width / 6 && p.x < orb.position.x + orb.size.width * 5 / 6;
+	return OrbDistance(mana, orb.size.width, p.x - orb.position.x, p.y - orb.position.y) <= 2 * (OrbGlassRadius + OrbRimWidth) + 1;
 }
 
 /** True over one of the strip's panels, the details panel or the status line: not over the keep between them. */
@@ -3439,31 +3458,55 @@ const OrbArt *GetOrbArt(bool mana)
 	return &art;
 }
 
-/** Draws an orb `percent` full, with `label` across it. */
+/** Draws an orb `percent` full, with `label` across it: the round glass alone, in a gold rim. */
 void DrawOrb(const Surface &out, bool mana, int percent, std::string_view label, UiFlags labelColor)
 {
 	const Rectangle rect = OrbRect(mana);
 	const int size = rect.size.width;
-	const int dome = OrbDomeRows * size / OrbArtSize;
-	if (const OrbArt *art = GetOrbArt(mana); art != nullptr) {
-		const int liquidTop = OrbEmptyRow - (OrbEmptyRow - OrbFullRow) * std::clamp(percent, 0, 100) / 100;
-		for (int y = 0; y < size; y++) {
-			const int artY = y * OrbArtSize / size;
-			const std::vector<uint8_t> &pixels = artY >= liquidTop && artY < OrbEmptyRow ? art->full : art->empty;
-			const uint8_t *row = &pixels[static_cast<size_t>(y) * size];
-			uint8_t *dst = out.at(rect.position.x, rect.position.y + y);
-			for (int x = 0; x < size; x++) {
-				// Above the panel's top line only the dome is drawn; below it the art is the panel's stone, black and all.
-				if (row[x] != 0 || y >= dome)
-					dst[x] = row[x];
+	const OrbArt *art = GetOrbArt(mana);
+	const int liquidTop = OrbEmptyRow - (OrbEmptyRow - OrbFullRow) * std::clamp(percent, 0, 100) / 100;
+	// Distances in half pixels of the art, like OrbDistance.
+	const int glass = 2 * OrbGlassRadius + 1;
+	const int rim = glass + 2 * OrbRimWidth;
+	const int margin = OrbRimWidth + 1;
+	for (int y = -margin; y < size + margin; y++) {
+		const int screenY = rect.position.y + y;
+		if (screenY < 0 || screenY >= out.h())
+			continue;
+		const int artY = std::clamp(y * OrbArtSize / size, 0, OrbArtSize - 1);
+		const int scaledY = std::clamp(y, 0, size - 1);
+		int first = out.w();
+		int last = -1;
+		for (int x = -margin; x < size + margin; x++) {
+			const int screenX = rect.position.x + x;
+			if (screenX < 0 || screenX >= out.w())
+				continue;
+			const int distance = OrbDistance(mana, size, x, y);
+			if (distance > rim)
+				continue;
+			uint8_t color;
+			if (distance <= glass) {
+				if (art != nullptr) {
+					const std::vector<uint8_t> &pixels = artY >= liquidTop && artY < OrbEmptyRow ? art->full : art->empty;
+					color = pixels[static_cast<size_t>(scaledY) * size + std::clamp(x, 0, size - 1)];
+				} else {
+					color = 0;
+				}
+			} else if (distance <= glass + 2) {
+				color = PAL16_YELLOW + 11; // the shadow where the glass meets the rim
+			} else if (distance <= rim - 2) {
+				// Lit from the top left, like the panel's own gold.
+				color = (x + y < size - size / 4) ? PAL16_YELLOW + 3 : PAL16_YELLOW + 7;
+			} else {
+				color = PAL16_YELLOW + 12;
 			}
+			*out.at(screenX, screenY) = color;
+			first = std::min(first, screenX);
+			last = std::max(last, screenX);
 		}
-	} else {
-		FillRect(out, rect.position.x, rect.position.y + dome, size, size - dome, 0);
+		if (last >= first)
+			NoteOpaqueUi({ { first, screenY }, { last - first + 1, 1 } });
 	}
-	const Rectangle body { rect.position + Displacement { 0, dome }, { size, size - dome } };
-	DrawFrame(out, body, PAL16_GRAY + 11);
-	NoteOpaqueUi(body);
 	DrawString(out, label, { { rect.position.x, rect.position.y + size / 2 - 5 }, { size, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::Outlined | labelColor });
 }
 
