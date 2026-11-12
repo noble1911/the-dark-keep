@@ -156,10 +156,13 @@ std::vector<RosterRow> RosterRows()
 	return rows;
 }
 
+/** Under the status line. */
+int rosterTop = RosterMargin;
+
 Rectangle RosterRect(const Surface &out, size_t rowCount)
 {
 	const int height = 2 * RosterPadding + static_cast<int>(rowCount + 1) * RowHeight;
-	return { { out.w() - RosterWidth - RosterMargin, RosterMargin }, { RosterWidth, height } };
+	return { { out.w() - RosterWidth - RosterMargin, rosterTop }, { RosterWidth, height } };
 }
 
 /** Row `index` (0 = first hero, below the header). */
@@ -232,6 +235,11 @@ Rectangle SummaryButton(const Rectangle &panel)
 } // namespace
 
 // ---- roster API --------------------------------------------------------------------
+
+void SetRaidRosterTop(int y)
+{
+	rosterTop = y;
+}
 
 std::optional<Rectangle> RaidRosterRect(const Surface &out)
 {

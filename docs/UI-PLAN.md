@@ -35,6 +35,9 @@ These are the rules every UI change is checked against. Every agent working on t
 ## Plan
 
 ### Step 1: Slim strip
+**Done** on branch `ui/strip`. The strip is 72 UI pixels (10% at 720p, 1440p and TV scale, 6.7% at 1080p), in separate panels.
+Not done: the map editor keeps its own 128-pixel bar, and the view is still centred for the old panel height.
+
 Halve the bar from 144 to 72 UI pixels and make it a set of panels instead of a band.
 
 - Cards shrink from 62x84 to about 46x56: portrait, key and price. The name moves to the hover text.
@@ -45,6 +48,10 @@ Halve the bar from 144 to 72 UI pixels and make it a set of panels instead of a 
 - Files: mostly `Source/keeper/keeper.cpp`, plus the scout, tutorial, controller and lobby files that read its rectangles.
 
 ### Step 2: Families on the strip
+**Done** on branch `ui/families`. One card to a family; the wheel, a right click or the card's key again opens its tiers above the card.
+Up to twelve families share one Lairs page with dividers; more, and each dungeon has its own tab (the tab key steps through them). Keys are 1 to 0, then [ and ].
+A narrow bar (TV scale) shows one tab name between two arrows. A page only scrolls in a window too small for cards 36 pixels wide.
+
 Depends on step 1, since both rewrite the card bar.
 
 - The Lairs tab shows one card per family that has an unlocked kind. That is 39 at most, so two rows of keys cover it at most sizes.
@@ -68,6 +75,9 @@ Small and independent.
 
 ### Step 5: Orbs and a status line
 Follows step 2, on the same branch.
+
+**Done** on branch `ui/families`. The orbs stand 16 UI pixels above a 72 pixel strip (12 above a 54 pixel one), and the status line is 18 pixels at 720 (12 to 13 on lower screens).
+The view is now the whole screen on a 640 pixel wide window too, where the engine used to stop it at the hero panel.
 
 - The status box leaves the strip, which frees about 250 UI pixels for cards.
 - A red orb at the left end of the strip shows the Keep Lord's health. A blue orb at the right end, past the spell slots, shows mana. They use Diablo's own orb art and may poke above the strip.

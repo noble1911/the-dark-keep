@@ -271,11 +271,9 @@ void CalculatePanelAreas()
 	}
 	RightPanel.position.y = LeftPanel.position.y;
 
+	// [DARK KEEP] The keep's strip is separate panels with the keep between them, on a 640 pixel wide screen too:
+	// the view is always the whole screen, where a hero's panel would have covered its foot.
 	gnViewportHeight = gnScreenHeight;
-	if (gnScreenWidth <= MainPanel.size.width) {
-		// Part of the screen is fully obscured by the UI
-		gnViewportHeight -= MainPanel.size.height;
-	}
 }
 
 void FocusOnCharInfo()

@@ -286,8 +286,11 @@ void HandlePress(ControllerButton button, GameAction &action)
 		PressMouse(action, SDL_BUTTON_LEFT, /*up=*/false);
 		return;
 	case ControllerButton_BUTTON_X:
-		if (focused)
+		if (focused) {
+			if (!editor)
+				PadHudSecondary(focusRect);
 			return;
+		}
 		rightDown = true;
 		PressMouse(action, SDL_BUTTON_RIGHT, /*up=*/false);
 		return;

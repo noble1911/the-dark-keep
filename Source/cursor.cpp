@@ -914,7 +914,8 @@ void CheckCursMove()
 		return;
 
 	Point screenPosition = MousePosition;
-	const Rectangle &mainPanel = GetMainPanel();
+	// [DARK KEEP] The keep has no hero panel: its strip is separate panels, and the cursor points at the keep between them.
+	const Rectangle mainPanel = keeper::IsActive() ? Rectangle {} : GetMainPanel();
 
 	AlterMousePositionViaPanels(screenPosition);
 	AlterMousePositionViaScrolling(screenPosition, mainPanel);

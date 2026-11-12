@@ -1120,6 +1120,11 @@ void Execute(const std::string &line)
 	} else if (command == "setphaseticks") {
 		in >> a;
 		State.phaseTicks = a;
+	} else if (command == "lordhp") {
+		// lordhp 40: the Keep Lord at that percent of his life, to see the orb part full.
+		in >> a;
+		if (const Monster *boss = FindBoss(); boss != nullptr)
+			const_cast<Monster &>(*boss).hitPoints = std::max<int>(boss->maxHitPoints / 100 * std::clamp(a, 1, 100), 1 << 6);
 	} else if (command == "fillmana") {
 		// Every master's: the host's snapshots would put a joiner's straight back.
 		State.mana.fill(MaxMana * ManaScale);

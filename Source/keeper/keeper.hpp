@@ -99,6 +99,10 @@ bool IsViewZoomed();
 int UiPixelScale();
 Point UiMousePosition();
 int UiBarHeight();
+/** The screen row where the strip along the bottom starts (in the editor, its bar). */
+int ViewBottom();
+/** The screen row the engine's message log ends above: clear of the orbs, which stand higher than the strip. */
+int MessagesBottom();
 
 /** @brief Dev/test (--keeper-devctl): points the camera at a tile. */
 void DevCenterCamera(Point tile);

@@ -170,7 +170,7 @@ void AddKeymapActions()
 		    "KeeperCard{}",
 		    N_("Keep: card slot {}"),
 		    N_("Picks this card of the tab being shown."),
-		    '1' + static_cast<uint32_t>(i),
+		    static_cast<uint32_t>("1234567890[]"[i]),
 		    [i] { PerformKeeperAction(KeeperAction::CardSlot, i); },
 		    nullptr,
 		    CanUseKeeperKeys,

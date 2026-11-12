@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include "control/control.hpp"
+#include "control/control_flasks.hpp"
 #include "controls/controller.h"
 #include "cursor.h"
 #include "diablo.h"
@@ -221,89 +222,215 @@ void SetZoom(bool zoomed)
 
 // ---- HUD layout ------------------------------------------------------------
 //
-// RTS-style command bar along the bottom of the screen (after the C&C sidebar, Total War's unit
-// cards and Dungeon Keeper's panel tabs):
+// One strip along the bottom of the screen, a tenth of its height at most, made of separate panels
+// with the keep showing beside and between them:
 //
-//   [ status: phase, raid, vault, mana ] [ tabs / scrollable card bar / scout line ] [ card info ]
+//   (      ) [ tabs ] [ gates ] scout line          [        ] (      )
+//   ( Lord ) [ cards                      ]         [ spells ] ( mana )
 //
-// The bar is at most HudMaxWidth wide and centred, so it stays compact on ultrawide screens.
+// The orbs at the ends are the Keep Lord's health and the master's mana, in Diablo's own flasks,
+// which stand a little higher than the strip as they do there. The rest of the status is one line
+// at the top right of the screen.
+//
+// A lair card is a family of monsters. It places the tier last used, and its other tiers are in a
+// pop-up above it. Families are in the order of the dungeons they come from; when they don't all
+// fit one page, each dungeon has a tab of its own.
+//
+// The strip is at most HudMaxWidth wide and centred. Details (a card's name and text, a selected
+// lair and its sell button) come up in a panel above the strip only while they are asked for.
 
 constexpr int HudMaxWidth = 1280;
-constexpr int StatusWidth = 158;
-constexpr int InfoWidth = 196;
-constexpr int SectionGap = 8;
+/** A tenth of a 720 pixel high UI. A lower UI (a TV's, at twice the size) gets a lower strip. */
+constexpr int StripMaxHeight = 72;
+constexpr int StripMinHeight = 48;
+/** The flask's art is this size, and is drawn at it where the strip is its full height. */
+constexpr int OrbArtSize = 88;
+/** Rows of the art above the panel it was cut from: only the flask's dome is in them. */
+constexpr int OrbDomeRows = 16;
+/** The liquid's rows in the art: empty at the foot, full at the top. */
+constexpr int OrbFullRow = 3;
+constexpr int OrbEmptyRow = 85;
+/** The status line at the top right: a fortieth of the UI's height, within these. */
+constexpr int StatusLineMinHeight = 12;
+constexpr int StatusLineMaxHeight = 18;
+constexpr int InfoWidth = 240;
+constexpr int SectionGap = 6;
 constexpr int TabHeight = 16;
-constexpr int MaxTabWidth = 120;
-constexpr int CardWidth = 62;
-constexpr int CardHeight = 84;
-constexpr int CardGap = 4;
-constexpr int PortraitHeight = 56;
+constexpr int TabGap = 2;
+constexpr int MaxCardWidth = 46;
+/** A full page's cards narrow to this before the page scrolls: a monster is still told from the next at this size. */
+constexpr int MinCardWidth = 36;
+constexpr int CardGap = 2;
+/** Between the families of one dungeon and the next. */
+constexpr int DividerWidth = 5;
+/** What the scout line keeps of the tab row where it can't run on over the spells. */
+constexpr int MinScoutRoom = 200;
+constexpr int TierPopupWidth = 190;
+/** A tier pop-up opened by a key closes itself this long after the last step. */
+constexpr uint32_t TierPopupTicks = 3000;
+/** A card this high or higher has its price under the portrait; a lower one has it over the portrait's foot. */
+constexpr int CardHeightWithPriceRow = 50;
+constexpr int CardPriceRowHeight = 13;
 constexpr int ArrowWidth = 12;
 
-enum class BarTab : uint8_t {
+bool IsLairTool(const Tool &tool)
+{
+	return tool.type == ToolType::Build && IsLairKind(tool.index);
+}
+
+enum class PageType : uint8_t {
 	Lairs,
 	Traps,
 	Upgrades,
 };
-constexpr size_t NumBarTabs = 3;
-constexpr std::array<std::string_view, NumBarTabs> BarTabNames { "Lairs", "Traps & Tricks", "Upgrades" };
 
-BarTab currentTab = BarTab::Lairs;
-/** First visible card of each tab. */
-std::array<int, NumBarTabs> tabScroll {};
-
-/** The cards on a tab, in display order. Each card is the tool it selects. */
-std::vector<Tool> BuildTabCards(BarTab tab)
-{
+/** What one tab of the card bar shows. Each card is the tool it selects; a lair card stands for its family (see CardTool). */
+struct BarPage {
+	PageType type = PageType::Lairs;
+	/** The dungeon whose families a lair page shows. None for the one page of every family, when they all fit. */
+	std::optional<DungeonGroup> group;
 	std::vector<Tool> cards;
-	switch (tab) {
-	case BarTab::Lairs:
-		for (const size_t kind : MusterKinds())
-			cards.push_back({ ToolType::Build, kind });
-		break;
-	case BarTab::Traps:
-		for (size_t i = 0; i < NumBuildKinds; i++) {
-			if (!IsLairKind(i) && IsTrapAvailable(i - NumLairKinds))
-				cards.push_back({ ToolType::Build, i });
+	/** True for a card that begins another dungeon's families: a divider goes before it. */
+	std::vector<bool> divider;
+};
+
+/** Built when a level loads, and again if the bar's width changes. See Pages(). */
+std::vector<BarPage> pages;
+int pagesBarWidth = -1;
+size_t currentPage = 0;
+/** First visible card of each page, for a page too long for a small window. */
+std::vector<int> pageScroll;
+
+// ---- family tiers ---------------------------------------------------------------
+
+/** The kind each family's card places: the one last used in this session. -1 until then. */
+std::array<int, NumKindFamilies> familyTier = [] {
+	std::array<int, NumKindFamilies> none {};
+	none.fill(-1);
+	return none;
+}();
+
+/** The family's kinds this level offers, lowest tier first. */
+std::vector<size_t> FamilyTiers(KindFamily family)
+{
+	std::vector<size_t> tiers;
+	for (const size_t kind : MusterKinds()) {
+		if (FamilyOfKind(kind) == family)
+			tiers.push_back(kind);
+	}
+	return tiers;
+}
+
+/** The kind the family's card places now: the last one used if this level has it, otherwise the highest it has. */
+size_t FamilyKind(KindFamily family)
+{
+	const int last = familyTier[static_cast<size_t>(family)];
+	if (last >= 0 && IsKindMustered(static_cast<size_t>(last)) && FamilyOfKind(static_cast<size_t>(last)) == family)
+		return static_cast<size_t>(last);
+	const std::vector<size_t> tiers = FamilyTiers(family);
+	return tiers.empty() ? 0 : tiers.back();
+}
+
+/** The tool a card selects: for a lair card, its family's current tier. */
+Tool CardTool(const Tool &card)
+{
+	if (!IsLairTool(card))
+		return card;
+	return { ToolType::Build, FamilyKind(FamilyOfKind(card.index)) };
+}
+
+/** True if `card` is the card that selects `tool`: any tier of a family is that family's card. */
+bool IsCardOf(const Tool &card, const Tool &tool)
+{
+	if (card.type != tool.type)
+		return false;
+	if (IsLairTool(card) && IsLairTool(tool))
+		return FamilyOfKind(card.index) == FamilyOfKind(tool.index);
+	return card.index == tool.index;
+}
+
+/** The tier pop-up above a family's card. */
+struct TierPopup {
+	bool open = false;
+	KindFamily family {};
+	/** The mouse has been over the card or the pop-up: it closes when the mouse leaves. */
+	bool mouseSeen = false;
+	/** Opened by a key, with the mouse elsewhere: it closes at this time. */
+	uint32_t until = 0;
+};
+TierPopup tierPopup;
+/** How many times a tier was picked from the pop-up. See PadToolStamp. */
+uint32_t tierPicks = 0;
+
+void CloseTierPopup()
+{
+	tierPopup.open = false;
+}
+
+void OpenTierPopup(KindFamily family)
+{
+	if (!tierPopup.open || tierPopup.family != family)
+		tierPopup.mouseSeen = false;
+	tierPopup.open = true;
+	tierPopup.family = family;
+	tierPopup.until = SDL_GetTicks() + TierPopupTicks;
+}
+
+/**
+ * The pages for a bar `barWidth` wide. One card to a family, in the order of the dungeons. A handful of
+ * families share one page; more than fit, or more than there are card keys, and each dungeon gets its own.
+ */
+std::vector<BarPage> BuildPages(int barWidth)
+{
+	std::vector<Tool> lairs;
+	for (const size_t kind : MusterKinds()) {
+		const Tool card { ToolType::Build, kind };
+		if (std::none_of(lairs.begin(), lairs.end(), [&](const Tool &other) { return IsCardOf(other, card); }))
+			lairs.push_back(card);
+	}
+	const auto groupOf = [](const Tool &card) { return GroupOfFamily(FamilyOfKind(card.index)); };
+	std::stable_sort(lairs.begin(), lairs.end(), [&](const Tool &a, const Tool &b) { return groupOf(a) < groupOf(b); });
+	int groups = 0;
+	for (size_t i = 0; i < lairs.size(); i++) {
+		if (i == 0 || groupOf(lairs[i]) != groupOf(lairs[i - 1]))
+			groups++;
+	}
+	const int count = static_cast<int>(lairs.size());
+	const bool onePage = count <= static_cast<int>(NumCardSlotKeys)
+	    && count * (MinCardWidth + CardGap) - CardGap + std::max(groups - 1, 0) * DividerWidth <= barWidth;
+
+	std::vector<BarPage> built;
+	for (size_t i = 0; i < lairs.size(); i++) {
+		const bool newGroup = i == 0 || groupOf(lairs[i]) != groupOf(lairs[i - 1]);
+		if (built.empty() || (newGroup && !onePage)) {
+			built.emplace_back();
+			if (!onePage)
+				built.back().group = groupOf(lairs[i]);
 		}
-		cards.push_back({ ToolType::LockDoor, 0 });
-		cards.push_back({ ToolType::Bait, 0 });
-		break;
-	case BarTab::Upgrades:
-		for (size_t i = 0; i < NumUpgrades; i++)
-			cards.push_back({ ToolType::Upgrade, i });
-		break;
+		built.back().divider.push_back(newGroup && !built.back().cards.empty());
+		built.back().cards.push_back(lairs[i]);
 	}
-	return cards;
-}
+	if (built.empty())
+		built.emplace_back();
 
-/** The cards are looked up many times a frame and only change when a level loads. */
-std::array<std::vector<Tool>, NumBarTabs> tabCards;
-
-void ClearTabCards()
-{
-	for (std::vector<Tool> &cards : tabCards)
-		cards.clear();
-}
-
-const std::vector<Tool> &TabCards(BarTab tab)
-{
-	std::vector<Tool> &cards = tabCards[static_cast<size_t>(tab)];
-	if (cards.empty())
-		cards = BuildTabCards(tab);
-	return cards;
-}
-
-BarTab TabOf(const Tool &tool)
-{
-	switch (tool.type) {
-	case ToolType::Build:
-		return IsLairKind(tool.index) ? BarTab::Lairs : BarTab::Traps;
-	case ToolType::Upgrade:
-		return BarTab::Upgrades;
-	default:
-		return BarTab::Traps;
+	BarPage traps;
+	traps.type = PageType::Traps;
+	for (size_t i = 0; i < NumBuildKinds; i++) {
+		if (!IsLairKind(i) && IsTrapAvailable(i - NumLairKinds))
+			traps.cards.push_back({ ToolType::Build, i });
 	}
+	traps.cards.push_back({ ToolType::LockDoor, 0 });
+	traps.cards.push_back({ ToolType::Bait, 0 });
+	traps.divider.assign(traps.cards.size(), false);
+	built.push_back(std::move(traps));
+
+	BarPage upgrades;
+	upgrades.type = PageType::Upgrades;
+	for (size_t i = 0; i < NumUpgrades; i++)
+		upgrades.cards.push_back({ ToolType::Upgrade, i });
+	upgrades.divider.assign(upgrades.cards.size(), false);
+	built.push_back(std::move(upgrades));
+	return built;
 }
 
 // ---- UI scale ------------------------------------------------------------------
@@ -334,21 +461,30 @@ Point UiMouse()
 	return { MousePosition.x / scale, MousePosition.y / scale };
 }
 
-/** Height of the command bar in UI pixels (the engine's control panel height). */
-int HudHeight()
+/** Height of the strip in UI pixels. */
+int StripHeight()
 {
-	return gnScreenHeight - GetMainPanel().position.y;
+	return std::clamp(UiHeight() / 10, StripMinHeight, StripMaxHeight);
 }
 
+/** The strip's bounds: its panels are inside, and what is between them is the keep. */
 Rectangle HudRect()
 {
 	const int width = std::min<int>(UiWidth(), HudMaxWidth);
-	return { { (UiWidth() - width) / 2, UiHeight() - HudHeight() }, { width, HudHeight() } };
+	return { { (UiWidth() - width) / 2, UiHeight() - StripHeight() }, { width, StripHeight() } };
 }
 
 /** The off-screen UI surface (UI pixels) when the HUD is scaled, and the view it was drawn over. */
 std::optional<OwnedSurface> uiSurface;
 std::vector<uint8_t> uiBackground;
+/** Solid panels drawn this frame, in UI pixels. See DrawScaledUi. */
+std::vector<Rectangle> uiOpaque;
+
+/** A solid panel covers the view even where it happens to be the view's colour. */
+void NoteOpaqueUi(const Rectangle &rect)
+{
+	uiOpaque.push_back(rect);
+}
 
 /** A surface of UI-pixel size, for the raid panels' hit tests. */
 Surface UiHitSurface()
@@ -358,98 +494,10 @@ Surface UiHitSurface()
 	return GlobalBackBuffer();
 }
 
-/** Top of the command bar in screen pixels: world overlays stop here. */
+/** Top of the strip in screen pixels: arrows at the edge of the view stay above it. The keep itself is drawn on to the foot of the screen. */
 int ScreenHudTop()
 {
 	return HudRect().position.y * UiScale();
-}
-
-Rectangle StatusRect()
-{
-	const Rectangle hud = HudRect();
-	return { { hud.position.x + 6, hud.position.y }, { StatusWidth, hud.size.height } };
-}
-
-Rectangle InfoRect()
-{
-	const Rectangle hud = HudRect();
-	return { { hud.position.x + hud.size.width - InfoWidth - 6, hud.position.y }, { InfoWidth, hud.size.height } };
-}
-
-Rectangle BarRect()
-{
-	const Rectangle status = StatusRect();
-	const int left = status.position.x + status.size.width + SectionGap;
-	const int right = InfoRect().position.x - SectionGap;
-	return { { left, status.position.y }, { std::max(right - left, CardWidth + 2 * ArrowWidth + 4), status.size.height } };
-}
-
-Rectangle TabRect(size_t i)
-{
-	const Rectangle bar = BarRect();
-	const int width = std::min(bar.size.width / static_cast<int>(NumBarTabs), MaxTabWidth);
-	return { { bar.position.x + static_cast<int>(i) * width, bar.position.y + 4 }, { width - 3, TabHeight } };
-}
-
-Rectangle CardRowRect()
-{
-	const Rectangle bar = BarRect();
-	return { { bar.position.x + ArrowWidth + 2, bar.position.y + TabHeight + 8 }, { bar.size.width - 2 * (ArrowWidth + 2), CardHeight } };
-}
-
-int VisibleCardCount()
-{
-	return std::max(1, (CardRowRect().size.width + CardGap) / (CardWidth + CardGap));
-}
-
-int MaxScroll(BarTab tab)
-{
-	return std::max(0, static_cast<int>(TabCards(tab).size()) - VisibleCardCount());
-}
-
-int &ScrollOf(BarTab tab)
-{
-	int &scroll = tabScroll[static_cast<size_t>(tab)];
-	scroll = std::clamp(scroll, 0, MaxScroll(tab));
-	return scroll;
-}
-
-Rectangle CardRect(int slot)
-{
-	const Rectangle row = CardRowRect();
-	return { { row.position.x + slot * (CardWidth + CardGap), row.position.y }, { CardWidth, CardHeight } };
-}
-
-Rectangle LeftArrowRect()
-{
-	const Rectangle row = CardRowRect();
-	return { { row.position.x - ArrowWidth - 2, row.position.y }, { ArrowWidth, CardHeight } };
-}
-
-Rectangle RightArrowRect()
-{
-	const Rectangle row = CardRowRect();
-	return { { row.position.x + row.size.width + 2, row.position.y }, { ArrowWidth, CardHeight } };
-}
-
-Rectangle ReadyButtonRect()
-{
-	const Rectangle status = StatusRect();
-	return { { status.position.x, status.position.y + status.size.height - 24 }, { StatusWidth, 20 } };
-}
-
-/** The speed toggle, at the right of the phase line, just left of the help button ("?" in the corner). */
-Rectangle SpeedButtonRect()
-{
-	const Rectangle status = StatusRect();
-	return { { status.position.x + status.size.width - 42, status.position.y + 3 }, { 20, 15 } };
-}
-
-/** The phase line up to the speed toggle: clicking the clock holds it. */
-Rectangle PhaseLineRect()
-{
-	const Rectangle status = StatusRect();
-	return { { status.position.x, status.position.y + 3 }, { status.size.width - 44, 15 } };
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -457,61 +505,44 @@ bool Contains(const Rectangle &rect, Point p)
 	return p.x >= rect.position.x && p.y >= rect.position.y && p.x < rect.position.x + rect.size.width && p.y < rect.position.y + rect.size.height;
 }
 
-/** The "?" in the corner of the status column. */
-Rectangle HelpButtonRect()
+/** The orbs shrink with the strip, and keep standing as far above it in proportion. */
+int OrbSize()
 {
-	const Rectangle status = StatusRect();
-	return { { status.position.x + status.size.width - 20, status.position.y + 3 }, { 18, 15 } };
+	return OrbArtSize * StripHeight() / StripMaxHeight;
 }
 
-bool IsBuildingPhase()
+/** How far an orb stands above the strip. */
+int OrbPoke()
 {
-	return State.phase == Phase::Setup || State.phase == Phase::Breather;
+	return OrbSize() - StripHeight();
 }
 
-/** What the bar's status column, tabs and scout line do, for the info panel. */
-std::optional<HudArea> HudAreaAt(Point p)
+/** The Keep Lord's orb at the left end of the strip, or the mana orb at the right end. */
+Rectangle OrbRect(bool mana)
 {
-	if (Contains(HelpButtonRect(), p))
-		return HudArea::HelpButton;
-	if (IsBuildingPhase() && Contains(ReadyButtonRect(), p))
-		return HudArea::OpenGates;
-	for (size_t i = 0; i < NumBarTabs; i++) {
-		if (Contains(TabRect(i), p))
-			return static_cast<HudArea>(static_cast<size_t>(HudArea::TabLairs) + i);
-	}
-	const Rectangle bar = BarRect();
-	const int scoutY = CardRowRect().position.y + CardHeight + 3;
-	if (Contains({ { bar.position.x, scoutY }, { bar.size.width, 14 } }, p))
-		return HudArea::Scout;
-	const Rectangle status = StatusRect();
-	if (!Contains(status, p))
-		return std::nullopt;
-	const int row = p.y - status.position.y;
-	if (row < 19)
-		return HudArea::Phase;
-	if (row < 34)
-		return p.x < status.position.x + status.size.width * 3 / 5 ? HudArea::Raids : HudArea::Pop;
-	if (row < 49)
-		return HudArea::Vault;
-	if (row < 64)
-		return HudArea::Heroes;
-	if (row < 94)
-		return HudArea::Mana;
-	return std::nullopt;
+	const Rectangle hud = HudRect();
+	const int size = OrbSize();
+	return { { mana ? hud.position.x + hud.size.width - size : hud.position.x, hud.position.y + hud.size.height - size }, { size, size } };
 }
 
-// Spell bar: the masters' spells sit in their own action bar above the info panel. Their
-// hotkeys cast instantly at the cursor; clicking a slot arms it for one click in the keep.
-constexpr int SpellSlotSize = 60;
-constexpr int SpellSlotGap = 4;
+int StatusLineHeight()
+{
+	return std::clamp(UiHeight() / 40, StatusLineMinHeight, StatusLineMaxHeight);
+}
+
+// Spell bar: the masters' spells are at the right of the strip, beside the mana they use. Their hotkeys
+// cast instantly at the cursor; clicking a slot arms it for one click in the keep.
+constexpr int SpellSlotSize = 44;
+constexpr int SpellSlotGap = 2;
+constexpr int SpellPanelPadding = 2;
 
 Rectangle SpellSlotRect(size_t i)
 {
-	const Rectangle info = InfoRect();
+	const Rectangle hud = HudRect();
 	constexpr int Total = static_cast<int>(NumSpellSlots) * SpellSlotSize + (static_cast<int>(NumSpellSlots) - 1) * SpellSlotGap;
-	const int left = info.position.x + info.size.width - Total;
-	return { { left + static_cast<int>(i) * (SpellSlotSize + SpellSlotGap), info.position.y - SpellSlotSize - 8 }, { SpellSlotSize, SpellSlotSize } };
+	const int left = OrbRect(/*mana=*/true).position.x - SectionGap - SpellPanelPadding - Total;
+	const int top = hud.position.y + hud.size.height - SpellPanelPadding - SpellSlotSize;
+	return { { left + static_cast<int>(i) * (SpellSlotSize + SpellSlotGap), top }, { SpellSlotSize, SpellSlotSize } };
 }
 
 /** All the slots together. */
@@ -520,6 +551,418 @@ Rectangle SpellBarRect()
 	const Rectangle first = SpellSlotRect(0);
 	const Rectangle last = SpellSlotRect(NumSpellSlots - 1);
 	return { first.position, { last.position.x + last.size.width - first.position.x, first.size.height } };
+}
+
+/** The slots and the panel behind them. */
+Rectangle SpellPanelRect()
+{
+	const Rectangle bar = SpellBarRect();
+	return { bar.position - Displacement { SpellPanelPadding, SpellPanelPadding }, { bar.size.width + 2 * SpellPanelPadding, bar.size.height + 2 * SpellPanelPadding } };
+}
+
+/**
+ * Where a joiner's spell choice hangs: it is laid out a large icon to a column, which is wider than
+ * the bar, so it gets a rectangle of its own width that ends where the bar does.
+ */
+Rectangle LobbyAnchorRect()
+{
+	constexpr int Width = static_cast<int>(NumSpellSlots) * (SPLICONLENGTH + 4) + (static_cast<int>(NumSpellSlots) - 1) * 4;
+	const Rectangle panel = SpellPanelRect();
+	const int right = panel.position.x + panel.size.width - 5;
+	// The button goes over the slots if the strip has the room, otherwise over the strip.
+	const int top = panel.position.y - HudRect().position.y >= 20 ? panel.position.y : HudRect().position.y;
+	return { { std::max(right - Width, 5), top }, { Width, panel.size.height } };
+}
+
+// ---- card bar ------------------------------------------------------------------
+//
+// The middle of the strip: a row of tabs, and under it the current page's cards. Everything about
+// where a card is comes from CardRect(slot) and ShownCardCount(); what the cards are comes from
+// BuildPages().
+
+/** The room between the Lord's orb and the spells. */
+Rectangle BarRect()
+{
+	const Rectangle orb = OrbRect(/*mana=*/false);
+	const int left = orb.position.x + orb.size.width + SectionGap;
+	const int right = SpellPanelRect().position.x - SectionGap;
+	return { { left, HudRect().position.y }, { std::max(right - left, MinCardWidth + 2 * (ArrowWidth + CardGap)), HudRect().size.height } };
+}
+
+int CardHeight()
+{
+	return StripHeight() - TabHeight;
+}
+
+/** The portrait on a card of full width: all of it but the frame and, where there is one, the price row. */
+Size CardPortraitSize()
+{
+	return { MaxCardWidth - 4, CardHeight() - 4 - (CardHeight() >= CardHeightWithPriceRow ? CardPriceRowHeight : 0) };
+}
+
+/** The bar's pages, for the bar as wide as it is now. */
+const std::vector<BarPage> &Pages()
+{
+	const int width = BarRect().size.width;
+	if (pages.empty() || pagesBarWidth != width) {
+		// The window changed size: stay on the page that shows what the old one did.
+		std::optional<BarPage> was;
+		if (!pages.empty())
+			was = pages[std::min(currentPage, pages.size() - 1)];
+		pages = BuildPages(width);
+		pagesBarWidth = width;
+		pageScroll.assign(pages.size(), 0);
+		currentPage = 0;
+		for (size_t i = 0; was && i < pages.size(); i++) {
+			if (pages[i].type == was->type && (pages[i].type != PageType::Lairs || pages[i].group == was->group || !pages[i].group)) {
+				currentPage = i;
+				break;
+			}
+		}
+	}
+	return pages;
+}
+
+/** The page on show. */
+const BarPage &Page()
+{
+	const std::vector<BarPage> &all = Pages();
+	currentPage = std::min(currentPage, all.size() - 1);
+	return all[currentPage];
+}
+
+void ShowPage(size_t page)
+{
+	currentPage = page % Pages().size();
+	CloseTierPopup();
+}
+
+/** The page with the tool's card. */
+size_t PageOf(const Tool &tool)
+{
+	const std::vector<BarPage> &all = Pages();
+	for (size_t i = 0; i < all.size(); i++) {
+		if (std::any_of(all[i].cards.begin(), all[i].cards.end(), [&](const Tool &card) { return IsCardOf(card, tool); }))
+			return i;
+	}
+	return currentPage;
+}
+
+int DividerCount(const BarPage &page)
+{
+	return static_cast<int>(std::count(page.divider.begin(), page.divider.end(), true));
+}
+
+/** Even at their narrowest the page's cards don't fit the bar (a small window): it scrolls, and has an arrow at each end. */
+bool PageScrolls(const BarPage &page)
+{
+	const int count = static_cast<int>(page.cards.size());
+	return count * (MinCardWidth + CardGap) - CardGap + DividerCount(page) * DividerWidth > BarRect().size.width;
+}
+
+/** The width of the cards on show: full if the page fits, otherwise as narrow as it takes. */
+int CardWidth()
+{
+	const BarPage &page = Page();
+	if (PageScrolls(page))
+		return MinCardWidth;
+	const int count = std::max(static_cast<int>(page.cards.size()), 1);
+	return std::clamp((BarRect().size.width - DividerCount(page) * DividerWidth + CardGap) / count - CardGap, MinCardWidth, MaxCardWidth);
+}
+
+/** The room for the current page's cards: between the arrows if there are any. */
+Rectangle CardRowRect()
+{
+	const Rectangle bar = BarRect();
+	const int arrows = PageScrolls(Page()) ? ArrowWidth + CardGap : 0;
+	return { { bar.position.x + arrows, bar.position.y + TabHeight }, { bar.size.width - 2 * arrows, CardHeight() } };
+}
+
+int VisibleCardCount()
+{
+	const BarPage &page = Page();
+	if (!PageScrolls(page))
+		return std::max(static_cast<int>(page.cards.size()), 1);
+	return std::max(1, (CardRowRect().size.width + CardGap) / (MinCardWidth + CardGap));
+}
+
+int MaxScroll()
+{
+	return std::max(0, static_cast<int>(Page().cards.size()) - VisibleCardCount());
+}
+
+int &Scroll()
+{
+	Page();
+	int &scroll = pageScroll[currentPage];
+	scroll = std::clamp(scroll, 0, MaxScroll());
+	return scroll;
+}
+
+/** How many cards are on show. */
+int ShownCardCount()
+{
+	return std::min(VisibleCardCount(), static_cast<int>(Page().cards.size()) - Scroll());
+}
+
+/** Where the card in `slot` is: slot 0 is the first one on show. */
+Rectangle CardRect(int slot)
+{
+	const Rectangle row = CardRowRect();
+	const BarPage &page = Page();
+	const int first = Scroll();
+	int dividers = 0;
+	for (int i = 1; i <= slot && first + i < static_cast<int>(page.divider.size()); i++) {
+		if (page.divider[first + i])
+			dividers++;
+	}
+	return { { row.position.x + slot * (CardWidth() + CardGap) + dividers * DividerWidth, row.position.y }, { CardWidth(), row.size.height } };
+}
+
+/** The cards on show. */
+Rectangle ShownCardsRect()
+{
+	const Rectangle first = CardRect(0);
+	const Rectangle last = CardRect(std::max(ShownCardCount(), 1) - 1);
+	return { first.position, { last.position.x + last.size.width - first.position.x, first.size.height } };
+}
+
+Rectangle LeftArrowRect()
+{
+	const Rectangle row = CardRowRect();
+	return { { row.position.x - ArrowWidth - CardGap, row.position.y }, { ArrowWidth, row.size.height } };
+}
+
+Rectangle RightArrowRect()
+{
+	const Rectangle cards = ShownCardsRect();
+	return { { cards.position.x + cards.size.width + CardGap, cards.position.y }, { ArrowWidth, cards.size.height } };
+}
+
+/** The cards and their arrows: the panel behind them is no wider. */
+Rectangle CardPanelRect()
+{
+	const Rectangle cards = ShownCardsRect();
+	if (!PageScrolls(Page()))
+		return cards;
+	const Rectangle left = LeftArrowRect();
+	const Rectangle right = RightArrowRect();
+	return { left.position, { right.position.x + right.size.width - left.position.x, cards.size.height } };
+}
+
+// The tabs, one to a page. They share their row with the scout line, so they are as narrow as their
+// names, the names get shorter when there are many, and on a narrow bar (a TV's) only the current
+// page's name shows, between two arrows that step through the pages.
+
+enum class TabStyle : uint8_t {
+	Full,
+	Short,
+	Stepper,
+};
+
+std::string_view PageName(const BarPage &page, bool full)
+{
+	switch (page.type) {
+	case PageType::Lairs:
+		return page.group ? GroupName(*page.group) : std::string_view("Lairs");
+	case PageType::Traps:
+		return full ? "Traps & Tricks" : "Traps";
+	case PageType::Upgrades:
+		break;
+	}
+	return "Upgrades";
+}
+
+int TabWidth(const BarPage &page, bool full)
+{
+	return GetLineWidth(PageName(page, full)) + 12;
+}
+
+/** The most the gates button may take of the tab row. The tabs leave it this even during a raid, so they stay where they are. */
+int GatesButtonRoom()
+{
+	return std::max(BarRect().size.width / 5, 100);
+}
+
+TabStyle CurrentTabStyle()
+{
+	const std::vector<BarPage> &all = Pages();
+	const Rectangle bar = BarRect();
+	// The scout line can run on over the spells where the strip is high enough to have room above them.
+	const bool overSpells = SpellPanelRect().position.y >= bar.position.y + TabHeight;
+	const int room = bar.size.width - GatesButtonRoom() - SectionGap - (overSpells ? 0 : MinScoutRoom);
+	int full = 0;
+	int brief = 0;
+	for (const BarPage &page : all) {
+		full += TabWidth(page, true) + TabGap;
+		brief += TabWidth(page, false) + TabGap;
+	}
+	if (all.size() <= 3 && full <= room)
+		return TabStyle::Full;
+	return brief <= room ? TabStyle::Short : TabStyle::Stepper;
+}
+
+/** The arrows of the stepper, to the page before (-1) and after (1). Empty when every page has a tab. */
+Rectangle TabStepRect(int direction)
+{
+	if (CurrentTabStyle() != TabStyle::Stepper)
+		return {};
+	const Rectangle bar = BarRect();
+	if (direction < 0)
+		return { bar.position, { ArrowWidth, TabHeight } };
+	return { { bar.position.x + ArrowWidth + TabGap + TabWidth(Page(), false) + TabGap, bar.position.y }, { ArrowWidth, TabHeight } };
+}
+
+/** The page's tab. Empty for a page that has none: in the stepper only the current one does. */
+Rectangle TabRect(size_t i)
+{
+	const std::vector<BarPage> &all = Pages();
+	const Rectangle bar = BarRect();
+	const TabStyle style = CurrentTabStyle();
+	if (style == TabStyle::Stepper) {
+		if (i != currentPage)
+			return {};
+		return { { bar.position.x + ArrowWidth + TabGap, bar.position.y }, { TabWidth(all[i], false), TabHeight } };
+	}
+	int x = bar.position.x;
+	for (size_t tab = 0; tab < i; tab++)
+		x += TabWidth(all[tab], style == TabStyle::Full) + TabGap;
+	return { { x, bar.position.y }, { TabWidth(all[i], style == TabStyle::Full), TabHeight } };
+}
+
+Rectangle TabsRect()
+{
+	if (CurrentTabStyle() == TabStyle::Stepper) {
+		const Rectangle next = TabStepRect(1);
+		return { BarRect().position, { next.position.x + next.size.width - BarRect().position.x, TabHeight } };
+	}
+	const Rectangle first = TabRect(0);
+	const Rectangle last = TabRect(Pages().size() - 1);
+	return { first.position, { last.position.x + last.size.width - first.position.x, first.size.height } };
+}
+
+HudArea PageHudArea(const BarPage &page)
+{
+	switch (page.type) {
+	case PageType::Lairs:
+		return HudArea::TabLairs;
+	case PageType::Traps:
+		return HudArea::TabTraps;
+	case PageType::Upgrades:
+		break;
+	}
+	return HudArea::TabUpgrades;
+}
+
+bool IsBuildingPhase()
+{
+	return State.phase == Phase::Setup || State.phase == Phase::Breather;
+}
+
+/**
+ * What the last frame drew that isn't at a fixed place: the hit tests ask this, so a click lands on
+ * what the player saw.
+ */
+struct DrawnHud {
+	/** Parts of the status panel and the scout line, for their hover text. */
+	std::vector<std::pair<Rectangle, HudArea>> areas;
+	/** The details panel above the strip, when it is up. */
+	std::optional<Rectangle> info;
+	/** Its sell button, when something that can be sold is selected. */
+	std::optional<Rectangle> sell;
+	/** The scout line beside the tabs. */
+	std::optional<Rectangle> scout;
+	/** The tier pop-up, and each of its rows with the kind it picks. */
+	std::optional<Rectangle> popup;
+	std::vector<std::pair<Rectangle, size_t>> tiers;
+	/** The status line at the top right, and the parts of it that take a click. */
+	std::optional<Rectangle> status;
+	Rectangle phase;
+	Rectangle speed;
+	Rectangle help;
+};
+DrawnHud drawnHud;
+
+/** The "?" at the end of the status line. */
+Rectangle HelpButtonRect()
+{
+	return drawnHud.help;
+}
+
+/** The speed toggle, just left of the help button. */
+Rectangle SpeedButtonRect()
+{
+	return drawnHud.speed;
+}
+
+/** The phase and its clock: clicking the clock holds it. */
+Rectangle PhaseLineRect()
+{
+	return drawnHud.phase;
+}
+
+std::string ReadyButtonLabel();
+
+/** What the gates button says: with its key if the tab row has the room, in fewer words if it hasn't. */
+std::string ReadyButtonText()
+{
+	const int room = GatesButtonRoom() - 12;
+	const std::string label = ReadyButtonLabel();
+	const std::string key = InputName(KeeperAction::StartRaid);
+	if (const std::string withKey = fmt::format("{}: {}", key, label); !key.empty() && GetLineWidth(withKey) <= room)
+		return withKey;
+	if (GetLineWidth(label) <= room)
+		return label;
+	return FitText(gbIsMultiplayer ? label : std::string("Open gates"), room);
+}
+
+/** The gates button, after the tabs while the keep is being built. Empty during a raid. */
+Rectangle ReadyButtonRect()
+{
+	if (!IsBuildingPhase())
+		return {};
+	const Rectangle tabs = TabsRect();
+	return { { tabs.position.x + tabs.size.width + SectionGap, tabs.position.y }, { GetLineWidth(ReadyButtonText()) + 12, TabHeight } };
+}
+
+/** The part of an orb's square that is the flask and its socket: the corners above the strip are the keep. */
+bool IsOverOrb(bool mana, Point p)
+{
+	const Rectangle orb = OrbRect(mana);
+	if (!Contains(orb, p))
+		return false;
+	if (p.y >= HudRect().position.y)
+		return true;
+	// Above the strip only the dome is there: the middle two thirds, near enough.
+	return p.x >= orb.position.x + orb.size.width / 6 && p.x < orb.position.x + orb.size.width * 5 / 6;
+}
+
+/** True over one of the strip's panels, the details panel or the status line: not over the keep between them. */
+bool IsMouseOverStrip(Point p)
+{
+	if (IsOverOrb(false, p) || IsOverOrb(true, p) || Contains(SpellPanelRect(), p) || Contains(CardPanelRect(), p) || Contains(TabsRect(), p) || Contains(ReadyButtonRect(), p))
+		return true;
+	if (drawnHud.status && Contains(*drawnHud.status, p))
+		return true;
+	return (drawnHud.scout && Contains(*drawnHud.scout, p)) || (drawnHud.info && Contains(*drawnHud.info, p)) || (drawnHud.popup && Contains(*drawnHud.popup, p));
+}
+
+/** What the status panel, tabs and scout line do, for the details panel. */
+std::optional<HudArea> HudAreaAt(Point p)
+{
+	if (Contains(HelpButtonRect(), p))
+		return HudArea::HelpButton;
+	if (IsBuildingPhase() && Contains(ReadyButtonRect(), p))
+		return HudArea::OpenGates;
+	for (size_t i = 0; i < Pages().size(); i++) {
+		if (Contains(TabRect(i), p))
+			return PageHudArea(Pages()[i]);
+	}
+	for (const auto &[rect, area] : drawnHud.areas) {
+		if (Contains(rect, p))
+			return area;
+	}
+	return std::nullopt;
 }
 
 std::optional<size_t> SpellSlotAt(Point p)
@@ -531,28 +974,40 @@ std::optional<size_t> SpellSlotAt(Point p)
 	return std::nullopt;
 }
 
-/** The card under `p` on the current tab, if any. */
+/** The card under `p` on the current page, if any. A lair card stands for its family: CardTool() is what it selects. */
 std::optional<Tool> CardAt(Point p)
 {
-	const std::vector<Tool> &cards = TabCards(currentTab);
-	const int first = ScrollOf(currentTab);
-	for (int slot = 0; slot < VisibleCardCount() && first + slot < static_cast<int>(cards.size()); slot++) {
+	const std::vector<Tool> &cards = Page().cards;
+	const int first = Scroll();
+	for (int slot = 0; slot < ShownCardCount(); slot++) {
 		if (Contains(CardRect(slot), p))
 			return cards[first + slot];
 	}
 	return std::nullopt;
 }
 
-/** Switches to the tool's tab and scrolls it into view (for hotkeys). */
+/** The slot of the tool's card, if it is on show. */
+std::optional<int> SlotOfTool(const Tool &tool)
+{
+	const std::vector<Tool> &cards = Page().cards;
+	const int first = Scroll();
+	for (int slot = 0; slot < ShownCardCount(); slot++) {
+		if (IsCardOf(cards[first + slot], tool))
+			return slot;
+	}
+	return std::nullopt;
+}
+
+/** Switches to the tool's page and scrolls it into view (for hotkeys). */
 void RevealCard(const Tool &tool)
 {
-	currentTab = TabOf(tool);
-	const std::vector<Tool> &cards = TabCards(currentTab);
-	const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
+	ShowPage(PageOf(tool));
+	const std::vector<Tool> &cards = Page().cards;
+	const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return IsCardOf(card, tool); });
 	if (it == cards.end())
 		return;
 	const int index = static_cast<int>(it - cards.begin());
-	int &scroll = ScrollOf(currentTab);
+	int &scroll = Scroll();
 	if (index < scroll)
 		scroll = index;
 	else if (index >= scroll + VisibleCardCount())
@@ -574,13 +1029,8 @@ struct CardText {
 std::string CardHotkey(const Tool &tool)
 {
 	std::string hotkey;
-	if (TabOf(tool) == currentTab) {
-		const std::vector<Tool> &cards = TabCards(currentTab);
-		const auto it = std::find_if(cards.begin(), cards.end(), [&](const Tool &card) { return card.type == tool.type && card.index == tool.index; });
-		const int slot = static_cast<int>(it - cards.begin()) - ScrollOf(currentTab);
-		if (it != cards.end() && slot >= 0 && slot < VisibleCardCount() && slot < static_cast<int>(NumCardSlotKeys))
-			hotkey = InputName(KeeperAction::CardSlot, static_cast<size_t>(slot));
-	}
+	if (const std::optional<int> slot = SlotOfTool(tool); slot && *slot < static_cast<int>(NumCardSlotKeys))
+		hotkey = InputName(KeeperAction::CardSlot, static_cast<size_t>(*slot));
 	std::string direct;
 	if (tool.type == ToolType::LockDoor)
 		direct = InputName(KeeperAction::LockDoor);
@@ -664,21 +1114,51 @@ void DrawCentred(const Surface &area, ClxSprite sprite, int drop = 0)
 	ClxDraw(area, { x, y }, sprite);
 }
 
+/** Every mustered kind's portrait, made for a card of full width. A narrower card shows its middle. */
 std::array<KindImage, NumLairKinds> cardImages;
+Size cardImageSize;
 
+const KindImage &CardImage(size_t kind)
+{
+	const Size size = CardPortraitSize();
+	// Made for the card's size, which changes with the screen's.
+	if (cardImageSize != size) {
+		cardImages = {};
+		cardImageSize = size;
+	}
+	if (!cardImages[kind].built)
+		cardImages[kind] = MakeKindImage(kind, size.width, size.height);
+	return cardImages[kind];
+}
+
+/** Draws the kind at the bottom middle of `area`, losing its sides if the area is narrower than a full card's. */
 void DrawKindPortrait(const Surface &area, size_t kind)
 {
 	if (kind >= NumLairKinds)
 		return;
-	if (!cardImages[kind].built)
-		cardImages[kind] = MakeKindImage(kind, area.w(), area.h());
-	DrawKindImage(area, cardImages[kind]);
+	const KindImage &image = CardImage(kind);
+	const int offsetX = (area.w() - image.width) / 2;
+	const int offsetY = area.h() - image.height;
+	for (int y = std::max(-offsetY, 0); y < image.height; y++) {
+		const uint8_t *row = &image.pixels[static_cast<size_t>(y) * image.width];
+		for (int x = std::max(-offsetX, 0); x < image.width && offsetX + x < area.w(); x++) {
+			if (row[x] != 0)
+				*area.at(offsetX + x, offsetY + y) = row[x];
+		}
+	}
 }
 
+/** The 56 pixel icon where it fits, otherwise the spell book's 37x38 one. */
 void DrawSpellPortrait(const Surface &area, SpellID spell)
 {
 	SetSpellTrans(SpellType::Spell);
-	DrawLargeSpellIcon(area, { (area.w() - SPLICONLENGTH) / 2, (area.h() + SPLICONLENGTH) / 2 }, spell);
+	if (area.w() >= SPLICONLENGTH && area.h() >= SPLICONLENGTH) {
+		DrawLargeSpellIcon(area, { (area.w() - SPLICONLENGTH) / 2, (area.h() + SPLICONLENGTH) / 2 - 1 }, spell);
+		return;
+	}
+	constexpr int Width = 37;
+	constexpr int Height = 38;
+	DrawSmallSpellIcon(area, { (area.w() - Width) / 2, (area.h() + Height) / 2 - 1 }, spell);
 }
 
 void DrawPortrait(const Surface &area, const Tool &tool)
@@ -707,13 +1187,26 @@ void DrawPortrait(const Surface &area, const Tool &tool)
 	}
 }
 
-void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool hovered)
+/** A solid panel of the strip. Black, so it is told from the keep by its frame. */
+void DrawStripPanel(const Surface &out, const Rectangle &rect)
 {
+	FillRect(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height, 0);
+	DrawFrame(out, rect, PAL16_GRAY + 11);
+	NoteOpaqueUi(rect);
+}
+
+/**
+ * A card is its portrait, the key that picks it and its price. Its name is in the details panel.
+ * A family with more than one tier has a pip for each at the right, the lit one being the tier the card places.
+ */
+void DrawCard(const Surface &out, const Rectangle &rect, const Tool &card, bool hovered)
+{
+	const Tool tool = CardTool(card);
 	const CardText text = DescribeCard(tool);
 	const bool selected = currentTool.type == tool.type && currentTool.index == tool.index;
 
 	FillRect(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height, PAL16_GRAY + 14);
-	const Rectangle portrait { rect.position + Displacement { 2, 2 }, { rect.size.width - 4, PortraitHeight } };
+	const Rectangle portrait { rect.position + Displacement { 2, 2 }, { rect.size.width - 4, CardPortraitSize().height } };
 	FillRect(out, portrait.position.x, portrait.position.y, portrait.size.width, portrait.size.height, 0);
 	DrawPortrait(out.subregion(portrait.position.x, portrait.position.y, portrait.size.width, portrait.size.height), tool);
 
@@ -722,25 +1215,23 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &tool, bool 
 		DrawHalfTransparentRectTo(out, portrait.position.x, portrait.position.y, portrait.size.width, portrait.size.height);
 		DrawHalfTransparentRectTo(out, portrait.position.x, portrait.position.y, portrait.size.width, portrait.size.height);
 	}
-	if (tool.type == ToolType::Spell && State.spellCooldown[MyPlayerId] > 0) {
-		// C&C-style recharge: a shade that drains away as the spell recovers.
-		const int cooldownTicks = SpellKinds[tool.index].cooldownTicks;
-		const int shade = portrait.size.height * std::min(State.spellCooldown[MyPlayerId], cooldownTicks) / std::max(cooldownTicks, 1);
-		DrawHalfTransparentRectTo(out, portrait.position.x, portrait.position.y, portrait.size.width, shade);
+
+	if (IsLairTool(card)) {
+		const std::vector<size_t> tiers = FamilyTiers(FamilyOfKind(card.index));
+		// The highest tier's pip is at the top, as it is in the pop-up.
+		for (size_t i = 0; tiers.size() > 1 && i < tiers.size(); i++) {
+			const size_t kind = tiers[tiers.size() - 1 - i];
+			FillRect(out, portrait.position.x + portrait.size.width - 4, portrait.position.y + 1 + static_cast<int>(i) * 4, 3, 3, kind == tool.index ? PAL16_YELLOW + 2 : PAL16_GRAY + 9);
+		}
 	}
 
-	DrawString(out, FitText(text.hotkey, portrait.size.width - 6), { portrait.position + Displacement { 3, 1 }, { portrait.size.width - 6, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	// A two-word name too wide for the card takes two lines, the first over the portrait: cut short, "Fallen Blade" and "Fallen" read the same.
-	std::string_view nameLine = text.name;
-	if (const size_t space = nameLine.find(' '); space != std::string_view::npos && GetLineWidth(nameLine) > rect.size.width - 2) {
-		DrawString(out, FitText(nameLine.substr(0, space), rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight - 9 }, { rect.size.width, 12 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite | UiFlags::Outlined });
-		nameLine.remove_prefix(space + 1);
-	}
-	DrawString(out, FitText(nameLine, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 3 }, { rect.size.width, 12 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorWhite | UiFlags::Outlined });
-	DrawString(out, FitText(text.cost, rect.size.width - 2), { rect.position + Displacement { 0, PortraitHeight + 15 }, { rect.size.width, 12 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
+	DrawString(out, FitText(text.hotkey, portrait.size.width - 2), { portrait.position + Displacement { 1, 0 }, { portrait.size.width - 2, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
+	// A narrow card has room for the number, if not for its "g".
+	std::string cost = text.cost;
+	if (GetLineWidth(cost) > rect.size.width - 2 && !cost.empty() && cost.back() == 'g')
+		cost.pop_back();
+	DrawString(out, FitText(cost, rect.size.width - 2), { { rect.position.x, rect.position.y + rect.size.height - CardPriceRowHeight - 1 }, { rect.size.width, 12 } },
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::Outlined | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 
 	uint8_t frame = PAL16_GRAY + 8;
 	if (selected)
@@ -762,32 +1253,61 @@ void DrawArrow(const Surface &out, const Rectangle &rect, std::string_view glyph
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (enabled ? UiFlags::ColorGold : UiFlags::ColorBlack) });
 }
 
-void DrawCardBar(const Surface &out)
+void DrawTabs(const Surface &out)
 {
-	for (size_t i = 0; i < NumBarTabs; i++) {
+	const std::vector<BarPage> &all = Pages();
+	const TabStyle style = CurrentTabStyle();
+	for (size_t i = 0; i < all.size(); i++) {
 		const Rectangle tab = TabRect(i);
-		const bool selected = static_cast<size_t>(currentTab) == i;
+		if (tab.size.width == 0)
+			continue;
+		const bool selected = currentPage == i;
 		FillRect(out, tab.position.x, tab.position.y, tab.size.width, tab.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		DrawFrame(out, tab, selected ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
-		// The longest name loses its second half before it would be cut.
-		const std::string_view tabName = GetLineWidth(BarTabNames[i]) > tab.size.width - 2 ? BarTabNames[i].substr(0, BarTabNames[i].find(' ')) : BarTabNames[i];
-		DrawString(out, FitText(tabName, tab.size.width - 2), { tab.position + Displacement { 0, 2 }, { tab.size.width, 14 } },
+		NoteOpaqueUi(tab);
+		DrawString(out, PageName(all[i], style == TabStyle::Full), { tab.position + Displacement { 0, 1 }, { tab.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (selected ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
-
-	const std::vector<Tool> &cards = TabCards(currentTab);
-	const int first = ScrollOf(currentTab);
-	const std::optional<Tool> hovered = CardAt(UiMouse());
-	for (int slot = 0; slot < VisibleCardCount() && first + slot < static_cast<int>(cards.size()); slot++) {
-		const Tool &card = cards[first + slot];
-		DrawCard(out, CardRect(slot), card, hovered && hovered->type == card.type && hovered->index == card.index);
+	if (style == TabStyle::Stepper) {
+		for (const int direction : { -1, 1 }) {
+			const Rectangle arrow = TabStepRect(direction);
+			FillRect(out, arrow.position.x, arrow.position.y, arrow.size.width, arrow.size.height, PAL16_GRAY + 14);
+			DrawFrame(out, arrow, Contains(arrow, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
+			NoteOpaqueUi(arrow);
+			DrawString(out, direction < 0 ? "<" : ">", { arrow.position + Displacement { 0, 1 }, { arrow.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+		}
 	}
-	DrawArrow(out, LeftArrowRect(), "<", first > 0);
-	DrawArrow(out, RightArrowRect(), ">", first < MaxScroll(currentTab));
+}
+
+/** The tabs, and the current page's cards on a panel no wider than they are. */
+void DrawCardBar(const Surface &out)
+{
+	DrawTabs(out);
+
+	const Rectangle panel = CardPanelRect();
+	FillRect(out, panel.position.x, panel.position.y, panel.size.width, panel.size.height, 0);
+	NoteOpaqueUi(panel);
+
+	const BarPage &page = Page();
+	const int first = Scroll();
+	const std::optional<Tool> hovered = CardAt(UiMouse());
+	for (int slot = 0; slot < ShownCardCount(); slot++) {
+		const Tool &card = page.cards[first + slot];
+		const Rectangle rect = CardRect(slot);
+		// Another dungeon's families begin here.
+		if (slot > 0 && page.divider[first + slot])
+			DrawVerticalLine(out, { rect.position.x - (CardGap + DividerWidth + 1) / 2, rect.position.y + 2 }, rect.size.height - 4, PAL16_GRAY + 5);
+		DrawCard(out, rect, card, hovered && IsCardOf(*hovered, card));
+	}
+	if (PageScrolls(page)) {
+		DrawArrow(out, LeftArrowRect(), "<", first > 0);
+		DrawArrow(out, RightArrowRect(), ">", first < MaxScroll());
+	}
 }
 
 void DrawSpellBar(const Surface &out)
 {
+	DrawStripPanel(out, SpellPanelRect());
 	const std::optional<size_t> hovered = SpellSlotAt(UiMouse());
 	for (size_t i = 0; i < NumSpellSlots; i++) {
 		const Rectangle slot = SpellSlotRect(i);
@@ -805,14 +1325,19 @@ void DrawSpellBar(const Surface &out)
 			if (!text.ready)
 				DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, icon.size.height);
 			if (State.spellCooldown[MyPlayerId] > 0) {
+				// C&C-style recharge: a shade that drains away as the spell recovers.
 				const int cooldownTicks = SpellKinds[*spell].cooldownTicks;
 				const int shade = icon.size.height * std::min(State.spellCooldown[MyPlayerId], cooldownTicks) / std::max(cooldownTicks, 1);
 				DrawHalfTransparentRectTo(out, icon.position.x, icon.position.y, icon.size.width, shade);
 			}
-			DrawString(out, std::to_string(SpellManaCost(*spell)), { icon.position + Displacement { 0, icon.size.height - 14 }, { icon.size.width - 2, 14 } },
+			DrawString(out, std::to_string(SpellManaCost(*spell)), { icon.position + Displacement { 0, icon.size.height - 13 }, { icon.size.width - 1, 14 } },
 			    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (text.ready ? UiFlags::ColorBlue : UiFlags::ColorRed) });
 		}
-		DrawString(out, InputName(KeeperAction::Spell, i), { icon.position + Displacement { 2, 1 }, { icon.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
+		// A controller's "RT+X" is wider than a slot: RT is what brings the names up, so the button says enough.
+		std::string key = InputName(KeeperAction::Spell, i);
+		if (const size_t plus = key.rfind('+'); plus != std::string::npos && plus + 1 < key.size() && GetLineWidth(key) > icon.size.width - 2)
+			key.erase(0, plus + 1);
+		DrawString(out, key, { icon.position + Displacement { 1, 0 }, { icon.size.width - 2, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
 
 		uint8_t frame = PAL16_GRAY + 8;
 		if (armed)
@@ -825,12 +1350,6 @@ void DrawSpellBar(const Surface &out)
 		if (armed)
 			DrawFrame(out, { slot.position + Displacement { 1, 1 }, { slot.size.width - 2, slot.size.height - 2 } }, PAL16_YELLOW + 2);
 	}
-}
-
-Rectangle SellButtonRect()
-{
-	const Rectangle info = InfoRect();
-	return { { info.position.x + 6, info.position.y + info.size.height - 28 }, { info.size.width - 12, 18 } };
 }
 
 /** The selected structure, when exactly one is selected. */
@@ -856,15 +1375,6 @@ const Monster *LairMonster(size_t slot)
 	return nullptr;
 }
 
-void DrawSellButton(const Surface &out, const std::string &label, bool canSell)
-{
-	const Rectangle button = SellButtonRect();
-	FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, PAL16_RED + 12);
-	DrawFrame(out, button, Contains(button, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_GRAY + 8);
-	DrawString(out, label, { button.position + Displacement { 0, 2 }, { button.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (canSell ? UiFlags::ColorGold : UiFlags::ColorBlack) });
-}
-
 /** "Del: " in front of a label, or nothing if selling has no key bound. */
 std::string SellKeyPrefix()
 {
@@ -872,69 +1382,261 @@ std::string SellKeyPrefix()
 	return key.empty() ? std::string() : key + ": ";
 }
 
-/** Info panel for several selected structures: how many of what, and what selling them all pays. */
-void DrawGroupPanel(const Surface &out, Point textPos, int textWidth)
+// ---- details panel ---------------------------------------------------------------
+//
+// Up only while there is something to say: above the card, spell slot or part of the strip under the
+// mouse, above the card of the tool in hand, or at the strip's right end for what is selected in the
+// keep, which is the one that has a button.
+
+struct InfoContent {
+	std::string title;
+	/** At the title's right: the key. */
+	std::string corner;
+	/** Under the title: a price or a state. */
+	std::string second;
+	UiFlags secondColor = UiFlags::ColorWhite;
+	std::string body;
+	/** The sell button's label, for a selection. */
+	std::string sell;
+	bool canSell = false;
+	/** What the panel is above. */
+	Rectangle anchor;
+	/** The panel goes beside this instead: the tier pop-up, which is where it would be. */
+	std::optional<Rectangle> beside;
+	/** The panel goes under this instead: the status line at the top of the screen. */
+	std::optional<Rectangle> below;
+	/** An orb's panel clears the part of it that stands above the strip. */
+	int raise = 0;
+};
+
+InfoContent CardInfo(const Tool &tool, const Rectangle &anchor)
+{
+	const CardText text = DescribeCard(tool);
+	InfoContent info;
+	info.title = text.name;
+	if (!text.hotkey.empty())
+		info.corner = fmt::format("[{}]", text.hotkey);
+	info.second = text.cost;
+	info.secondColor = text.ready ? UiFlags::ColorGold : UiFlags::ColorRed;
+	info.body = text.description;
+	if (IsLairTool(tool)) {
+		const std::vector<size_t> tiers = FamilyTiers(FamilyOfKind(tool.index));
+		if (tiers.size() > 1) {
+			const size_t tier = static_cast<size_t>(std::find(tiers.begin(), tiers.end(), tool.index) - tiers.begin()) + 1;
+			info.body += IsPadInUse()
+			    ? fmt::format("\nTier {} of {}. {} on the card: the others.", tier, tiers.size(), InputName(PadAction::Order))
+			    : fmt::format("\nTier {} of {}. Wheel or right-click the card: the others.", tier, tiers.size());
+		}
+	}
+	info.anchor = anchor;
+	return info;
+}
+
+/** Several selected structures: how many of what, and what selling them all pays. */
+InfoContent GroupInfo(const Rectangle &anchor)
 {
 	const std::vector<StructureRef> &selected = Selection();
-	DrawString(out, fmt::format("{} selected", selected.size()), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-
+	InfoContent info;
+	info.title = fmt::format("{} selected", selected.size());
 	std::vector<int> kinds(BuildKinds.size());
-	bool canSell = false;
 	for (const StructureRef &ref : selected) {
 		if (ref.type == StructureType::Lair)
 			kinds[State.lairs[ref.slot].kind]++;
-		canSell = canSell || CanSell(ref);
+		info.canSell = info.canSell || CanSell(ref);
 	}
 	// The orders first: it is the list of what's selected that can run out of room.
-	std::string summary = "Right-click: rally. Shift: waypoint.\n";
+	info.body = "Right-click: rally. Shift: waypoint.\n";
 	bool firstKind = true;
 	for (size_t i = 0; i < kinds.size(); i++) {
 		if (kinds[i] > 0) {
-			summary += fmt::format("{}{} {}", firstKind ? "" : ", ", kinds[i], BuildKinds[i].name);
+			info.body += fmt::format("{}{} {}", firstKind ? "" : ", ", kinds[i], BuildKinds[i].name);
 			firstKind = false;
 		}
 	}
 	if (IsPadInUse())
-		summary += fmt::format("\n{}: rally around a point. {}: add a waypoint.", InputName(PadAction::Order), InputName(PadAction::Waypoint));
-	DrawString(out, FitLines(summary, textWidth, 70, 13), { textPos + Displacement { 0, 14 }, { textWidth, 70 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
-	DrawSellButton(out, fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : ""), canSell);
+		info.body += fmt::format("\n{}: rally around a point. {}: add a waypoint.", InputName(PadAction::Order), InputName(PadAction::Waypoint));
+	info.sell = fmt::format("{}sell all for {}g{}", SellKeyPrefix(), SelectionRefund(), State.phase == Phase::Raid ? " (half)" : "");
+	info.anchor = anchor;
+	return info;
 }
 
-/** Info panel for a selected structure: its state, rally point and the sell button. */
-void DrawStructurePanel(const Surface &out, StructureRef ref, Point textPos, int textWidth)
+/** A selected structure: its state, its orders and the sell button. */
+InfoContent StructureInfo(StructureRef ref, const Rectangle &anchor)
 {
-	DrawString(out, StructureName(ref), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	std::string state;
-	std::string help;
+	InfoContent info;
+	info.title = StructureName(ref);
 	switch (ref.type) {
 	case StructureType::Lair: {
 		const Lair &lair = State.lairs[ref.slot];
 		if (lair.summonTicks > 0) {
-			state = "Summoning...";
+			info.second = "Summoning...";
 		} else if (const Monster *monster = LairMonster(ref.slot); monster != nullptr) {
 			const std::string_view duty = lair.routeCount > 0 ? "On patrol" : (lair.hasRally ? "At rally point" : "Guarding lair");
-			state = fmt::format("{} ({}%)", duty, monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
+			info.second = fmt::format("{} ({}%)", duty, monster->maxHitPoints > 0 ? 100 * monster->hitPoints / monster->maxHitPoints : 0);
 		} else {
-			state = "Slain: returns after the raid";
+			info.second = "Slain: returns after the raid";
 		}
-		help = fmt::format("Pop {}. {}: rally point. {}: waypoint.{}", BuildKinds[lair.kind].supply, InputName(PadAction::Order), IsPadInUse() ? InputName(PadAction::Waypoint) : InputName(PadAction::Modifier), lair.hasRally || lair.routeCount > 0 ? " On lair: clear." : "");
+		info.body = fmt::format("Pop {}. {}: rally point. {}: waypoint.{}", BuildKinds[lair.kind].supply, InputName(PadAction::Order), IsPadInUse() ? InputName(PadAction::Waypoint) : InputName(PadAction::Modifier), lair.hasRally || lair.routeCount > 0 ? " On lair: clear." : "");
 		break;
 	}
 	case StructureType::Trap:
-		state = State.traps[ref.slot].cooldown > 0 ? "Rearming" : "Armed";
+		info.second = State.traps[ref.slot].cooldown > 0 ? "Rearming" : "Armed";
 		break;
 	case StructureType::Bait:
-		state = fmt::format("Can fool {} more heroes", State.baits[ref.slot].uses);
+		info.second = fmt::format("Can fool {} more heroes", State.baits[ref.slot].uses);
 		break;
 	case StructureType::Lock:
-		state = fmt::format("Holds for {} more blows", State.locks[ref.slot].strength);
+		info.second = fmt::format("Holds for {} more blows", State.locks[ref.slot].strength);
 		break;
 	}
-	DrawString(out, state, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	if (!help.empty())
-		DrawString(out, FitLines(help, textWidth, 52, 13), { textPos + Displacement { 0, 32 }, { textWidth, 52 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+	info.sell = fmt::format("{}sell for {}g{}", SellKeyPrefix(), RefundFor(ref), State.phase == Phase::Raid ? " (half)" : "");
+	info.canSell = CanSell(ref);
+	info.anchor = anchor;
+	return info;
+}
 
-	DrawSellButton(out, fmt::format("{}sell for {}g{}", SellKeyPrefix(), RefundFor(ref), State.phase == Phase::Raid ? " (half)" : ""), CanSell(ref));
+/** Where the tool's card or spell slot is on the strip, if it is on show. */
+std::optional<Rectangle> ToolAnchor(const Tool &tool)
+{
+	if (tool.type == ToolType::Spell) {
+		for (size_t slot = 0; slot < NumSpellSlots; slot++) {
+			if (equippedSpells[slot] == tool.index)
+				return SpellSlotRect(slot);
+		}
+		return std::nullopt;
+	}
+	if (const std::optional<int> slot = SlotOfTool(tool); slot)
+		return CardRect(*slot);
+	return std::nullopt;
+}
+
+/** What the details panel has to say now, if anything: the thing under the mouse, else the tool in hand, else the selection. */
+std::optional<InfoContent> CurrentInfo()
+{
+	const Point mouse = UiMouse();
+	// The tier pop-up is where a card's details would be: they go beside it, for the tier under the mouse or the one in use.
+	if (tierPopup.open && drawnHud.popup) {
+		size_t kind = FamilyKind(tierPopup.family);
+		for (const auto &[row, rowKind] : drawnHud.tiers) {
+			if (Contains(row, mouse))
+				kind = rowKind;
+		}
+		InfoContent info = CardInfo({ ToolType::Build, kind }, *drawnHud.popup);
+		info.beside = drawnHud.popup;
+		return info;
+	}
+	if (const std::optional<Tool> card = CardAt(mouse); card)
+		return CardInfo(CardTool(*card), ToolAnchor(*card).value_or(CardPanelRect()));
+	if (const std::optional<size_t> slot = SpellSlotAt(mouse); slot) {
+		if (equippedSpells[*slot])
+			return CardInfo({ ToolType::Spell, *equippedSpells[*slot] }, SpellSlotRect(*slot));
+		return std::nullopt;
+	}
+	if (IsOverOrb(false, mouse)) {
+		InfoContent info;
+		info.title = "Keep Lord";
+		if (const Monster *boss = FindBoss(); boss != nullptr) {
+			info.second = fmt::format("{} of {} life", boss->hitPoints >> 6, boss->maxHitPoints >> 6);
+			info.secondColor = UiFlags::ColorRed;
+		} else if (State.bossDown) {
+			info.second = "Down";
+			info.secondColor = UiFlags::ColorRed;
+		}
+		info.body = "If he falls, a hero opens a portal, and the keep is lost if any hero escapes through it. Wipe out the party first and he rises again.";
+		info.anchor = OrbRect(false);
+		info.raise = OrbPoke();
+		return info;
+	}
+	if (const std::optional<HudArea> area = HudAreaAt(mouse); area) {
+		const HudHint hint = DescribeHudArea(*area);
+		InfoContent info;
+		info.title = hint.title;
+		info.body = hint.text;
+		if (*area == HudArea::Mana) {
+			info.second = fmt::format("{} of {}", State.mana[MyPlayerId] / ManaScale, MaxMana);
+			info.secondColor = UiFlags::ColorBlue;
+		}
+		// A dungeon's tab says which dungeon: on a narrow bar its name may not be on show.
+		for (size_t i = 0; i < Pages().size(); i++) {
+			if (Pages()[i].group && Contains(TabRect(i), mouse))
+				info.title = fmt::format("{}: {}", hint.title, GroupName(*Pages()[i].group));
+		}
+		// Over the mouse, or under it for the line at the top.
+		info.anchor = { { mouse.x, HudRect().position.y }, { 1, 1 } };
+		if (drawnHud.status && Contains(*drawnHud.status, mouse))
+			info.below = drawnHud.status;
+		if (*area == HudArea::Mana)
+			info.raise = OrbPoke();
+		return info;
+	}
+	if (currentTool.type != ToolType::None)
+		return CardInfo(currentTool, ToolAnchor(currentTool).value_or(CardPanelRect()));
+	// A selection's panel has a button, so it stays in one place: over the spells.
+	if (Selection().size() > 1)
+		return GroupInfo(SpellPanelRect());
+	if (const std::optional<StructureRef> selected = SelectedStructure(); selected)
+		return StructureInfo(*selected, SpellPanelRect());
+	return std::nullopt;
+}
+
+/** Draws the details panel above the strip, as high as what it says. */
+void DrawInfoPanel(const Surface &out)
+{
+	const std::optional<InfoContent> info = CurrentInfo();
+	if (!info)
+		return;
+	constexpr int Padding = 6;
+	constexpr int LineHeight = 13;
+	constexpr int SellHeight = 18;
+	const int textWidth = InfoWidth - 2 * Padding;
+	const int top = HudRect().position.y;
+	const std::string body = info->body.empty() ? std::string() : FitLines(info->body, textWidth, std::max(top - 80, LineHeight), LineHeight);
+	int height = 2 * Padding + 14;
+	if (!info->second.empty())
+		height += 14;
+	if (!body.empty())
+		height += 3 + CountLinesOfText(body) * LineHeight;
+	if (!info->sell.empty())
+		height += 4 + SellHeight;
+
+	int x = std::clamp(info->anchor.position.x + info->anchor.size.width / 2 - InfoWidth / 2, 2, std::max(out.w() - InfoWidth - 2, 2));
+	// Between the orbs, which stand above the strip, unless it is an orb's own.
+	if (info->raise == 0 && OrbRect(true).position.x - OrbRect(false).position.x - OrbRect(false).size.width >= InfoWidth + 4)
+		x = std::clamp(x, OrbRect(false).position.x + OrbRect(false).size.width + 2, OrbRect(true).position.x - InfoWidth - 2);
+	if (info->beside) {
+		const int right = info->beside->position.x + info->beside->size.width + 2;
+		x = right + InfoWidth <= out.w() ? right : std::max(info->beside->position.x - InfoWidth - 2, 0);
+	}
+	const Rectangle panel { { x, info->below ? info->below->position.y + info->below->size.height + 2 : std::max(top - 4 - height - info->raise, 0) }, { InfoWidth, height } };
+	FillRect(out, panel.position.x, panel.position.y, panel.size.width, panel.size.height, 0);
+	DrawFrame(out, panel, PAL16_GRAY + 10);
+	NoteOpaqueUi(panel);
+	drawnHud.info = panel;
+
+	Point at = panel.position + Displacement { Padding, Padding - 1 };
+	const int cornerWidth = info->corner.empty() ? 0 : GetLineWidth(info->corner) + 6;
+	DrawString(out, FitText(info->title, textWidth - cornerWidth), { at, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+	if (!info->corner.empty())
+		DrawString(out, info->corner, { at, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
+	at.y += 14;
+	if (!info->second.empty()) {
+		DrawString(out, FitText(info->second, textWidth), { at, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | info->secondColor });
+		at.y += 14;
+	}
+	if (!body.empty()) {
+		at.y += 3;
+		const int bodyHeight = CountLinesOfText(body) * LineHeight;
+		DrawString(out, body, { at, { textWidth, bodyHeight } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = LineHeight });
+		at.y += bodyHeight;
+	}
+	if (!info->sell.empty()) {
+		const Rectangle button { { at.x, at.y + 4 }, { textWidth, SellHeight } };
+		FillRect(out, button.position.x, button.position.y, button.size.width, button.size.height, PAL16_RED + 12);
+		DrawFrame(out, button, Contains(button, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_GRAY + 8);
+		DrawString(out, FitText(info->sell, button.size.width - 4), { button.position + Displacement { 0, 2 }, { button.size.width, 14 } },
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info->canSell ? UiFlags::ColorGold : UiFlags::ColorBlack) });
+		drawnHud.sell = button;
+	}
 }
 
 /** Sells everything selected (the sell key or button). */
@@ -953,58 +1655,63 @@ void SellSelected()
 	ClearSelection();
 }
 
-/** Right-hand panel: details of the hovered (or selected) card, otherwise the controls. */
-void DrawInfoPanel(const Surface &out)
-{
-	const Rectangle info = InfoRect();
-	FillRect(out, info.position.x, info.position.y + 4, info.size.width, info.size.height - 8, PAL16_GRAY + 14);
-	DrawFrame(out, { info.position + Displacement { 0, 4 }, { info.size.width, info.size.height - 8 } }, PAL16_GRAY + 10);
-	const Point textPos = info.position + Displacement { 6, 8 };
-	const int textWidth = info.size.width - 12;
+// ---- tier pop-up ------------------------------------------------------------------
+//
+// A family's tiers, in a list that stands on its card: highest at the top. Opened by the wheel or a
+// right click on the card, or by the card's key pressed again; a click on a row picks that tier.
 
-	std::optional<Tool> shown = CardAt(UiMouse());
-	if (!shown) {
-		if (const std::optional<size_t> slot = SpellSlotAt(UiMouse()); slot && equippedSpells[*slot])
-			shown = Tool { ToolType::Spell, *equippedSpells[*slot] };
-	}
-	if (!shown) {
-		if (const std::optional<HudArea> area = HudAreaAt(UiMouse()); area) {
-			const HudHint hint = DescribeHudArea(*area);
-			DrawString(out, FitText(hint.title, textWidth), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-			DrawString(out, FitLines(hint.text, textWidth, info.size.height - 28, 13), { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
-			return;
-		}
-	}
-	if (!shown && currentTool.type != ToolType::None)
-		shown = currentTool;
-	if (!shown) {
-		if (Selection().size() > 1) {
-			DrawGroupPanel(out, textPos, textWidth);
-			return;
-		}
-		if (const std::optional<StructureRef> selected = SelectedStructure(); selected) {
-			DrawStructurePanel(out, *selected, textPos, textWidth);
-			return;
-		}
-		DrawString(out, "Keeper's orders", { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-		const std::string controls = IsPadInUse()
-		    ? fmt::format("{}: the cards. {}: pick one, then place it.\n{}: aim  {}: move\n{}: gate or vault  {}: zoom\n{}: possess  {}: menu",
-		          InputName(PadAction::Navigate), InputName(PadAction::Confirm), InputName(PadAction::MoveCursor), InputName(PadAction::MoveCamera), InputName(PadAction::Jump), InputName(PadAction::Zoom), InputName(PadAction::Possess), InputName(PadAction::Menu))
-		    : fmt::format("Pick a card, then click the keep. Click a monster or hero for more. Drag: select.\n{}{}{}{}: move\n{}: gate  {}: vault\n{}: possess  {}: help",
-		          KeyLabel(KeeperAction::CameraUp), KeyLabel(KeeperAction::CameraLeft), KeyLabel(KeeperAction::CameraDown), KeyLabel(KeeperAction::CameraRight),
-		          KeyLabel(KeeperAction::CenterEntrance), KeyLabel(KeeperAction::CenterVault), KeyLabel(KeeperAction::Possess), KeyLabel(KeeperAction::Help));
-		DrawString(out, WordWrapString(controls, textWidth),
-		    { textPos + Displacement { 0, 16 }, { textWidth, info.size.height - 28 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+void DrawTierPopup(const Surface &out)
+{
+	if (!tierPopup.open)
+		return;
+	const std::vector<size_t> tiers = FamilyTiers(tierPopup.family);
+	const size_t current = FamilyKind(tierPopup.family);
+	const std::optional<Rectangle> card = ToolAnchor({ ToolType::Build, current });
+	if (!card || tiers.size() < 2) {
+		CloseTierPopup();
 		return;
 	}
-	const CardText text = DescribeCard(*shown);
-	DrawString(out, FitText(text.name, textWidth * 2 / 3), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	if (!text.hotkey.empty())
-		DrawString(out, FitText(fmt::format("[{}]", text.hotkey), textWidth / 3), { textPos, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::ColorWhite });
-	DrawString(out, text.cost, { textPos + Displacement { 0, 14 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
-	const int textBottom = info.position.y + info.size.height - 8 - (textPos.y + 32);
-	DrawString(out, FitLines(text.description, textWidth, textBottom, 13), { textPos + Displacement { 0, 32 }, { textWidth, textBottom } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+	const Size portrait = CardPortraitSize();
+	const int rowHeight = std::max(portrait.height, 28) + 2;
+	const int height = static_cast<int>(tiers.size()) * rowHeight + 2;
+	const Rectangle popup { { std::clamp(card->position.x, 0, std::max(out.w() - TierPopupWidth, 0)), std::max(card->position.y - height, 0) }, { TierPopupWidth, height } };
+
+	// It goes when the mouse leaves it and its card, or, if the mouse never came, a while after the last step.
+	const Point mouse = UiMouse();
+	const Rectangle cardZone { card->position + Displacement { -2, -2 }, { card->size.width + 4, card->size.height + 4 } };
+	if (Contains(popup, mouse) || Contains(cardZone, mouse)) {
+		tierPopup.mouseSeen = true;
+	} else if (tierPopup.mouseSeen || SDL_GetTicks() > tierPopup.until) {
+		CloseTierPopup();
+		return;
+	}
+
+	FillRect(out, popup.position.x, popup.position.y, popup.size.width, popup.size.height, 0);
+	DrawFrame(out, popup, PAL16_YELLOW + 4);
+	NoteOpaqueUi(popup);
+	drawnHud.popup = popup;
+	for (size_t i = 0; i < tiers.size(); i++) {
+		const size_t kind = tiers[tiers.size() - 1 - i];
+		const Rectangle row { popup.position + Displacement { 1, 1 + static_cast<int>(i) * rowHeight }, { popup.size.width - 2, rowHeight } };
+		const CardText text = DescribeCard({ ToolType::Build, kind });
+		const bool hovered = Contains(row, mouse);
+		if (kind == current)
+			FillRect(out, row.position.x, row.position.y, row.size.width, row.size.height, PAL16_GRAY + 14);
+		const Rectangle image { row.position + Displacement { 2, row.size.height - 1 - portrait.height }, portrait };
+		DrawKindPortrait(out.subregion(image.position.x, image.position.y, image.size.width, image.size.height), kind);
+		if (!text.ready) {
+			DrawHalfTransparentRectTo(out, image.position.x, image.position.y, image.size.width, image.size.height);
+			DrawHalfTransparentRectTo(out, image.position.x, image.position.y, image.size.width, image.size.height);
+		}
+		const int textLeft = image.position.x + image.size.width + 4;
+		const int textWidth = row.position.x + row.size.width - 4 - textLeft;
+		const int textTop = row.position.y + (row.size.height - 27) / 2;
+		DrawString(out, FitText(text.name, textWidth), { { textLeft, textTop }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (kind == current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
+		DrawString(out, text.cost, { { textLeft, textTop + 13 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
+		if (kind == current || hovered)
+			DrawFrame(out, row, kind == current ? PAL16_YELLOW + 2 : PAL16_GRAY);
+		drawnHud.tiers.emplace_back(row, kind);
+	}
 }
 
 // ---- world overlays ----------------------------------------------------------
@@ -1103,7 +1810,7 @@ void DrawWorldLabel(const Surface &out, Point tile, std::string_view text, UiFla
 	const Point base = GetScreenPosition(tile);
 	const Point anchor = base + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
 	const Point at { anchor.x * zoom - WorldLabelWidth / 2, anchor.y * zoom - 4 - raise * zoom };
-	if (at.y < 0 || at.y + 14 >= ScreenHudTop())
+	if (at.y < 0 || at.y + 14 >= out.h())
 		return;
 	DrawString(out, text, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color | UiFlags::Outlined });
 }
@@ -1117,7 +1824,7 @@ void NoteRefusalLabel(Point tile, std::string_view reason)
 		refusalLabel = { tile, std::string(reason) };
 }
 
-void DrawRefusalLabel(const Surface &out, int hudTop)
+void DrawRefusalLabel(const Surface &out, int bottom)
 {
 	if (!refusalLabel)
 		return;
@@ -1125,7 +1832,7 @@ void DrawRefusalLabel(const Surface &out, int hudTop)
 	const int scale = UiScale();
 	const Point anchor = GetScreenPosition(refusalLabel->first) + Displacement { TILE_WIDTH / 2, -TILE_HEIGHT };
 	const Point at { anchor.x * ZoomFactor() / scale - WorldLabelWidth / 2, anchor.y * ZoomFactor() / scale - 4 };
-	if (at.y >= 0 && at.y + 14 < hudTop)
+	if (at.y >= 0 && at.y + 14 < bottom)
 		DrawString(out, refusalLabel->second, { at, { WorldLabelWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed | UiFlags::Outlined });
 	refusalLabel = std::nullopt;
 }
@@ -1311,7 +2018,7 @@ void DrawBoxDrag(const Surface &out)
 	const std::optional<Rectangle> box = BoxDragRect(MousePosition, cameraX, cameraY, ZoomFactor());
 	if (!box)
 		return;
-	const int maxY = ScreenHudTop();
+	const int maxY = out.h();
 	const Point topLeft = box->position;
 	const Point topRight = topLeft + Displacement { box->size.width - 1, 0 };
 	const Point bottomLeft = topLeft + Displacement { 0, box->size.height - 1 };
@@ -1444,10 +2151,10 @@ void DrawRouteLine(const Surface &out, const std::vector<Point> &route, uint8_t 
 		const Point to = TileCenter(route[i + 1]);
 		// Offsets on both axes: routes run in every direction on the screen.
 		for (const Displacement edge : { Displacement { -2, 0 }, Displacement { 2, 0 }, Displacement { 0, -2 }, Displacement { 0, 2 } })
-			DrawLine(out, from + edge, to + edge, 0, ScreenHudTop());
+			DrawLine(out, from + edge, to + edge, 0, out.h());
 		const bool marching = !dashed && (i + RouteMarchSpacing - march) % RouteMarchSpacing == 0;
 		for (const Displacement body : { Displacement { -1, 0 }, Displacement { 1, 0 }, Displacement { 0, -1 }, Displacement { 0, 1 }, Displacement { 0, 0 } })
-			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, ScreenHudTop());
+			DrawLine(out, from + body, to + body, marching ? PAL16_GRAY : color, out.h());
 	}
 }
 
@@ -1549,6 +2256,9 @@ void SelectTool(ToolType type, size_t index)
 		return;
 	}
 	currentTool = { type, index };
+	// A lair in hand is the tier its family's card places from now on.
+	if (IsLairTool(currentTool))
+		familyTier[static_cast<size_t>(FamilyOfKind(index))] = static_cast<int>(index);
 	ClearSelection();
 }
 
@@ -1615,6 +2325,68 @@ void ActivateCard(const Tool &card)
 	} else {
 		SelectTool(card.type, card.index);
 	}
+}
+
+/** Takes this kind in hand, as its family's tier. Unlike a card, never puts it back. */
+void ArmKind(size_t kind)
+{
+	currentTool = {};
+	SelectTool(ToolType::Build, kind);
+}
+
+/**
+ * Moves a family's card to its next tier up or down, and shows the pop-up. The new tier is taken in hand
+ * if `arm`, or if the family already was: what is in hand is always what its card shows.
+ */
+void StepTier(KindFamily family, int delta, bool wrap, bool arm)
+{
+	const std::vector<size_t> tiers = FamilyTiers(family);
+	if (tiers.size() < 2)
+		return;
+	const int count = static_cast<int>(tiers.size());
+	const int at = static_cast<int>(std::find(tiers.begin(), tiers.end(), FamilyKind(family)) - tiers.begin());
+	const int next = wrap ? (at + delta + count) % count : std::clamp(at + delta, 0, count - 1);
+	const size_t kind = tiers[next];
+	familyTier[static_cast<size_t>(family)] = static_cast<int>(kind);
+	OpenTierPopup(family);
+	if (arm || (IsLairTool(currentTool) && FamilyOfKind(currentTool.index) == family))
+		ArmKind(kind);
+}
+
+/** A row of the tier pop-up was clicked. */
+void PickTier(size_t kind)
+{
+	tierPicks++;
+	ArmKind(kind);
+	CloseTierPopup();
+}
+
+bool HasTiers(const Tool &card)
+{
+	return IsLairTool(card) && FamilyTiers(FamilyOfKind(card.index)).size() > 1;
+}
+
+/** A card was clicked. With its family's pop-up open that is a choice, so the tier is taken in hand, never put back. */
+void ClickCard(const Tool &card)
+{
+	const Tool tool = CardTool(card);
+	if (IsLairTool(card) && tierPopup.open && tierPopup.family == FamilyOfKind(card.index)) {
+		PickTier(tool.index);
+		return;
+	}
+	CloseTierPopup();
+	ActivateCard(tool);
+}
+
+/** A card's key was pressed. Pressed again with the family in hand, it steps down through the tiers and round. */
+void PressCardKey(const Tool &card)
+{
+	if (HasTiers(card) && IsCardOf(card, currentTool)) {
+		StepTier(FamilyOfKind(card.index), -1, /*wrap=*/true, /*arm=*/true);
+		return;
+	}
+	CloseTierPopup();
+	ActivateCard(CardTool(card));
 }
 
 /** Shift+right-click with lairs selected: add a waypoint to each one's patrol, spread out like a rally. */
@@ -1770,12 +2542,12 @@ bool TryCastSpell(size_t index, Point tile)
 	return true;
 }
 
-/** True if the mouse is over the HUD or one of the panels floating above it. */
+/** True if the mouse is over one of the strip's panels or a panel floating above it: false over the keep between them. */
 bool IsMouseOverUi()
 {
-	if (UiMouse().y >= HudRect().position.y || SpellSlotAt(UiMouse()) || LobbyIsMouseOver(UiMouse(), SpellBarRect()))
+	if (IsMouseOverStrip(UiMouse()) || LobbyIsMouseOver(UiMouse(), LobbyAnchorRect()))
 		return true;
-	const std::optional<Rectangle> inspect = InspectPanelRect(HudRect().position.x + 6, HudRect().position.y);
+	const std::optional<Rectangle> inspect = InspectPanelRect(HudRect().position.x, HudRect().position.y - OrbPoke());
 	if (inspect && Contains(*inspect, UiMouse()))
 		return true;
 	const Surface ui = UiHitSurface();
@@ -1892,16 +2664,14 @@ void OnLevelLoaded()
 	tickCounter = 0;
 	lastCameraTicks = SDL_GetTicks();
 	NoteMapLevelLoaded();
-	ClearTabCards();
-	// A new game starts on the monsters, wherever the last one left the bar.
-	currentTab = BarTab::Lairs;
-	tabScroll.fill(0);
+	// A new game starts on the monsters, wherever the last one left the bar. The tiers last used stay.
+	pages.clear();
+	currentPage = 0;
+	CloseTierPopup();
 	// Built during the load rather than as cards scroll into view, which would stutter.
 	if (!IsEditorActive()) {
-		for (const size_t kind : MusterKinds()) {
-			if (!cardImages[kind].built)
-				cardImages[kind] = MakeKindImage(kind, CardWidth - 4, PortraitHeight);
-		}
+		for (const size_t kind : MusterKinds())
+			CardImage(kind);
 	}
 	EditorOnLevelLoaded();
 	PadOnLevelLoaded();
@@ -2094,10 +2864,10 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 {
 	switch (action) {
 	case KeeperAction::CardSlot: {
-		const std::vector<Tool> &cards = TabCards(currentTab);
-		const size_t card = static_cast<size_t>(ScrollOf(currentTab)) + index;
-		if (static_cast<int>(index) < VisibleCardCount() && card < cards.size())
-			ActivateCard(cards[card]);
+		const std::vector<Tool> &cards = Page().cards;
+		const size_t card = static_cast<size_t>(Scroll()) + index;
+		if (static_cast<int>(index) < ShownCardCount() && card < cards.size())
+			PressCardKey(cards[card]);
 		return;
 	}
 	case KeeperAction::Spell:
@@ -2119,7 +2889,7 @@ void PerformKeeperAction(KeeperAction action, size_t index)
 			RevealCard(currentTool);
 		return;
 	case KeeperAction::NextTab:
-		currentTab = static_cast<BarTab>((static_cast<size_t>(currentTab) + 1) % NumBarTabs);
+		ShowPage(currentPage + 1);
 		return;
 	case KeeperAction::StartRaid:
 		if (State.phase == Phase::Setup || State.phase == Phase::Breather)
@@ -2259,6 +3029,10 @@ bool OnKeyDown(SDL_Keycode key)
 		SellSelected();
 		return true;
 	case SDLK_ESCAPE:
+		if (tierPopup.open) {
+			CloseTierPopup();
+			return true;
+		}
 		if (IsBoxDragging()) {
 			CancelBoxDrag();
 			return true;
@@ -2322,7 +3096,7 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 		CenterCameraOn(*tile);
 		return true;
 	}
-	if (LobbyOnLeftClick(UiMouse(), SpellBarRect(), equippedSpells)) {
+	if (LobbyOnLeftClick(UiMouse(), LobbyAnchorRect(), equippedSpells)) {
 		if (currentTool.type == ToolType::Spell && std::find(equippedSpells.begin(), equippedSpells.end(), currentTool.index) == equippedSpells.end())
 			currentTool = {}; // it just came off the bar
 		return true;
@@ -2370,31 +3144,50 @@ bool OnLeftMouseDown(uint16_t /*modState*/)
 			return true;
 		}
 	}
-	if (IsMouseOverUi() && UiMouse().y < HudRect().position.y)
-		return true; // the inspect panel
-	if (UiMouse().y >= HudRect().position.y) {
-		for (size_t i = 0; i < NumBarTabs; i++) {
-			if (Contains(TabRect(i), UiMouse()))
-				currentTab = static_cast<BarTab>(i);
+	if (IsMouseOverStrip(UiMouse())) {
+		// The pop-up stands over the tabs: a click on it is a tier, or nothing.
+		if (drawnHud.popup && Contains(*drawnHud.popup, UiMouse())) {
+			for (const auto &[row, kind] : drawnHud.tiers) {
+				if (Contains(row, UiMouse())) {
+					PickTier(kind);
+					break;
+				}
+			}
+			return true;
 		}
-		// Long tabs (the Bestiary, a late-game Lairs tab): the arrows page through them.
-		const int scrollStep = static_cast<int>(TabCards(currentTab).size()) > 2 * VisibleCardCount() ? VisibleCardCount() : 1;
-		if (Contains(LeftArrowRect(), UiMouse()))
-			ScrollOf(currentTab) -= scrollStep;
-		if (Contains(RightArrowRect(), UiMouse()))
-			ScrollOf(currentTab) += scrollStep;
+		for (size_t i = 0; i < Pages().size(); i++) {
+			if (Contains(TabRect(i), UiMouse()) && i != currentPage) {
+				ShowPage(i);
+				break;
+			}
+		}
+		for (const int direction : { -1, 1 }) {
+			if (Contains(TabStepRect(direction), UiMouse())) {
+				ShowPage(currentPage + Pages().size() + direction);
+				break;
+			}
+		}
+		// A page too long for a small window: the arrows page through it.
+		const int scrollStep = static_cast<int>(Page().cards.size()) > 2 * VisibleCardCount() ? VisibleCardCount() : 1;
+		if (PageScrolls(Page()) && Contains(LeftArrowRect(), UiMouse()))
+			Scroll() -= scrollStep;
+		else if (PageScrolls(Page()) && Contains(RightArrowRect(), UiMouse()))
+			Scroll() += scrollStep;
 		if (const std::optional<Tool> card = CardAt(UiMouse()); card)
-			ActivateCard(*card);
+			ClickCard(*card);
 		if (Contains(SpeedButtonRect(), UiMouse()))
 			CycleGameSpeed();
 		if (Contains(PhaseLineRect(), UiMouse()) && CanHoldPrepTimer() && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			ToggleHeldTimer();
 		if (Contains(ReadyButtonRect(), UiMouse()) && (State.phase == Phase::Setup || State.phase == Phase::Breather))
 			RequestStartRaid();
-		if (Contains(SellButtonRect(), UiMouse()) && currentTool.type == ToolType::None && !CardAt(UiMouse()) && !Selection().empty())
+		if (drawnHud.sell && Contains(*drawnHud.sell, UiMouse()) && currentTool.type == ToolType::None && !Selection().empty())
 			SellSelected();
 		return true;
 	}
+	if (IsMouseOverUi())
+		return true; // the inspect panel
+	CloseTierPopup();
 
 	if (MyPossessed() != nullptr) {
 		const bool attack = pcursmonst >= 0 && IsHero(Monsters[pcursmonst]);
@@ -2439,8 +3232,22 @@ bool OnRightMouseDown()
 		return true;
 	if (IsHelpOpen())
 		return true; // nothing happens behind the help
-	if (LobbyIsMouseOver(UiMouse(), SpellBarRect()))
+	if (LobbyIsMouseOver(UiMouse(), LobbyAnchorRect()))
 		return true;
+	// On a family's card: its tiers. Anywhere else puts the pop-up away, with whatever else it does.
+	const bool overPopup = drawnHud.popup && Contains(*drawnHud.popup, UiMouse());
+	if (const std::optional<Tool> card = CardAt(UiMouse()); card && !overPopup && HasTiers(*card)) {
+		const KindFamily family = FamilyOfKind(card->index);
+		if (tierPopup.open && tierPopup.family == family)
+			CloseTierPopup();
+		else
+			OpenTierPopup(family);
+		return true;
+	}
+	if (tierPopup.open) {
+		CloseTierPopup();
+		return true;
+	}
 	if (currentTool.type == ToolType::None && MyPossessed() == nullptr && !IsMouseOverUi()) {
 		const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
 		if (shift ? AddPatrolWaypoint(cursPosition) : SetRallyPoint(cursPosition))
@@ -2470,9 +3277,18 @@ bool OnMouseWheel(int deltaY)
 	}
 	if (DispatchBoundKey(deltaY > 0 ? MouseScrollUpButton : MouseScrollDownButton))
 		return true;
-	if (Contains(BarRect(), UiMouse())) {
-		// Over the card bar the wheel scrolls the cards instead of zooming.
-		ScrollOf(currentTab) += deltaY > 0 ? -1 : 1;
+	// Over a family's card or its pop-up the wheel steps through the tiers: up for a higher one.
+	if (drawnHud.popup && tierPopup.open && Contains(*drawnHud.popup, UiMouse())) {
+		StepTier(tierPopup.family, deltaY > 0 ? 1 : -1, /*wrap=*/false, /*arm=*/true);
+		return true;
+	}
+	if (const std::optional<Tool> card = CardAt(UiMouse()); card && HasTiers(*card)) {
+		StepTier(FamilyOfKind(card->index), deltaY > 0 ? 1 : -1, /*wrap=*/false, /*arm=*/true);
+		return true;
+	}
+	if (Contains(CardPanelRect(), UiMouse()) || Contains(TabsRect(), UiMouse())) {
+		// Elsewhere over the card bar it scrolls a page that scrolls, and never zooms.
+		Scroll() += deltaY > 0 ? -1 : 1;
 		return true;
 	}
 	SetZoom(deltaY > 0);
@@ -2521,7 +3337,17 @@ void DrawScaledUi(const Surface &out, void (*drawUi)(const Surface &) = DrawUi)
 
 	// The Keeper screen is opaque: a pixel it draws the same as the view's sample still has to cover the view.
 	const bool opaque = IsKeeperOverlayOpen();
+	uiOpaque.clear();
 	drawUi(ui);
+
+	// A solid panel that is the colour of the view's sample has to cover the rest of the view's pixels there too.
+	for (const Rectangle &rect : uiOpaque) {
+		for (int y = std::max(rect.position.y, 0); y < std::min(rect.position.y + rect.size.height, height); y++) {
+			for (int x = std::max(rect.position.x, 0); x < std::min(rect.position.x + rect.size.width, width); x++)
+				uiBackground[static_cast<size_t>(y) * width + x] = static_cast<uint8_t>(~*ui.at(x, y));
+		}
+	}
+	uiOpaque.clear();
 
 	for (int y = 0; y < height; y++) {
 		const uint8_t *row = ui.at(0, y);
@@ -2575,6 +3401,233 @@ void DrawHud(const Surface &out)
 
 namespace {
 
+// ---- orbs ------------------------------------------------------------------------
+//
+// Diablo's flasks, cut from its control panel with the stone around them: the full one from the
+// panel's art, the empty one from the cel the engine drains it with. Shrunk for a low strip.
+
+struct OrbArt {
+	int size = 0;
+	std::vector<uint8_t> full;
+	std::vector<uint8_t> empty;
+};
+std::array<OrbArt, 2> orbArt;
+
+const OrbArt *GetOrbArt(bool mana)
+{
+	// Where the flasks are in the panel: see control_flasks.cpp.
+	constexpr int LifeFlaskX = 96;
+	constexpr int ManaFlaskX = 464;
+	const std::optional<OwnedSurface> &emptyFlask = mana ? pManaBuff : pLifeBuff;
+	if (!BottomBuffer || !emptyFlask)
+		return nullptr;
+	OrbArt &art = orbArt[mana ? 1 : 0];
+	const int size = OrbSize();
+	if (art.size != size) {
+		art.size = size;
+		art.full.resize(static_cast<size_t>(size) * size);
+		art.empty.resize(art.full.size());
+		for (int y = 0; y < size; y++) {
+			for (int x = 0; x < size; x++) {
+				const int artX = x * OrbArtSize / size;
+				const int artY = y * OrbArtSize / size;
+				art.full[static_cast<size_t>(y) * size + x] = *BottomBuffer->at((mana ? ManaFlaskX : LifeFlaskX) + artX, artY);
+				art.empty[static_cast<size_t>(y) * size + x] = *emptyFlask->at(artX, artY);
+			}
+		}
+	}
+	return &art;
+}
+
+/** Draws an orb `percent` full, with `label` across it. */
+void DrawOrb(const Surface &out, bool mana, int percent, std::string_view label, UiFlags labelColor)
+{
+	const Rectangle rect = OrbRect(mana);
+	const int size = rect.size.width;
+	const int dome = OrbDomeRows * size / OrbArtSize;
+	if (const OrbArt *art = GetOrbArt(mana); art != nullptr) {
+		const int liquidTop = OrbEmptyRow - (OrbEmptyRow - OrbFullRow) * std::clamp(percent, 0, 100) / 100;
+		for (int y = 0; y < size; y++) {
+			const int artY = y * OrbArtSize / size;
+			const std::vector<uint8_t> &pixels = artY >= liquidTop && artY < OrbEmptyRow ? art->full : art->empty;
+			const uint8_t *row = &pixels[static_cast<size_t>(y) * size];
+			uint8_t *dst = out.at(rect.position.x, rect.position.y + y);
+			for (int x = 0; x < size; x++) {
+				// Above the panel's top line only the dome is drawn; below it the art is the panel's stone, black and all.
+				if (row[x] != 0 || y >= dome)
+					dst[x] = row[x];
+			}
+		}
+	} else {
+		FillRect(out, rect.position.x, rect.position.y + dome, size, size - dome, 0);
+	}
+	const Rectangle body { rect.position + Displacement { 0, dome }, { size, size - dome } };
+	DrawFrame(out, body, PAL16_GRAY + 11);
+	NoteOpaqueUi(body);
+	DrawString(out, label, { { rect.position.x, rect.position.y + size / 2 - 5 }, { size, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::Outlined | labelColor });
+}
+
+void DrawOrbs(const Surface &out)
+{
+	// The Lord's: empty once he is down, which the scout line spells out.
+	if (const Monster *boss = FindBoss(); boss != nullptr) {
+		const int percent = boss->maxHitPoints > 0 ? static_cast<int>(100LL * std::max(boss->hitPoints, 0) / boss->maxHitPoints) : 0;
+		DrawOrb(out, false, percent, fmt::format("{}%", percent), UiFlags::ColorWhite);
+	} else {
+		DrawOrb(out, false, 0, State.bossDown ? "Down" : "", UiFlags::ColorRed);
+	}
+	const int mana = State.mana[MyPlayerId] / ManaScale;
+	DrawOrb(out, true, 100 * mana / MaxMana, std::to_string(mana), UiFlags::ColorWhite);
+	const Rectangle manaOrb = OrbRect(true);
+	drawnHud.areas.emplace_back(Rectangle { { manaOrb.position.x + manaOrb.size.width / 6, manaOrb.position.y }, { manaOrb.size.width * 2 / 3, manaOrb.size.height } }, HudArea::Mana);
+}
+
+// ---- status line -------------------------------------------------------------------
+
+/**
+ * One line at the top right, with its top at `top`: the phase and its clock, raid, pop, gold and what the
+ * raiders carry, the raiders alive, the speed toggle and the help button. As wide as what it says.
+ */
+void DrawStatusLine(const Surface &out, int top)
+{
+	struct Item {
+		std::string text;
+		UiFlags color;
+		std::optional<HudArea> area;
+	};
+	std::vector<Item> items;
+	std::string phaseLine = std::string(PhaseName(State.phase));
+	if (IsBuildingPhase())
+		phaseLine += IsPrepTimerHeld() ? std::string(" held") : fmt::format(" {}", FormatTicks(State.phaseTicks));
+	items.push_back({ phaseLine, UiFlags::ColorRed, HudArea::Phase });
+	items.push_back({ fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves()), UiFlags::ColorWhite, HudArea::Raids });
+	const int supply = SupplyUsed();
+	items.push_back({ fmt::format("Pop {}/{}", supply, SupplyCap()), supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite, HudArea::Pop });
+	items.push_back({ fmt::format("{}g", State.vaultGold), UiFlags::ColorGold, HudArea::Vault });
+	if (State.phase == Phase::Raid) {
+		// Gold on its way out of the keep, in red beside what is left.
+		if (const int inFlight = GoldInFlight(); inFlight > 0)
+			items.push_back({ fmt::format("-{}g", inFlight), UiFlags::ColorRed, HudArea::Heroes });
+		items.push_back({ fmt::format("Heroes {}", LivingHeroCount()), UiFlags::ColorWhite, HudArea::Heroes });
+	}
+
+	constexpr int Gap = 10;
+	constexpr int Padding = 4;
+	constexpr int SpeedWidth = 22;
+	constexpr int HelpWidth = 16;
+	const int height = StatusLineHeight();
+	const auto width = [&] {
+		int total = 2 * Padding + SpeedWidth + 2 + HelpWidth;
+		for (const Item &item : items)
+			total += GetLineWidth(item.text) + Gap;
+		return total;
+	};
+	// A window too narrow for it all: the raid count goes, then the pop's word.
+	if (width() > out.w())
+		items.erase(items.begin() + 1);
+	if (width() > out.w())
+		items[1].text = fmt::format("{}/{}", supply, SupplyCap());
+
+	const Rectangle line { { std::max(out.w() - width(), 0), top }, { std::min(width(), out.w()), height } };
+	DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);
+	DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);
+	drawnHud.status = line;
+
+	const int textY = top + (height - 14) / 2;
+	int x = line.position.x + Padding;
+	for (const Item &item : items) {
+		const Rectangle rect { { x, top }, { GetLineWidth(item.text), height } };
+		DrawString(out, item.text, { { x, textY }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | item.color });
+		if (item.area)
+			drawnHud.areas.emplace_back(Rectangle { { x - Gap / 2, top }, { rect.size.width + Gap, height } }, *item.area);
+		if (item.area == HudArea::Phase)
+			drawnHud.phase = { { x - Padding, top }, { rect.size.width + Padding + Gap / 2, height } };
+		x += rect.size.width + Gap;
+	}
+
+	const Rectangle speedButton { { x, top }, { SpeedWidth, height } };
+	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);
+	DrawString(out, fmt::format("{}x", GameSpeedMultiplier()), { { speedButton.position.x, textY }, { speedButton.size.width, 14 } },
+	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (GameSpeedLevel() > 0 ? UiFlags::ColorGold : UiFlags::ColorWhite) });
+	drawnHud.speed = speedButton;
+	drawnHud.areas.emplace_back(speedButton, HudArea::Phase);
+
+	const Rectangle help { { x + SpeedWidth + 2, top }, { HelpWidth, height } };
+	FillRect(out, help.position.x, help.position.y, help.size.width, help.size.height, PAL16_RED + 12);
+	DrawFrame(out, help, Contains(help, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_YELLOW + 4);
+	DrawString(out, "?", { { help.position.x, textY }, { help.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+	drawnHud.help = help;
+}
+
+/** The gates button, after the tabs while the keep is being built. */
+void DrawReadyButton(const Surface &out)
+{
+	const Rectangle ready = ReadyButtonRect();
+	if (ready.size.width == 0)
+		return;
+	FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
+	DrawFrame(out, ready, Contains(ready, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_YELLOW + 4);
+	NoteOpaqueUi(ready);
+	DrawString(out, ReadyButtonText(), { ready.position + Displacement { 0, 1 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
+}
+
+/**
+ * The scout line beside the tabs: the coming raid while the keep is being built, and during a raid only
+ * what the orbs and the status line don't say (the Lord is down, or a monster is possessed).
+ */
+void DrawScoutLine(const Surface &out)
+{
+	std::string scout = State.phase == Phase::Raid || IsGameOver() ? std::string() : DescribeWave(State.wave);
+	// How to read more about the raid: the first thing to go if the line is too long.
+	std::string hint;
+	if (State.phase != Phase::Raid && !IsGameOver() && !IsScoutCardOn())
+		hint = fmt::format("  -  {}: scout card", InputName(KeeperAction::ScoutCard));
+	UiFlags scoutColor = UiFlags::ColorGold;
+	if (State.bossDown && FindBoss() == nullptr && !IsGameOver()) {
+		const int channel = PortalChannelPercent();
+		scout = PortalPosition() ? std::string("The Lord is down - the heroes are fleeing through their portal!")
+		    : channel >= 0       ? fmt::format("The Lord is down - a hero is opening a portal ({}%)!", channel)
+		                         : std::string("The Lord is down - stop the heroes from escaping!");
+		hint.clear();
+		scoutColor = UiFlags::ColorRed;
+	}
+	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
+		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
+		scout = fmt::format("Possessing {} ({}%)  {}: move/attack  {}: release", possessed->name(), hp, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("click"), InputName(KeeperAction::Possess));
+		hint.clear();
+	}
+	if (scout.empty())
+		return;
+
+	// From the tabs and the gates button to the mana orb if nothing is in the way, otherwise to the spells.
+	const Rectangle tabs = TabsRect();
+	const Rectangle ready = ReadyButtonRect();
+	const Rectangle spells = SpellPanelRect();
+	const int left = (ready.size.width > 0 ? ready.position.x + ready.size.width : tabs.position.x + tabs.size.width) + 8;
+	const bool overSpells = spells.position.y >= tabs.position.y + TabHeight;
+	int right = overSpells ? spells.position.x + spells.size.width : spells.position.x - SectionGap;
+	// A joiner's "Choose spells" button is over the slots while the keep is being built.
+	if (overSpells && gbIsMultiplayer && IsJoinedGame() && IsBuildingPhase())
+		right -= 150;
+	const int room = right - left - 8;
+	if (room < 40)
+		return;
+	// Too long: how to read more goes first, then the words that say what the line is.
+	std::string line = scout + hint;
+	if (GetLineWidth(line) > room)
+		line = scout;
+	constexpr std::string_view Lead = "Next raid: ";
+	if (GetLineWidth(line) > room && line.compare(0, Lead.size(), Lead) == 0)
+		line.erase(0, Lead.size());
+	line = FitText(line, room);
+	const Rectangle rect { { left, tabs.position.y }, { GetLineWidth(line) + 8, TabHeight } };
+	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
+	DrawHalfTransparentRectTo(out, rect.position.x, rect.position.y, rect.size.width, rect.size.height);
+	DrawString(out, line, { rect.position + Displacement { 4, 1 }, { rect.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
+	drawnHud.scout = rect;
+	drawnHud.areas.emplace_back(rect, HudArea::Scout);
+}
+
 void DrawUi(const Surface &out)
 {
 	if (IsKeeperOverlayOpen()) {
@@ -2584,75 +3637,32 @@ void DrawUi(const Surface &out)
 	}
 	const Rectangle hud = HudRect();
 	const int top = hud.position.y;
-	const int height = out.h() - top;
+	drawnHud = {};
 
-	FillRect(out, 0, top, out.w(), height, 0);
-	DrawHorizontalLine(out, { 0, top }, out.w(), PAL16_RED + 8);
-
-	const Rectangle status = StatusRect();
-	const int left = status.position.x + 2;
-	const int columnWidth = status.size.width - 4;
-	const size_t me = MyPlayerId;
-
-	// Status column: phase, raid, vault, heroes, mana.
-	std::string phaseLine = std::string(PhaseName(State.phase));
-	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
-		phaseLine += IsPrepTimerHeld() ? std::string("  held") : fmt::format("  {}", FormatTicks(State.phaseTicks));
-	// Clear of the speed toggle and the help button at the column's end: the widest time, 4:00, needs the room.
-	if (const size_t gap = phaseLine.find("  "); gap != std::string::npos && GetLineWidth(phaseLine) > columnWidth - 46)
-		phaseLine.erase(gap, 1);
-	DrawString(out, phaseLine, { { left, top + 4 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorRed });
-	const Rectangle speedButton = SpeedButtonRect();
-	DrawFrame(out, speedButton, Contains(speedButton, UiMouse()) ? PAL16_YELLOW + 4 : PAL16_GRAY + 8);
-	DrawString(out, fmt::format("{}x", GameSpeedMultiplier()), { speedButton.position + Displacement { 0, 1 }, { speedButton.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (GameSpeedLevel() > 0 ? UiFlags::ColorGold : UiFlags::ColorWhite) });
-	const int supply = SupplyUsed();
-	// Late levels reach Raid 10/10 and Pop 100/100, which don't fit side by side with their words.
-	std::string raidLine = fmt::format("Raid {}/{}", std::min<int>(State.wave, NumWaves()), NumWaves());
-	std::string popLine = fmt::format("Pop {}/{}", supply, SupplyCap());
-	if (GetLineWidth(raidLine) + GetLineWidth(popLine) + 6 > columnWidth)
-		popLine = fmt::format("{}/{}", supply, SupplyCap());
-	DrawString(out, raidLine, { { left, top + 19 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-	DrawString(out, popLine, { { left, top + 19 }, { columnWidth, 16 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (supply >= SupplyCap() ? UiFlags::ColorRed : UiFlags::ColorWhite) });
-	DrawString(out, fmt::format("Vault: {} gold", State.vaultGold), { { left, top + 34 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	const int inFlight = GoldInFlight();
-	DrawString(out, fmt::format("Heroes {}  Loot {}", LivingHeroCount(), inFlight), { { left, top + 49 }, { columnWidth, 16 } }, { .flags = UiFlags::FontSize12 | (inFlight > 0 ? UiFlags::ColorRed : UiFlags::ColorWhite) });
-
-	const int mana = State.mana[me] / ManaScale;
-	const Rectangle manaRect { { left, top + 68 }, { columnWidth, 10 } };
-	FillRect(out, manaRect.position.x, manaRect.position.y, manaRect.size.width, manaRect.size.height, PAL16_GRAY + 14);
-	FillRect(out, manaRect.position.x, manaRect.position.y, manaRect.size.width * mana / MaxMana, manaRect.size.height, PAL16_BLUE + 4);
-	DrawFrame(out, manaRect, PAL16_GRAY + 8);
-	DrawString(out, fmt::format("Mana {}", mana), { manaRect.position + Displacement { 0, 12 }, { columnWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorBlue });
-
-	if (State.phase == Phase::Setup || State.phase == Phase::Breather) {
-		const Rectangle ready = ReadyButtonRect();
-		FillRect(out, ready.position.x, ready.position.y, ready.size.width, ready.size.height, PAL16_RED + 12);
-		DrawFrame(out, ready, PAL16_YELLOW + 4);
-		const std::string raidKey = InputName(KeeperAction::StartRaid);
-		// The key only if it fits: what the button does matters more.
-		const std::string withKey = fmt::format("{}: {}", raidKey, ReadyButtonLabel());
-		DrawString(out, raidKey.empty() || GetLineWidth(withKey) > ready.size.width - 4 ? ReadyButtonLabel() : withKey, { ready.position + Displacement { 0, 3 }, { ready.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
-	}
-
-	{
-		const Rectangle help = HelpButtonRect();
-		FillRect(out, help.position.x, help.position.y, help.size.width, help.size.height, PAL16_RED + 12);
-		DrawFrame(out, help, Contains(help, UiMouse()) ? PAL16_YELLOW + 2 : PAL16_YELLOW + 4);
-		DrawString(out, "?", { help.position, { help.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorGold });
-	}
+	// The status line is under the strips along the very top (the test-run banner, then the controller's
+	// prompts), and the raid roster and the scout card are under it.
+	const int topStrips = (IsEditorTestRun() ? 1 : 0) + (IsPadInUse() ? 1 : 0);
+	const int statusTop = topStrips == 0 ? 0 : 4 + 20 * topStrips;
+	const int underStatus = statusTop + StatusLineHeight() + 2;
+	SetRaidRosterTop(underStatus);
+	SetScoutCardTop(underStatus);
+	DrawStatusLine(out, statusTop);
+	DrawOrbs(out);
 
 	DrawScoutCard(out, top, UiMouse()); // under the spell bar, which has to stay usable on a small screen
-	DrawRefusalLabel(out, top);
+	DrawRefusalLabel(out, out.h());
 	DrawCardBar(out);
 	DrawSpellBar(out);
-	DrawInfoPanel(out);
-	DrawInspectPanel(out, hud.position.x + 6, top);
+	DrawReadyButton(out);
+	DrawScoutLine(out);
+	DrawInspectPanel(out, hud.position.x, top - OrbPoke());
 	DrawRaidRoster(out, UiMouse());
 	DrawRaidSummary(out, top);
 	DrawMasters(out);
-	DrawLobby(out, UiMouse(), SpellBarRect(), equippedSpells);
+	DrawLobby(out, UiMouse(), LobbyAnchorRect(), equippedSpells);
+	// Over the rest: they are what the player just asked about.
+	DrawTierPopup(out);
+	DrawInfoPanel(out);
 
 	// News along the top, between the masters list and the raid roster.
 	int pauseY = 2;
@@ -2661,10 +3671,9 @@ void DrawUi(const Surface &out)
 		const std::optional<Rectangle> roster = RaidRosterRect(out);
 		int newsLeft = gbIsMultiplayer ? 198 : 6;
 		int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
-		// Under the strips along the very top: the test-run banner, then the controller's prompts.
-		int newsTop = 6 + (IsEditorTestRun() ? 20 : 0) + (IsPadInUse() ? 20 : 0);
+		// Under the status line: on a narrow screen it reaches most of the way across.
+		int newsTop = underStatus + 2;
 		bool tipFits = true;
-		SetScoutCardTop(newsTop);
 		// The card stays put. The news goes beside it if that leaves it room, otherwise under it.
 		if (const std::optional<Rectangle> scoutCard = ScoutCardRect(out, top); scoutCard) {
 			if (scoutCard->position.x - 6 - newsLeft >= NewsMinWidthBesideCard) {
@@ -2679,13 +3688,17 @@ void DrawUi(const Surface &out)
 		pauseCentre = newsLeft + newsWidth / 2;
 		int newsY = DrawBanner(out, newsLeft, newsWidth, newsTop);
 		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
-		const Rectangle firstTab = TabRect(0);
-		const Rectangle lastTab = TabRect(NumBarTabs - 1);
+		// The tip's frame goes round its target, a few pixels out: the strip is at the screen's edge, so it is drawn a little inside.
+		const auto inside = [&out](Rectangle rect) {
+			constexpr int Room = 4;
+			rect.size.height = std::min(rect.size.height, out.h() - Room - rect.position.y);
+			return rect;
+		};
 		const TipTargets targets {
-			CardRowRect(),
-			{ firstTab.position, { lastTab.position.x + lastTab.size.width - firstTab.position.x, firstTab.size.height } },
-			ReadyButtonRect(),
-			SpellBarRect(),
+			inside(ShownCardsRect()),
+			TabsRect(),
+			inside(ReadyButtonRect()),
+			inside(SpellBarRect()),
 			roster,
 		};
 		const int tipWidth = std::min(newsWidth, 380);
@@ -2698,32 +3711,13 @@ void DrawUi(const Surface &out)
 		pauseY = newsY > newsTop ? newsY : newsTop - 4;
 	}
 
-	// Scout line under the cards: the coming raid, the Lord's health, the portal.
-	const Rectangle bar = BarRect();
-	std::string scout = State.phase == Phase::Raid ? fmt::format("Raid {}", State.wave) : (IsGameOver() ? std::string() : DescribeWave(State.wave));
-	if (State.phase != Phase::Raid && !IsGameOver() && !IsScoutCardOn())
-		scout += fmt::format("  -  {}: scout card", InputName(KeeperAction::ScoutCard));
-	UiFlags scoutColor = UiFlags::ColorGold;
-	if (const Monster *boss = FindBoss(); boss != nullptr && !IsGameOver()) {
-		const int hp = boss->maxHitPoints > 0 ? 100 * boss->hitPoints / boss->maxHitPoints : 0;
-		scout += fmt::format("  -  Keep Lord {}%", hp);
-	} else if (State.bossDown && !IsGameOver()) {
-		const int channel = PortalChannelPercent();
-		scout = PortalPosition() ? std::string("The Lord is down - the heroes are fleeing through their portal!")
-		    : channel >= 0       ? fmt::format("The Lord is down - a hero is opening a portal ({}%)!", channel)
-		                         : std::string("The Lord is down - stop the heroes from escaping!");
-		scoutColor = UiFlags::ColorRed;
-	}
-	if (const Monster *possessed = MyPossessed(); possessed != nullptr) {
-		const int hp = possessed->maxHitPoints > 0 ? 100 * possessed->hitPoints / possessed->maxHitPoints : 0;
-		scout = fmt::format("Possessing {} ({}%)  {}: move/attack  {}: release", possessed->name(), hp, IsPadInUse() ? InputName(PadAction::Confirm) : std::string("click"), InputName(KeeperAction::Possess));
-	}
-	DrawString(out, FitText(scout, bar.size.width), { { bar.position.x, CardRowRect().position.y + CardHeight + 3 }, { bar.size.width, 14 } }, { .flags = UiFlags::FontSize12 | scoutColor });
-
 	// Feedback floats just above the bar, like an RTS's "insufficient funds".
 	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {
 		const int width = std::min<int>(GetLineWidth(feedback) + 16, out.w());
-		const Rectangle line { { (out.w() - width) / 2, top - 22 }, { width, 18 } };
+		Rectangle line { { (out.w() - width) / 2, top - 22 }, { width, 18 } };
+		// Clear of the details panel, which is up while a tool is in hand.
+		if (drawnHud.info && line.position.x < drawnHud.info->position.x + drawnHud.info->size.width && drawnHud.info->position.x < line.position.x + line.size.width)
+			line.position.y = std::max(drawnHud.info->position.y - 22, 0);
 		DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::ColorRed });
 	}
@@ -2778,13 +3772,13 @@ void PadHudTargets(std::vector<Rectangle> &targets)
 			targets.push_back(MapSummaryButton(ui, i, count));
 		return;
 	}
-	if (LobbyPadTargets(SpellBarRect(), targets))
+	if (LobbyPadTargets(LobbyAnchorRect(), targets))
 		return; // the panel takes the clicks
-	for (size_t i = 0; i < NumBarTabs; i++)
-		targets.push_back(TabRect(i));
-	const int first = ScrollOf(currentTab);
-	const int cards = static_cast<int>(TabCards(currentTab).size());
-	for (int slot = 0; slot < VisibleCardCount() && first + slot < cards; slot++)
+	for (size_t i = 0; i < Pages().size(); i++) {
+		if (TabRect(i).size.width > 0)
+			targets.push_back(TabRect(i));
+	}
+	for (int slot = 0; slot < ShownCardCount(); slot++)
 		targets.push_back(CardRect(slot));
 	for (size_t i = 0; i < NumSpellSlots; i++) {
 		if (equippedSpells[i])
@@ -2792,8 +3786,12 @@ void PadHudTargets(std::vector<Rectangle> &targets)
 	}
 	if (State.phase == Phase::Setup || State.phase == Phase::Breather)
 		targets.push_back(ReadyButtonRect());
-	if (currentTool.type == ToolType::None && !Selection().empty())
-		targets.push_back(SellButtonRect());
+	if (drawnHud.status) {
+		targets.push_back(SpeedButtonRect());
+		targets.push_back(HelpButtonRect());
+	}
+	if (drawnHud.sell && currentTool.type == ToolType::None && !Selection().empty())
+		targets.push_back(*drawnHud.sell);
 	RaidRosterTargets(ui, targets);
 	if (const std::optional<Rectangle> summary = RaidSummaryRect(ui, top); summary)
 		targets.push_back(*summary);
@@ -2806,12 +3804,12 @@ bool PadHudNeedsFocus()
 
 bool PadHudScroll(const Rectangle &focused, AxisDirection dir)
 {
-	if (dir.y != AxisDirectionY_NONE || focused.position.y != CardRowRect().position.y || focused.size.height != CardHeight)
+	if (dir.y != AxisDirectionY_NONE || focused.position.y != CardRowRect().position.y || focused.size.height != CardHeight() || focused.size.width != CardWidth())
 		return false;
-	int &scroll = ScrollOf(currentTab);
+	int &scroll = Scroll();
 	const int before = scroll;
 	if (dir.x == AxisDirectionX_RIGHT && focused.position.x == CardRect(VisibleCardCount() - 1).position.x)
-		scroll = std::min(scroll + 1, MaxScroll(currentTab));
+		scroll = std::min(scroll + 1, MaxScroll());
 	else if (dir.x == AxisDirectionX_LEFT && focused.position.x == CardRect(0).position.x)
 		scroll = std::max(scroll - 1, 0);
 	return scroll != before;
@@ -2819,8 +3817,19 @@ bool PadHudScroll(const Rectangle &focused, AxisDirection dir)
 
 Rectangle PadSwitchTab(int delta)
 {
-	currentTab = static_cast<BarTab>((static_cast<int>(currentTab) + delta + static_cast<int>(NumBarTabs)) % static_cast<int>(NumBarTabs));
+	ShowPage(currentPage + Pages().size() + delta);
 	return CardRect(0);
+}
+
+void PadHudSecondary(const Rectangle &focused)
+{
+	const std::vector<Tool> &cards = Page().cards;
+	const int first = Scroll();
+	for (int slot = 0; slot < ShownCardCount(); slot++) {
+		const Rectangle rect = CardRect(slot);
+		if (rect.position == focused.position && rect.size == focused.size && HasTiers(cards[first + slot]))
+			StepTier(FamilyOfKind(cards[first + slot].index), -1, /*wrap=*/true, /*arm=*/false);
+	}
 }
 
 void PadToggleZoom()
@@ -2830,11 +3839,24 @@ void PadToggleZoom()
 
 uint32_t PadToolStamp()
 {
-	return currentTool.type == ToolType::None ? 0 : (static_cast<uint32_t>(currentTool.type) << 16) + static_cast<uint32_t>(currentTool.index) + 1;
+	// A tier picked from the pop-up counts as a new tool even if it is the one that was in hand.
+	return currentTool.type == ToolType::None ? 0 : ((tierPicks & 0xFF) << 24) + (static_cast<uint32_t>(currentTool.type) << 16) + static_cast<uint32_t>(currentTool.index) + 1;
 }
 
 int PadViewBottom()
 {
+	return ViewBottom();
+}
+
+int MessagesBottom()
+{
+	return IsEditorActive() ? ViewBottom() : ScreenHudTop() - OrbPoke() * UiScale();
+}
+
+int ViewBottom()
+{
+	if (IsEditorActive())
+		return (UiHeight() - UiBarHeight()) * UiScale();
 	return ScreenHudTop();
 }
 
@@ -2855,7 +3877,7 @@ std::string PadHudPrompt(bool focused)
 	if (LobbyPanelOpen())
 		return fmt::format("{}: move   {}: add or remove   {}: close", InputName(PadAction::Navigate), confirm, cancel);
 	if (focused)
-		return fmt::format("{}: move   {}: press   {}: back to the map   {} {}: tabs", InputName(PadAction::Navigate), confirm, cancel, InputName(PadAction::PrevTab), InputName(PadAction::NextTab));
+		return fmt::format("{}: move   {}: press   {}: a monster's other tiers   {}: back to the map   {} {}: tabs", InputName(PadAction::Navigate), confirm, InputName(PadAction::Order), cancel, InputName(PadAction::PrevTab), InputName(PadAction::NextTab));
 	if (MyPossessed() != nullptr)
 		return fmt::format("{}: aim   {}: move or attack   {}: release", InputName(PadAction::MoveCursor), confirm, InputName(PadAction::Possess));
 	switch (currentTool.type) {
@@ -2901,7 +3923,8 @@ Point UiMousePosition()
 
 int UiBarHeight()
 {
-	return HudHeight();
+	// The map editor's bar: still the height of the engine's control panel.
+	return gnScreenHeight - GetMainPanel().position.y;
 }
 
 } // namespace devilution::keeper
