@@ -117,6 +117,8 @@ void PadCameraPull(float &sx, float &sy);
 /**
  * How many screen pixels a UI pixel is, for the HUD and the keeper screen: 2x from 1440p, 3x at 4K. A
  * Switch is across the room on a TV, where a 12-pixel font at 1080p can't be read, so it is 2x from 1080p.
+ * The UI Scale option (Graphics) overrides that with a fixed 1x to 4x, kept to what leaves 640x480 UI pixels.
+ * The menus use it too. It is read every frame, so a change shows at once.
  */
 int KeeperUiScale();
 

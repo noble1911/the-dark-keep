@@ -1231,6 +1231,7 @@ void UiKeeperScreen()
 	UiRestartFadeIn();
 	(void)LoadLargeSpellIcons();
 
+	const UiScaleSuspend screenScale; // this screen scales itself, straight onto the screen
 	const int scale = KeeperUiScale();
 	OwnedSurface canvas(gnScreenWidth / scale, gnScreenHeight / scale);
 	ResetScreenState();

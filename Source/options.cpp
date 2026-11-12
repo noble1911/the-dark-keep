@@ -772,6 +772,14 @@ GraphicsOptions::GraphicsOptions()
           })
     , integerScaling("Integer Scaling", OptionEntryFlags::CantChangeInGame | OptionEntryFlags::RecreateUI, N_("Integer Scaling"), N_("Scales the image using whole number pixel ratio."), false)
 #endif
+    , uiScale("UI Scale", OptionEntryFlags::RecreateUI, N_("UI Scale"), N_("Size of the menus and the interface in the keep. Auto picks it from the screen height; the others are fixed, down to what fits the screen."), UiScaleSetting::Auto,
+          {
+              { UiScaleSetting::Auto, N_("Auto") },
+              { UiScaleSetting::X1, N_("1x") },
+              { UiScaleSetting::X2, N_("2x") },
+              { UiScaleSetting::X3, N_("3x") },
+              { UiScaleSetting::X4, N_("4x") },
+          })
     , frameRateControl("Frame Rate Control",
           OptionEntryFlags::RecreateUI
 #if defined(NXDK) || defined(__ANDROID__)
@@ -822,6 +830,7 @@ std::vector<OptionEntryBase *> GraphicsOptions::GetEntries()
 		&scaleQuality,
 		&integerScaling,
 #endif
+		&uiScale,
 		&frameRateControl,
 		&brightness,
 		&zoom,

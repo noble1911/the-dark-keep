@@ -371,10 +371,10 @@ void UiSettingsMenu()
 		endMenu = false;
 
 		// For the settings menu, we use the full height and allow some more width.
-		const int uiWidth = std::clamp<int>(gnScreenWidth, 640, 720);
+		const int uiWidth = std::clamp<int>(UiScreenWidth(), 640, 720);
 		const Rectangle uiRectangle = {
-			{ (gnScreenWidth - uiWidth) / 2, 0 },
-			{ uiWidth, gnScreenHeight }
+			{ (UiScreenWidth() - uiWidth) / 2, 0 },
+			{ uiWidth, UiScreenHeight() }
 		};
 
 		UiLoadBlackBackground();

@@ -73,7 +73,7 @@ void ProgressFreeForeground()
 
 Point GetPosition()
 {
-	return { GetCenterOffset(280), GetCenterOffset(144, gnScreenHeight) };
+	return { GetCenterOffset(280), GetCenterOffset(144, UiScreenHeight()) };
 }
 
 void ProgressRenderBackground()
