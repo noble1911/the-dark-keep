@@ -250,6 +250,8 @@ constexpr int OrbFullRow = 3;
 constexpr int OrbEmptyRow = 85;
 /** The glass in the art: a circle about this row, this far across. The Lord's and the mana flask differ by a column. */
 constexpr int OrbCentreY = 44;
+/** The row of the art that was the top edge of the panel it was cut from. */
+constexpr int OrbPanelEdgeRow = 16;
 constexpr int OrbLifeCentreX = 42;
 constexpr int OrbManaCentreX = 41;
 constexpr int OrbGlassRadius = 41;
@@ -3487,8 +3489,15 @@ void DrawOrb(const Surface &out, bool mana, int percent, std::string_view label,
 			uint8_t color;
 			if (distance <= glass) {
 				if (art != nullptr) {
-					const std::vector<uint8_t> &pixels = artY >= liquidTop && artY < OrbEmptyRow ? art->full : art->empty;
-					color = pixels[static_cast<size_t>(scaledY) * size + std::clamp(x, 0, size - 1)];
+					const bool liquid = artY >= liquidTop && artY < OrbEmptyRow;
+					const std::vector<uint8_t> &pixels = liquid ? art->full : art->empty;
+					// The art was cut from a panel: above the panel's top edge the empty flask is black, and the edge
+					// itself is a line across both. The glass shows the rows just under the edge there instead.
+					int row = artY;
+					if (row <= OrbPanelEdgeRow + 1)
+						row = liquid ? std::max(row, OrbPanelEdgeRow + 2) : 2 * (OrbPanelEdgeRow + 2) - row;
+					const int sourceY = row == artY ? scaledY : std::clamp((row * size + OrbArtSize - 1) / OrbArtSize, 0, size - 1);
+					color = pixels[static_cast<size_t>(sourceY) * size + std::clamp(x, 0, size - 1)];
 				} else {
 					color = 0;
 				}
