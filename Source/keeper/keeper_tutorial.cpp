@@ -162,13 +162,13 @@ constexpr std::array<HelpRow, 3> HelpKeeper { {
 /** Input rows: `title` is the input's name, tokens included. */
 constexpr std::array<HelpRow, 21> HelpKeys { {
 	{ {}, "{camera}", "Move the view (arrows and the screen edge too)" },
-	{ {}, "Wheel", "Zoom in and out, or scroll over the cards" },
+	{ {}, "Wheel", "Zoom. Over a monster card: its other tiers" },
 	{ {}, "{entrance} / {vault}", "Jump to the entrance / the vault" },
 	{ {}, "Left click", "Place what you picked, or select" },
-	{ {}, "Right click", "Cancel what you picked, or send the selected monsters" },
+	{ {}, "Right click", "Cancel, or send the selected monsters. On a card: its tiers" },
 	{ {}, "Shift + right", "Add a patrol point" },
 	{ {}, "{tab}", "Next card tab" },
-	{ {}, "{card1} - {card9}", "Pick a card on the current tab" },
+	{ {}, "{card1} - {card9}", "Pick a card. Again: the monster's next tier" },
 	{ {}, "{spell1} {spell2} {spell3} {spell4} {spell5} {spell6}", "Cast a spell at the cursor ({walls}: turn the walls)" },
 	{ {}, "{lock} / {bait}", "Pick a door lock / fool's gold" },
 	{ {}, "{sell}", "Sell what is selected" },

@@ -48,6 +48,10 @@ Halve the bar from 144 to 72 UI pixels and make it a set of panels instead of a 
 - Files: mostly `Source/keeper/keeper.cpp`, plus the scout, tutorial, controller and lobby files that read its rectangles.
 
 ### Step 2: Families on the strip
+**Done** on branch `ui/families`. One card to a family; the wheel, a right click or the card's key again opens its tiers above the card.
+Up to twelve families share one Lairs page with dividers; more, and each dungeon has its own tab (the tab key steps through them). Keys are 1 to 0, then [ and ].
+A narrow bar (TV scale) shows one tab name between two arrows. A page only scrolls in a window too small for cards 36 pixels wide.
+
 Depends on step 1, since both rewrite the card bar.
 
 - The Lairs tab shows one card per family that has an unlocked kind. That is 39 at most, so two rows of keys cover it at most sizes.

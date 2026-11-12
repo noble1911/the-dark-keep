@@ -1178,7 +1178,11 @@ void DrawCard(const Surface &out, const Rectangle &rect, const Tool &card, bool 
 	}
 
 	DrawString(out, FitText(text.hotkey, portrait.size.width - 2), { portrait.position + Displacement { 1, 0 }, { portrait.size.width - 2, 12 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite | UiFlags::Outlined });
-	DrawString(out, FitText(text.cost, rect.size.width - 2), { { rect.position.x, rect.position.y + rect.size.height - CardPriceRowHeight - 1 }, { rect.size.width, 12 } },
+	// A narrow card has room for the number, if not for its "g".
+	std::string cost = text.cost;
+	if (GetLineWidth(cost) > rect.size.width - 2 && !cost.empty() && cost.back() == 'g')
+		cost.pop_back();
+	DrawString(out, FitText(cost, rect.size.width - 2), { { rect.position.x, rect.position.y + rect.size.height - CardPriceRowHeight - 1 }, { rect.size.width, 12 } },
 	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | UiFlags::Outlined | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 
 	uint8_t frame = PAL16_GRAY + 8;
@@ -1244,7 +1248,7 @@ void DrawCardBar(const Surface &out)
 		const Rectangle rect = CardRect(slot);
 		// Another dungeon's families begin here.
 		if (slot > 0 && page.divider[first + slot])
-			DrawVerticalLine(out, { rect.position.x - (CardGap + DividerWidth + 1) / 2, rect.position.y + 2 }, rect.size.height - 4, PAL16_GRAY + 8);
+			DrawVerticalLine(out, { rect.position.x - (CardGap + DividerWidth + 1) / 2, rect.position.y + 2 }, rect.size.height - 4, PAL16_GRAY + 5);
 		DrawCard(out, rect, card, hovered && IsCardOf(*hovered, card));
 	}
 	if (PageScrolls(page)) {
