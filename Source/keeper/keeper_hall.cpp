@@ -350,7 +350,7 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 		DrawString(out, info.corner, { image.position + Displacement { 2, 1 }, { image.size.width - 4, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorBlue : UiFlags::ColorRed)) });
 	}
-	const UiFlags nameColor = info.owned ? UiFlags::ColorGold : (info.canBuy ? (compact ? UiFlags::ColorBlue : UiFlags::ColorWhite) : UiFlags::ColorUiSilverDark);
+	const UiFlags nameColor = info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorBlue : UiFlags::ColorUiSilverDark);
 	if (compact) {
 		// Colour tells the state (gold owned, blue buyable, red locked); only the price sits on the picture.
 		const auto [first, second] = SplitName(info.name, rect.size.width - 4);
@@ -362,12 +362,11 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 		DrawString(out, Fit(info.name, rect.size.width - 4), { rect.position + Displacement { 0, nameY }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | nameColor });
 		const std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
 		DrawString(out, state, { rect.position + Displacement { 0, stateY }, { rect.size.width, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark)) });
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorBlue : UiFlags::ColorRed)) });
 	}
 
-	uint8_t frame = info.owned ? PAL16_YELLOW + 6 : (info.canBuy ? PAL16_ORANGE + 4 : FrameColor);
-	if (compact)
-		frame = info.owned ? PAL16_YELLOW + 4 : (info.canBuy ? PAL16_BLUE + 3 : PAL16_RED + 8);
+	// Colour tells the state on every card: gold owned, blue buyable, red locked.
+	uint8_t frame = info.owned ? PAL16_YELLOW + 4 : (info.canBuy ? PAL16_BLUE + 3 : PAL16_RED + 8);
 	if (Inside(rect, mouse))
 		frame = PAL16_GRAY;
 	Frame(out, rect, frame);
@@ -527,7 +526,7 @@ void DrawBar(const Surface &out, const std::vector<Chip> &chips, Point origin, P
 		Fill(out, rect, active ? PAL16_RED + 12 : CardColor);
 		Frame(out, rect, active ? PAL16_YELLOW + 4 : (Inside(rect, mouse) ? PAL16_GRAY : FrameColor));
 		DrawString(out, chip.label, { rect.position + Displacement { 0, 3 }, { rect.size.width, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | stateColor.value_or(active ? UiFlags::ColorGold : (chip.isFilter ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark))) });
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | stateColor.value_or(active ? UiFlags::ColorGold : (chip.isFilter ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark)) });
 		if (clicked && Inside(rect, mouse)) {
 			if (chip.isFilter) {
 				filter = static_cast<Filter>(chip.index);
@@ -550,10 +549,13 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 	for (const FamilyRow &row : FamilyRows())
 		mostTiers = std::max(mostTiers, row.kinds.size());
 	const int tiers = static_cast<int>(mostTiers);
-	const int minBlock = tiers * MonsterCardMinWidth + (tiers - 1) * MonsterArrowWidth;
+	// As big as the spell cards wherever a family fits across at that size; narrower screens keep the short card.
+	const int fullBlock = tiers * CardWidth + (tiers - 1) * MonsterArrowWidth;
+	const int minBlock = listWidth >= fullBlock ? fullBlock : tiers * MonsterCardMinWidth + (tiers - 1) * MonsterArrowWidth;
 	const int columns = std::max((listWidth + MonsterColumnGap) / (minBlock + MonsterColumnGap), 1);
 	const int blockWidth = (listWidth - (columns - 1) * MonsterColumnGap) / columns;
-	const int cardWidth = std::clamp((blockWidth - (tiers - 1) * MonsterArrowWidth) / tiers, MonsterCardMinWidth, MonsterCardMaxWidth);
+	const int cardWidth = std::clamp((blockWidth - (tiers - 1) * MonsterArrowWidth) / tiers, MonsterCardMinWidth, listWidth >= fullBlock ? CardWidth : MonsterCardMaxWidth);
+	const int cardHeight = cardWidth >= CardWidth ? CardHeight : MonsterCardHeight;
 	const int mostPerLine = std::max((listWidth + MonsterArrowWidth) / (cardWidth + MonsterArrowWidth), 1);
 
 	// Blocks flow left to right, each as wide as its tiers: families with one or two tiers pack closer.
@@ -599,7 +601,7 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 			const int needed = GetLineWidth(GroupName(rows[i]->group)) + 10 + GetLineWidth(FamilyName(static_cast<KindFamily>(rows[i]->family))) + (count > 1 ? 34 : 4);
 			width = std::max(width, needed);
 		}
-		const int height = MonsterTitleHeight + lines * MonsterCardHeight + (lines - 1) * MonsterRowGap;
+		const int height = MonsterTitleHeight + lines * cardHeight + (lines - 1) * MonsterRowGap;
 		if (column > 0 && x + width > listWidth)
 			endGridRow();
 		placed.push_back({ rows[i], x, y, width, perLine, height, startsGroup });
@@ -610,7 +612,7 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 	endGridRow();
 	const int content = y;
 
-	int offset = ApplyScroll(Tab::Monsters, content, area, mouse, MonsterCardHeight + MonsterTitleHeight + MonsterRowGap);
+	int offset = ApplyScroll(Tab::Monsters, content, area, mouse, cardHeight + MonsterTitleHeight + MonsterRowGap);
 	if (pendingJump) {
 		for (const Heading &heading : headings) {
 			if (heading.group == *pendingJump)
@@ -652,8 +654,8 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		const bool onShow = top + block.height > 0 && top < clip.h();
 		// Every card is a target, on show or not: it's how the focus scrolls the list to them.
 		for (size_t t = 0; t < row.kinds.size(); t++) {
-			const Point at { 2 + block.x + static_cast<int>(t % perLine) * (cardWidth + MonsterArrowWidth), top + MonsterTitleHeight + static_cast<int>(t / perLine) * (MonsterCardHeight + MonsterRowGap) };
-			PadAddCard({ area.position + Displacement { at.x, at.y }, { cardWidth, MonsterCardHeight } }, selected.tab == Tab::Monsters && selected.index == row.kinds[t], /*inList=*/true);
+			const Point at { 2 + block.x + static_cast<int>(t % perLine) * (cardWidth + MonsterArrowWidth), top + MonsterTitleHeight + static_cast<int>(t / perLine) * (cardHeight + MonsterRowGap) };
+			PadAddCard({ area.position + Displacement { at.x, at.y }, { cardWidth, cardHeight } }, selected.tab == Tab::Monsters && selected.index == row.kinds[t], /*inList=*/true);
 		}
 		if (!onShow)
 			continue;
@@ -672,14 +674,14 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		for (size_t t = 0; t < row.kinds.size(); t++) {
 			const size_t kind = row.kinds[t];
 			const int x = 2 + block.x + static_cast<int>(t % perLine) * (cardWidth + MonsterArrowWidth);
-			const int cardY = top + MonsterTitleHeight + static_cast<int>(t / perLine) * (MonsterCardHeight + MonsterRowGap);
-			const Rectangle card { { x, cardY }, { cardWidth, MonsterCardHeight } };
+			const int cardY = top + MonsterTitleHeight + static_cast<int>(t / perLine) * (cardHeight + MonsterRowGap);
+			const Rectangle card { { x, cardY }, { cardWidth, cardHeight } };
 			const bool isSelected = selected.tab == Tab::Monsters && selected.index == kind;
 			DrawCard(clip, card, MonsterInfo(kind), isSelected, mouseInArea ? localMouse : Point { -1, -1 }, kind, std::nullopt);
 			if (clicked && mouseInArea && Inside(card, localMouse))
 				selected = { Tab::Monsters, kind };
 			if (t + 1 < row.kinds.size() && (t + 1) % perLine != 0) {
-				const int arrowY = cardY + MonsterCardHeight / 2 - 8;
+				const int arrowY = cardY + cardHeight / 2 - 8;
 				if (arrowY >= 0 && arrowY + 16 <= clip.h()) {
 					DrawString(clip, ">", { { x + cardWidth, arrowY }, { MonsterArrowWidth, 16 } },
 					    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (OwnsKind(kind) ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark) });
