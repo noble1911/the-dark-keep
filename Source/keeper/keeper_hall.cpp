@@ -70,15 +70,18 @@ constexpr int LadderRowHeight = 16;
 /** Narrowest a monster card may get before a family's tiers wrap onto a second line. */
 constexpr int MonsterCardMinWidth = 72;
 constexpr int MonsterCardMaxWidth = 96;
-constexpr int MonsterCardHeight = 68;
-constexpr int MonsterArrowWidth = 10;
-constexpr int MonsterTitleHeight = 13;
-constexpr int MonsterRowGap = 2;
+constexpr int MonsterCardHeight = 66;
+constexpr int MonsterArrowWidth = 8;
+constexpr int MonsterTitleHeight = 12;
+constexpr int MonsterRowGap = 1;
+/** Line spacing of a card's name, which may take two lines. */
+constexpr int NameLineHeight = 12;
 constexpr int MonsterColumnGap = 8;
 /** Room for a family's name and count above a one-card block. */
 constexpr int MonsterTitleMinWidth = 108;
-constexpr int GroupHeadingHeight = 15;
-constexpr int ChipHeight = 20;
+/** Gap above the first family row of a group, with a divider line in it; the group's name sits in that row's title line. */
+constexpr int GroupGap = 4;
+constexpr int ChipHeight = 18;
 constexpr int ChipGap = 3;
 
 // Index 255 (PAL16_GRAY + 15) is white in the dungeon palettes.
@@ -142,7 +145,7 @@ KindImage keeperImage;
 /** Height of the line of prompts under the list. */
 constexpr int PadPromptHeight = 18;
 /** Room for a family's title when a card scrolls into view. */
-constexpr int PadScrollMargin = FamilyTitleHeight + 2;
+constexpr int PadScrollMargin = FamilyTitleHeight + 2; // covers a family's title line and the divider above it
 
 enum class PadPress : uint8_t {
 	None,
@@ -223,37 +226,35 @@ std::string Fit(std::string_view text, int width)
 }
 
 /**
- * Like Fit, but for names where the last word is what tells them apart ("Burning Axe", "Burning Bow"): the
- * longest word loses a letter at a time instead of the end of the line.
+ * A card's name in one line if it fits, else in two, breaking at the space that makes the lines most even.
+ * Only a word too long for the card by itself is shortened.
  */
-std::string FitName(std::string_view text, int width)
+std::pair<std::string, std::string> SplitName(std::string_view text, int width)
 {
-	std::vector<std::string> words;
-	for (size_t start = 0; start <= text.size();) {
-		const size_t end = std::min(text.find(' ', start), text.size());
-		words.emplace_back(text.substr(start, end - start));
-		start = end + 1;
-	}
-	const auto join = [&]() {
-		std::string line;
-		for (const std::string &word : words)
-			line += (line.empty() ? "" : " ") + word;
-		return line;
-	};
-	while (GetLineWidth(join()) > width) {
-		std::string *longest = nullptr;
-		for (std::string &word : words) {
-			if (word.size() > 2 && (longest == nullptr || word.size() > longest->size()))
-				longest = &word;
+	if (GetLineWidth(text) <= width)
+		return { std::string(text), std::string() };
+	std::pair<std::string, std::string> best;
+	int bestWidth = 0;
+	for (size_t space = text.find(' '); space != std::string_view::npos; space = text.find(' ', space + 1)) {
+		const std::string first(text.substr(0, space));
+		const std::string second(text.substr(space + 1));
+		const int widest = std::max(GetLineWidth(first), GetLineWidth(second));
+		if (best.first.empty() || widest < bestWidth) {
+			best = { first, second };
+			bestWidth = widest;
 		}
-		if (longest == nullptr)
-			return Fit(text, width);
-		if (longest->back() == '.')
-			longest->pop_back();
-		longest->pop_back();
-		longest->push_back('.');
 	}
-	return join();
+	if (best.first.empty()) {
+		// One long word: break it with a hyphen rather than cut it.
+		size_t cut = text.size() - std::min<size_t>(3, text.size() - 1); // at least three letters go on the second line
+		while (cut > 1 && GetLineWidth(std::string(text.substr(0, cut)) + "-") > width)
+			cut--;
+		const std::string rest(text.substr(cut));
+		if (cut < 2 || GetLineWidth(rest) > width)
+			return { Fit(text, width), std::string() };
+		return { std::string(text.substr(0, cut)) + "-", rest };
+	}
+	return { GetLineWidth(best.first) > width ? Fit(best.first, width) : best.first, GetLineWidth(best.second) > width ? Fit(best.second, width) : best.second };
 }
 
 void Panel(const Surface &out, const Rectangle &rect)
@@ -323,8 +324,8 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 	Fill(out, rect, CardColor);
 	// The monsters' cards are short; the spells' and traps' keep the roomy layout.
 	const bool compact = out.h() < 100;
-	const int imageHeight = compact ? out.h() - 33 : CardImageHeight;
-	const int nameY = compact ? imageHeight + 5 : CardImageHeight + 8;
+	const int imageHeight = compact ? out.h() - 31 : CardImageHeight;
+	const int nameY = compact ? imageHeight + 4 : CardImageHeight + 8;
 	const int stateY = nameY + (compact ? 13 : 13);
 	const Rectangle image { rect.position + Displacement { 3, 3 }, { rect.size.width - 6, imageHeight } };
 	Fill(out, image, 0);
@@ -349,11 +350,25 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 		DrawString(out, info.corner, { image.position + Displacement { 2, 1 }, { image.size.width - 4, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed)) });
 	}
-	DrawString(out, compact ? FitName(info.name, rect.size.width - 4) : Fit(info.name, rect.size.width - 4), { rect.position + Displacement { 0, nameY }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark)) });
-	const std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
-	DrawString(out, state, { rect.position + Displacement { 0, stateY }, { rect.size.width, 14 } },
-	    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark)) });
+	const UiFlags nameColor = info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark);
+	if (compact) {
+		// The state sits on the picture, the price beside it, and the name has both lines under it.
+		const UiFlags stateColor = info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed);
+		std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
+		if (GetLineWidth(state) + GetLineWidth(info.corner) + 8 > image.size.width)
+			state = info.owned ? "Owned" : (info.canBuy ? "Buy" : "Lock");
+		DrawString(out, state, { image.position + Displacement { 2, 1 }, { image.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::Outlined | stateColor });
+		const auto [first, second] = SplitName(info.name, rect.size.width - 4);
+		const int firstY = second.empty() ? nameY + NameLineHeight / 2 : nameY;
+		DrawString(out, first, { rect.position + Displacement { 0, firstY }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | nameColor });
+		if (!second.empty())
+			DrawString(out, second, { rect.position + Displacement { 0, nameY + NameLineHeight }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | nameColor });
+	} else {
+		DrawString(out, Fit(info.name, rect.size.width - 4), { rect.position + Displacement { 0, nameY }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | nameColor });
+		const std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
+		DrawString(out, state, { rect.position + Displacement { 0, stateY }, { rect.size.width, 14 } },
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorUiSilverDark)) });
+	}
 
 	uint8_t frame = info.owned ? PAL16_YELLOW + 6 : (info.canBuy ? PAL16_ORANGE + 4 : FrameColor);
 	if (Inside(rect, mouse))
@@ -544,6 +559,7 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		int width;
 		int perLine;
 		int height;
+		bool startsGroup;
 	};
 	struct Heading {
 		DungeonGroup group;
@@ -563,19 +579,25 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		rowHeight = 0;
 	};
 	for (size_t i = 0; i < rows.size(); i++) {
-		if (i == 0 || rows[i]->group != rows[i - 1]->group) {
+		const bool startsGroup = i == 0 || rows[i]->group != rows[i - 1]->group;
+		if (startsGroup) {
 			endGridRow();
 			headings.push_back({ rows[i]->group, y });
-			y += GroupHeadingHeight;
+			if (i > 0)
+				y += GroupGap;
 		}
 		const int count = static_cast<int>(rows[i]->kinds.size());
 		const int perLine = std::min(count, mostPerLine);
 		const int lines = (count + perLine - 1) / perLine;
-		const int width = std::max(perLine * cardWidth + (perLine - 1) * MonsterArrowWidth, MonsterTitleMinWidth);
+		int width = std::max(perLine * cardWidth + (perLine - 1) * MonsterArrowWidth, MonsterTitleMinWidth);
+		if (startsGroup) {
+			const int needed = GetLineWidth(GroupName(rows[i]->group)) + 10 + GetLineWidth(FamilyName(static_cast<KindFamily>(rows[i]->family))) + (count > 1 ? 34 : 4);
+			width = std::max(width, needed);
+		}
 		const int height = MonsterTitleHeight + lines * MonsterCardHeight + (lines - 1) * MonsterRowGap;
 		if (column > 0 && x + width > listWidth)
 			endGridRow();
-		placed.push_back({ rows[i], x, y, width, perLine, height });
+		placed.push_back({ rows[i], x, y, width, perLine, height, startsGroup });
 		rowHeight = std::max(rowHeight, height);
 		x += width + MonsterColumnGap;
 		column++;
@@ -611,12 +633,11 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		return;
 	}
 
-	for (const Heading &heading : headings) {
-		const int top = heading.y - offset;
-		if (top + GroupHeadingHeight <= 0 || top >= clip.h())
-			continue;
-		DrawString(clip, GroupName(heading.group), { { 2, top }, { clip.w() - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-		Fill(clip, { { 2, top + 14 }, { clip.w() - 4, 1 } }, FrameColor);
+	// A divider above each group after the first; the group's name is drawn in its first family's title line.
+	for (size_t i = 1; i < headings.size(); i++) {
+		const int top = headings[i].y - offset;
+		if (top + GroupGap > 0 && top < clip.h())
+			Fill(clip, { { 2, top + 1 }, { clip.w() - 4, 1 } }, FrameColor);
 	}
 
 	for (const Placed &block : placed) {
@@ -632,7 +653,13 @@ void DrawMonsters(const Surface &out, const Rectangle &area, Point mouse)
 		if (!onShow)
 			continue;
 		const int owned = static_cast<int>(std::count_if(row.kinds.begin(), row.kinds.end(), OwnsKind));
-		DrawString(clip, Fit(FamilyName(static_cast<KindFamily>(row.family)), row.kinds.size() > 1 ? block.width - 30 : block.width - 2), { { 2 + block.x, top }, { block.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+		int titleX = 2 + block.x;
+		if (block.startsGroup) {
+			const std::string_view group = GroupName(row.group);
+			DrawString(clip, group, { { titleX, top }, { block.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
+			titleX += GetLineWidth(group) + 10;
+		}
+		DrawString(clip, Fit(FamilyName(static_cast<KindFamily>(row.family)), block.width - (titleX - 2 - block.x) - (row.kinds.size() > 1 ? 30 : 2)), { { titleX, top }, { block.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 		if (row.kinds.size() > 1) {
 			DrawString(clip, fmt::format("{}/{}", owned, row.kinds.size()), { { 2 + block.x, top }, { block.width - 2, 14 } },
 			    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (owned > 0 ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark) });
@@ -966,15 +993,17 @@ void DrawScreen(const Surface &out, Point mouse)
 
 	std::vector<Chip> chips;
 	const int barHeight = tab == Tab::Monsters ? LayoutBar(middleWidth, chips) : 0;
-	const int listTop = Margin + TabHeight + 6 + (barHeight > 0 ? barHeight + 4 : 0);
+	const int barTop = Margin + TabHeight + 4;
+	const int listTop = barHeight > 0 ? barTop + barHeight + 3 : Margin + TabHeight + 6;
 	if (!chips.empty())
-		DrawBar(out, chips, { middleLeft, Margin + TabHeight + 6 }, mouse);
+		DrawBar(out, chips, { middleLeft, barTop }, mouse);
 	const int spellBarHeight = tab == Tab::Spells ? SPLICONLENGTH + 26 : 0;
 	const int promptHeight = IsPadInUse() ? PadPromptHeight : 0;
 	const Rectangle list { { middleLeft, listTop }, { middleWidth, out.h() - listTop - Margin - spellBarHeight - promptHeight } };
 	Fill(out, list, 0);
 	Frame(out, list, PAL16_GRAY + 12);
-	const Rectangle inside { list.position + Displacement { 4, 4 }, { list.size.width - 8, list.size.height - 8 } };
+	const int pad = tab == Tab::Monsters ? 3 : 4;
+	const Rectangle inside { list.position + Displacement { pad, pad }, { list.size.width - 2 * pad, list.size.height - 2 * pad } };
 	padList = inside;
 	if (tab == Tab::Monsters)
 		DrawMonsters(out, inside, mouse);
