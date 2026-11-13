@@ -443,9 +443,16 @@ void BlitFrontEnd()
 		BltFast(nullptr, nullptr);
 }
 
+/** Where the mouse last was, in screen pixels: what a screen that draws unscaled starts from. */
+Point LastScreenMouse { 0, 0 };
+
 /** Mouse events come in screen pixels; the menus' items are in canvas pixels. */
 void MapEventToFrontEndCanvas(SDL_Event &event)
 {
+	if (event.type == SDL_EVENT_MOUSE_MOTION)
+		LastScreenMouse = { SDLC_EventMotionIntX(event), SDLC_EventMotionIntY(event) };
+	else if (IsAnyOf(event.type, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP))
+		LastScreenMouse = { SDLC_EventButtonIntX(event), SDLC_EventButtonIntY(event) };
 	const int scale = GetFrontEndUiScale();
 	if (scale <= 1)
 		return;
@@ -494,6 +501,9 @@ UiScaleSuspend::UiScaleSuspend()
 {
 	FrontEndCanvas = std::nullopt;
 	SetFrontEndUiScale(1);
+	// The pointer is in canvas pixels now, and the screen reads it in screen pixels.
+	if (saved > 1)
+		MousePosition = LastScreenMouse;
 }
 
 UiScaleSuspend::~UiScaleSuspend()
@@ -502,6 +512,8 @@ UiScaleSuspend::~UiScaleSuspend()
 		return;
 	SetFrontEndUiScale(saved);
 	FrontEndCanvas.emplace(gnScreenWidth / saved, gnScreenHeight / saved);
+	// And back: the pointer stays where it is on the screen, which is another place in canvas pixels.
+	MousePosition = { MousePosition.x / saved, MousePosition.y / saved };
 }
 
 namespace {

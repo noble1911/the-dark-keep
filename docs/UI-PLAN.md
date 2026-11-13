@@ -79,6 +79,8 @@ Small and independent.
 
 Done: the `UI Scale` option (Graphics settings: Auto, 1x to 4x) feeds `KeeperUiScale()`. All front-end screens draw on a canvas of the screen divided by that scale, blown up by a whole factor in `UiFadeIn`, with mouse events mapped back in `UiPollAndRender` (`Source/DiabloUI/diabloui.cpp`). The Keeper screen steps out of it with `UiScaleSuspend`.
 
+Polish: the map editor's 128-pixel black bar is now the same kind of strip as the keep's. Two panels of buttons (tools, actions) and a map status panel, each as big as its buttons, at most a tenth of the screen high (44 UI pixels at 640x480, 52 from 720p up), with the map to be seen between them. Details are a tooltip on hover or for a few seconds after a tool is picked. Where the actions don't fit (640 wide) all but Undo, Redo and Test go in a Menu list. Leaving the Keeper screen keeps the menu pointer where it was (`UiScaleSuspend` remaps it).
+
 ### Step 5: Orbs and a status line
 Follows step 2, on the same branch.
 

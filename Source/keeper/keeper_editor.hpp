@@ -65,6 +65,8 @@ std::string EditorPadPrompt(bool focused);
 
 /** Grid, markers and brush preview, at full resolution over the level. */
 void EditorDrawWorld(const Surface &out);
+/** The room the editor's strip takes at the foot of the screen, in UI pixels. */
+int EditorStripHeight();
 /** The tool panel, in UI pixels. */
 void EditorDrawUi(const Surface &out);
 /** During a test run: says how to get back. In UI pixels. */
