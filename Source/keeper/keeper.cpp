@@ -298,6 +298,8 @@ struct BarPage {
 	PageType type = PageType::Lairs;
 	/** The dungeon whose families a lair page shows. None for the one page of every family, when they all fit. */
 	std::optional<DungeonGroup> group;
+	/** The last dungeon on the page, when a dungeon with only a family or two has joined the one before it. */
+	std::optional<DungeonGroup> lastGroup;
 	std::vector<Tool> cards;
 	/** True for a card that begins another dungeon's families: a divider goes before it. */
 	std::vector<bool> divider;
@@ -408,14 +410,31 @@ std::vector<BarPage> BuildPages(int barWidth)
 	const bool onePage = count <= static_cast<int>(NumCardSlotKeys)
 	    && count * (MinCardWidth + CardGap) - CardGap + std::max(groups - 1, 0) * DividerWidth <= barWidth;
 
+	// A dungeon with fewer families than this isn't worth a tab: it goes on the page before, if that still fits.
+	constexpr int SmallGroup = 3;
+	const auto groupSize = [&](size_t first) {
+		int size = 0;
+		for (size_t i = first; i < lairs.size() && groupOf(lairs[i]) == groupOf(lairs[first]); i++)
+			size++;
+		return size;
+	};
+	const auto fitsWith = [&](const BarPage &page, int more) {
+		const int cards = static_cast<int>(page.cards.size()) + more;
+		const int dividers = static_cast<int>(std::count(page.divider.begin(), page.divider.end(), true)) + 1;
+		return cards <= static_cast<int>(NumCardSlotKeys) && cards * (MinCardWidth + CardGap) - CardGap + dividers * DividerWidth <= barWidth;
+	};
+
 	std::vector<BarPage> built;
 	for (size_t i = 0; i < lairs.size(); i++) {
 		const bool newGroup = i == 0 || groupOf(lairs[i]) != groupOf(lairs[i - 1]);
-		if (built.empty() || (newGroup && !onePage)) {
+		const bool joins = newGroup && !built.empty() && groupSize(i) < SmallGroup && fitsWith(built.back(), groupSize(i));
+		if (built.empty() || (newGroup && !onePage && !joins)) {
 			built.emplace_back();
 			if (!onePage)
 				built.back().group = groupOf(lairs[i]);
 		}
+		if (!onePage)
+			built.back().lastGroup = groupOf(lairs[i]);
 		built.back().divider.push_back(newGroup && !built.back().cards.empty());
 		built.back().cards.push_back(lairs[i]);
 	}
@@ -778,27 +797,38 @@ Rectangle CardPanelRect()
 // page's name shows, between two arrows that step through the pages.
 
 enum class TabStyle : uint8_t {
+	/** Every name in full. */
 	Full,
+	/** "Traps" for "Traps & Tricks". */
 	Short,
+	/** And a page of two dungeons named by the first: "Caves+". */
+	Brief,
+	/** Only the current page's name, between two arrows. */
 	Stepper,
 };
 
-std::string_view PageName(const BarPage &page, bool full)
+std::string PageName(const BarPage &page, TabStyle style)
 {
 	switch (page.type) {
 	case PageType::Lairs:
-		return page.group ? GroupName(*page.group) : std::string_view("Lairs");
+		if (!page.group)
+			return "Lairs";
+		if (!page.lastGroup || *page.lastGroup == *page.group)
+			return std::string(GroupName(*page.group));
+		if (style == TabStyle::Brief)
+			return fmt::format("{}+", GroupName(*page.group));
+		return fmt::format("{} & {}", GroupName(*page.group), GroupName(*page.lastGroup));
 	case PageType::Traps:
-		return full ? "Traps & Tricks" : "Traps";
+		return style == TabStyle::Full ? "Traps & Tricks" : "Traps";
 	case PageType::Upgrades:
 		break;
 	}
 	return "Upgrades";
 }
 
-int TabWidth(const BarPage &page, bool full)
+int TabWidth(const BarPage &page, TabStyle style)
 {
-	return GetLineWidth(PageName(page, full)) + 12;
+	return GetLineWidth(PageName(page, style)) + 12;
 }
 
 /** The most the gates button may take of the tab row. The tabs leave it this even during a raid, so they stay where they are. */
@@ -814,15 +844,17 @@ TabStyle CurrentTabStyle()
 	// The scout line can run on over the spells where the strip is high enough to have room above them.
 	const bool overSpells = SpellPanelRect().position.y >= bar.position.y + TabHeight;
 	const int room = bar.size.width - GatesButtonRoom() - SectionGap - (overSpells ? 0 : MinScoutRoom);
-	int full = 0;
-	int brief = 0;
-	for (const BarPage &page : all) {
-		full += TabWidth(page, true) + TabGap;
-		brief += TabWidth(page, false) + TabGap;
-	}
-	if (all.size() <= 3 && full <= room)
+	const auto width = [&](TabStyle style) {
+		int total = 0;
+		for (const BarPage &page : all)
+			total += TabWidth(page, style) + TabGap;
+		return total;
+	};
+	if (all.size() <= 3 && width(TabStyle::Full) <= room)
 		return TabStyle::Full;
-	return brief <= room ? TabStyle::Short : TabStyle::Stepper;
+	if (width(TabStyle::Short) <= room)
+		return TabStyle::Short;
+	return width(TabStyle::Brief) <= room ? TabStyle::Brief : TabStyle::Stepper;
 }
 
 /** The arrows of the stepper, to the page before (-1) and after (1). Empty when every page has a tab. */
@@ -833,7 +865,7 @@ Rectangle TabStepRect(int direction)
 	const Rectangle bar = BarRect();
 	if (direction < 0)
 		return { bar.position, { ArrowWidth, TabHeight } };
-	return { { bar.position.x + ArrowWidth + TabGap + TabWidth(Page(), false) + TabGap, bar.position.y }, { ArrowWidth, TabHeight } };
+	return { { bar.position.x + ArrowWidth + TabGap + TabWidth(Page(), TabStyle::Stepper) + TabGap, bar.position.y }, { ArrowWidth, TabHeight } };
 }
 
 /** The page's tab. Empty for a page that has none: in the stepper only the current one does. */
@@ -845,12 +877,12 @@ Rectangle TabRect(size_t i)
 	if (style == TabStyle::Stepper) {
 		if (i != currentPage)
 			return {};
-		return { { bar.position.x + ArrowWidth + TabGap, bar.position.y }, { TabWidth(all[i], false), TabHeight } };
+		return { { bar.position.x + ArrowWidth + TabGap, bar.position.y }, { TabWidth(all[i], style), TabHeight } };
 	}
 	int x = bar.position.x;
 	for (size_t tab = 0; tab < i; tab++)
-		x += TabWidth(all[tab], style == TabStyle::Full) + TabGap;
-	return { { x, bar.position.y }, { TabWidth(all[i], style == TabStyle::Full), TabHeight } };
+		x += TabWidth(all[tab], style) + TabGap;
+	return { { x, bar.position.y }, { TabWidth(all[i], style), TabHeight } };
 }
 
 Rectangle TabsRect()
@@ -1139,6 +1171,27 @@ void DrawCentred(const Surface &area, ClxSprite sprite, int drop = 0)
 std::array<KindImage, NumLairKinds> cardImages;
 Size cardImageSize;
 
+/** The same for a row of the tier pop-up, which is lower than a card. */
+std::array<KindImage, NumLairKinds> tierImages;
+Size tierImageSize;
+
+Size TierPortraitSize()
+{
+	return { 22, 18 };
+}
+
+const KindImage &TierImage(size_t kind)
+{
+	const Size size = TierPortraitSize();
+	if (tierImageSize != size) {
+		tierImages = {};
+		tierImageSize = size;
+	}
+	if (!tierImages[kind].built)
+		tierImages[kind] = MakeKindImage(kind, size.width, size.height);
+	return tierImages[kind];
+}
+
 const KindImage &CardImage(size_t kind)
 {
 	const Size size = CardPortraitSize();
@@ -1153,11 +1206,11 @@ const KindImage &CardImage(size_t kind)
 }
 
 /** Draws the kind at the bottom middle of `area`, losing its sides if the area is narrower than a full card's. */
-void DrawKindPortrait(const Surface &area, size_t kind)
+void DrawKindPortrait(const Surface &area, size_t kind, bool tier = false)
 {
 	if (kind >= NumLairKinds)
 		return;
-	const KindImage &image = CardImage(kind);
+	const KindImage &image = tier ? TierImage(kind) : CardImage(kind);
 	const int offsetX = (area.w() - image.width) / 2;
 	const int offsetY = area.h() - image.height;
 	for (int y = std::max(-offsetY, 0); y < image.height; y++) {
@@ -1286,7 +1339,7 @@ void DrawTabs(const Surface &out)
 		FillRect(out, tab.position.x, tab.position.y, tab.size.width, tab.size.height, selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		DrawFrame(out, tab, selected ? PAL16_YELLOW + 4 : PAL16_GRAY + 10);
 		NoteOpaqueUi(tab);
-		DrawString(out, PageName(all[i], style == TabStyle::Full), { tab.position + Displacement { 0, 1 }, { tab.size.width, 14 } },
+		DrawString(out, PageName(all[i], style), { tab.position + Displacement { 0, 1 }, { tab.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (selected ? UiFlags::ColorGold : UiFlags::ColorWhite) });
 	}
 	if (style == TabStyle::Stepper) {
@@ -1580,7 +1633,7 @@ std::optional<InfoContent> CurrentInfo()
 		// A dungeon's tab says which dungeon: on a narrow bar its name may not be on show.
 		for (size_t i = 0; i < Pages().size(); i++) {
 			if (Pages()[i].group && Contains(TabRect(i), mouse))
-				info.title = fmt::format("{}: {}", hint.title, GroupName(*Pages()[i].group));
+				info.title = fmt::format("{}: {}", hint.title, PageName(Pages()[i], TabStyle::Short));
 		}
 		// Over the mouse, or under it for the line at the top.
 		info.anchor = { { mouse.x, HudRect().position.y }, { 1, 1 } };
@@ -1692,8 +1745,8 @@ void DrawTierPopup(const Surface &out)
 		CloseTierPopup();
 		return;
 	}
-	const Size portrait = CardPortraitSize();
-	const int rowHeight = std::max(portrait.height, 28) + 2;
+	const Size portrait = TierPortraitSize();
+	const int rowHeight = portrait.height + 2;
 	const int height = static_cast<int>(tiers.size()) * rowHeight + 2;
 	const Rectangle popup { { std::clamp(card->position.x, 0, std::max(out.w() - TierPopupWidth, 0)), std::max(card->position.y - height, 0) }, { TierPopupWidth, height } };
 
@@ -1719,16 +1772,18 @@ void DrawTierPopup(const Surface &out)
 		if (kind == current)
 			FillRect(out, row.position.x, row.position.y, row.size.width, row.size.height, PAL16_GRAY + 14);
 		const Rectangle image { row.position + Displacement { 2, row.size.height - 1 - portrait.height }, portrait };
-		DrawKindPortrait(out.subregion(image.position.x, image.position.y, image.size.width, image.size.height), kind);
+		DrawKindPortrait(out.subregion(image.position.x, image.position.y, image.size.width, image.size.height), kind, /*tier=*/true);
 		if (!text.ready) {
 			DrawHalfTransparentRectTo(out, image.position.x, image.position.y, image.size.width, image.size.height);
 			DrawHalfTransparentRectTo(out, image.position.x, image.position.y, image.size.width, image.size.height);
 		}
 		const int textLeft = image.position.x + image.size.width + 4;
 		const int textWidth = row.position.x + row.size.width - 4 - textLeft;
-		const int textTop = row.position.y + (row.size.height - 27) / 2;
-		DrawString(out, FitText(text.name, textWidth), { { textLeft, textTop }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (kind == current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
-		DrawString(out, text.cost, { { textLeft, textTop + 13 }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
+		// One line: the name, and the price at the end of it.
+		const int textTop = row.position.y + (row.size.height - 14) / 2;
+		const int costWidth = GetLineWidth(text.cost);
+		DrawString(out, FitText(text.name, textWidth - costWidth - 6), { { textLeft, textTop }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | (kind == current ? UiFlags::ColorGold : UiFlags::ColorWhite) });
+		DrawString(out, text.cost, { { textLeft, textTop }, { textWidth, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | (text.ready ? UiFlags::ColorGold : UiFlags::ColorRed) });
 		if (kind == current || hovered)
 			DrawFrame(out, row, kind == current ? PAL16_YELLOW + 2 : PAL16_GRAY);
 		drawnHud.tiers.emplace_back(row, kind);
@@ -2691,12 +2746,17 @@ void OnLevelLoaded()
 	CloseTierPopup();
 	// Built during the load rather than as cards scroll into view, which would stutter.
 	if (!IsEditorActive()) {
-		for (const size_t kind : MusterKinds())
+		// Both sizes while the kind's sprites are loaded: the pop-up's would otherwise load them again on its first showing.
+		for (const size_t kind : MusterKinds()) {
 			CardImage(kind);
+			TierImage(kind);
+		}
 	}
 	EditorOnLevelLoaded();
 	PadOnLevelLoaded();
 }
+
+void CentreViewAboveStrip();
 
 void OnGameEnded()
 {
@@ -2711,6 +2771,7 @@ void OnGameEnded()
 	CoopOnGameEnded();
 	OnGameEndedSpeed();
 	active = false;
+	CentreViewAboveStrip();
 	ClearSelection();
 	CancelBoxDrag();
 }
@@ -2785,8 +2846,22 @@ Point DevTileOnScreen(Point tile)
 	return TileCenter(tile);
 }
 
+/** What the view was last centred for. See ViewFootHeight. */
+int viewFootHeight = -1;
+
+/** The view is centred above the strip, whose height changes with the screen, the UI scale and on leaving the keep. */
+void CentreViewAboveStrip()
+{
+	if (viewFootHeight == ViewFootHeight())
+		return;
+	viewFootHeight = ViewFootHeight();
+	CalcViewportGeometry();
+	CancelBoxDrag();
+}
+
 void UpdateCamera()
 {
+	CentreViewAboveStrip();
 	if (!IsActive())
 		return;
 	EditorUpdateFrame();
@@ -3734,8 +3809,8 @@ void DrawUi(const Surface &out)
 		const std::optional<Rectangle> roster = RaidRosterRect(out);
 		int newsLeft = gbIsMultiplayer ? 198 : 6;
 		int newsRight = roster ? roster->position.x - 6 : out.w() - 6;
-		// Under the status line: on a narrow screen it reaches most of the way across.
-		int newsTop = underStatus + 2;
+		// At the very top, under its strips, unless the status line reaches that far across: then under that.
+		int newsTop = 6 + 20 * topStrips;
 		bool tipFits = true;
 		// The card stays put. The news goes beside it if that leaves it room, otherwise under it.
 		if (const std::optional<Rectangle> scoutCard = ScoutCardRect(out, top); scoutCard) {
@@ -3748,6 +3823,14 @@ void DrawUi(const Surface &out)
 			}
 		}
 		const int newsWidth = newsRight - newsLeft;
+		{
+			// The banner is the widest of the news, and all of it is centred.
+			constexpr int WidestNews = 420;
+			const int boxWidth = std::min(newsWidth, WidestNews);
+			const int boxRight = newsLeft + (newsWidth - boxWidth) / 2 + boxWidth;
+			if (drawnHud.status && boxRight + 4 > drawnHud.status->position.x)
+				newsTop = std::max(newsTop, underStatus + 2);
+		}
 		pauseCentre = newsLeft + newsWidth / 2;
 		int newsY = DrawBanner(out, newsLeft, newsWidth, newsTop);
 		newsY = DrawAlerts(out, newsLeft, newsWidth, newsY, UiMouse());
@@ -3909,6 +3992,15 @@ uint32_t PadToolStamp()
 int PadViewBottom()
 {
 	return ViewBottom();
+}
+
+int ViewFootHeight()
+{
+	if (!IsActive() || IsEditorActive())
+		return 0;
+	// The status line at the top right doesn't count: it is a corner, and the keep shows beside and under it.
+	constexpr int Step = 2 * TILE_HEIGHT;
+	return std::max((StripHeight() * UiScale() + Step / 2) / Step, 1) * Step;
 }
 
 int MessagesBottom()

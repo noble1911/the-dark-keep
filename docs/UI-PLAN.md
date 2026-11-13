@@ -83,6 +83,9 @@ Follows step 2, on the same branch.
 **Done** on branch `ui/families`. The orbs stand 16 UI pixels above a 72 pixel strip (12 above a 54 pixel one), and the status line is 18 pixels at 720 (12 to 13 on lower screens).
 The view is now the whole screen on a 640 pixel wide window too, where the engine used to stop it at the hero panel.
 
+Polish (branch `ui/polish-bar`): the keep's view is centred above the strip (to the nearest two tiles; the status line doesn't count), a tier pop-up row is 20 pixels high,
+a dungeon with fewer than three families shares the page before it ("Caves & Hell"), and news sits at the very top unless the status line reaches it.
+
 - The status box leaves the strip, which frees about 250 UI pixels for cards.
 - A red orb at the left end of the strip shows the Keep Lord's health. A blue orb at the right end, past the spell slots, shows mana. They use Diablo's own orb art and may poke above the strip.
 - One line at the top right holds phase and clock, raid, pop, gold and loot, the speed toggle and help. The raid roster sits under it.

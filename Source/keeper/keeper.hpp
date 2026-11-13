@@ -101,6 +101,12 @@ Point UiMousePosition();
 int UiBarHeight();
 /** The screen row where the strip along the bottom starts (in the editor, its bar). */
 int ViewBottom();
+/**
+ * How much of the foot of the screen the keep's strip covers, for centring the view: in screen pixels, to the
+ * nearest two tiles, which is what the engine's view and cursor arithmetic can take. 0 outside a keep, and in the
+ * map editor, whose bar is the height of the hero's panel.
+ */
+int ViewFootHeight();
 /** The screen row the engine's message log ends above: clear of the orbs, which stand higher than the strip. */
 int MessagesBottom();
 

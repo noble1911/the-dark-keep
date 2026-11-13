@@ -1646,14 +1646,21 @@ void ShiftGrid(Point *offset, int horizontal, int vertical)
 	offset->y += vertical - horizontal;
 }
 
+/** [DARK KEEP] How much of the view's foot is covered: the hero's panel, or in a keep the strip that stands in for it. */
+int ViewFootHeight()
+{
+	const int keep = keeper::ViewFootHeight();
+	return keep > 0 ? keep : GetMainPanel().size.height;
+}
+
 int RowsCoveredByPanel()
 {
-	const auto &mainPanelSize = GetMainPanel().size;
-	if (GetScreenWidth() <= mainPanelSize.width) {
+	// [DARK KEEP] The view is the whole screen whatever its width (see CalculatePanelAreas): only a view cut short has nothing covered.
+	if (GetViewportHeight() != GetScreenHeight()) {
 		return 0;
 	}
 
-	int rows = mainPanelSize.height / TILE_HEIGHT;
+	int rows = ViewFootHeight() / TILE_HEIGHT;
 	if (*GetOptions().Graphics.zoom) {
 		rows /= 2;
 	}
@@ -1721,7 +1728,7 @@ void CalcViewportGeometry()
 	const int zoomFactor = *GetOptions().Graphics.zoom ? 2 : 1;
 	const int screenWidth = GetScreenWidth() / zoomFactor;
 	const int screenHeight = GetScreenHeight() / zoomFactor;
-	const int panelHeight = GetMainPanel().size.height / zoomFactor;
+	const int panelHeight = ViewFootHeight() / zoomFactor; // [DARK KEEP] the keep's strip is lower than the hero's panel
 	const int pixelsToPanel = screenHeight - panelHeight;
 	Point playerPosition { screenWidth / 2, pixelsToPanel / 2 };
 
