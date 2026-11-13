@@ -3491,13 +3491,24 @@ void DrawOrb(const Surface &out, bool mana, int percent, std::string_view label,
 				if (art != nullptr) {
 					const bool liquid = artY >= liquidTop && artY < OrbEmptyRow;
 					const std::vector<uint8_t> &pixels = liquid ? art->full : art->empty;
-					// The art was cut from a panel: above the panel's top edge the empty flask is black, and the edge
-					// itself is a line across both. The glass shows the rows just under the edge there instead.
-					int row = artY;
-					if (row <= OrbPanelEdgeRow + 1)
-						row = liquid ? std::max(row, OrbPanelEdgeRow + 2) : 2 * (OrbPanelEdgeRow + 2) - row;
-					const int sourceY = row == artY ? scaledY : std::clamp((row * size + OrbArtSize - 1) / OrbArtSize, 0, size - 1);
-					color = pixels[static_cast<size_t>(sourceY) * size + std::clamp(x, 0, size - 1)];
+					// The art was cut from a panel, whose top edge is a line across the glass, and above it the
+					// empty flask is black. The liquid has its own dome up there, so only the edge's two rows
+					// are taken from below it: two rows down, which keeps the liquid's dither in step. The
+					// empty glass mirrors the stone under the edge.
+					const auto sample = [&](int row) {
+						const int sourceY = row == artY ? scaledY : std::clamp((row * size + OrbArtSize - 1) / OrbArtSize, 0, size - 1);
+						return pixels[static_cast<size_t>(sourceY) * size + std::clamp(x, 0, size - 1)];
+					};
+					if (artY > OrbPanelEdgeRow + 1) {
+						color = sample(artY);
+					} else if (!liquid) {
+						color = sample(2 * (OrbPanelEdgeRow + 2) - artY);
+					} else {
+						color = sample(artY >= OrbPanelEdgeRow ? artY + 2 : artY);
+						// The dome is a little narrower than the glass: where it has nothing, the liquid under the edge fills in.
+						if (color == 0)
+							color = sample(OrbPanelEdgeRow + 2 + (artY & 1));
+					}
 				} else {
 					color = 0;
 				}
