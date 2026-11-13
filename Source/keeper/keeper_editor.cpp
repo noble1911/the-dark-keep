@@ -41,6 +41,7 @@
 #include "keeper/keeper_lighting.hpp"
 #include "keeper/keeper_map.hpp"
 #include "keeper/keeper_pad.hpp"
+#include "keeper/keeper_ui.hpp"
 #include "levels/gendung.h"
 #include "levels/tile_properties.hpp"
 #include "objects.h"
@@ -110,6 +111,7 @@ enum class ActionKind : uint8_t {
 	Decor,
 	Dress,
 	Test,
+	Menu,
 };
 
 struct Button {
@@ -119,6 +121,8 @@ struct Button {
 	size_t tool = 0;
 	bool selected = false;
 	bool enabled = true;
+	/** What a mouse over it says, above the strip. */
+	std::string help;
 };
 
 enum class Modal : uint8_t {
@@ -130,6 +134,8 @@ enum class Modal : uint8_t {
 	PropList,
 	StampList,
 	ConfirmNew,
+	/** The actions that don't fit the strip, where it is narrow. */
+	MenuList,
 };
 
 struct Snapshot {
@@ -147,8 +153,17 @@ struct Snapshot {
 
 constexpr size_t MaxUndo = 100;
 constexpr int MaxBrush = 6;
-constexpr int RightColumnWidth = 210;
-constexpr int ButtonHeight = 18;
+// The strip at the foot of the screen: panels as big as their buttons, with the keep to be seen between them.
+constexpr int StripMinHeight = 48;
+constexpr int StripMaxHeight = 72;
+constexpr int StripMaxWidth = 1280;
+constexpr int PanelPadding = 3;
+constexpr int ButtonGap = 2;
+constexpr int PanelGap = 6;
+constexpr int ButtonMargin = 8;
+constexpr int BadgeHeight = 16;
+/** How long a tool's hint stays up after it is picked or its size changes. */
+constexpr uint32_t ToolHintMs = 4000;
 constexpr int ModalWidth = 360;
 constexpr int ModalRows = 12;
 constexpr int ModalRowHeight = 16;
@@ -217,6 +232,12 @@ uint32_t stampSeed = 0;
 void SettleStamp();
 
 Modal modal = Modal::None;
+bool IsListModalKind()
+{
+	return modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList || modal == Modal::MenuList;
+}
+/** What each row of the menu list does. */
+std::vector<ActionKind> menuActions;
 std::string modalText;
 std::string modalNote;
 std::vector<std::string> modalList;
@@ -227,6 +248,7 @@ int modalRow = 0;
 std::string feedback;
 bool feedbackIsError = false;
 uint32_t feedbackUntil = 0;
+uint32_t toolHintUntil = 0;
 
 /** A test run is in progress; these bring back the editor. */
 bool testing = false;
@@ -506,9 +528,26 @@ std::optional<Point> CursorCell()
 	return cell;
 }
 
+int UiWidthPx()
+{
+	return gnScreenWidth / UiPixelScale();
+}
+
+int UiHeightPx()
+{
+	return gnScreenHeight / UiPixelScale();
+}
+
+/** The most the strip may take: a tenth of the screen. */
+int StripHeightPx()
+{
+	return std::clamp(UiHeightPx() / 10, StripMinHeight, StripMaxHeight);
+}
+
+/** Top of the strip's room, in UI pixels: the keep is to be seen from here up, and between the panels below. */
 int PanelTop()
 {
-	return gnScreenHeight / UiPixelScale() - UiBarHeight();
+	return UiHeightPx() - StripHeightPx();
 }
 
 bool Contains(const Rectangle &rect, Point p)
@@ -516,9 +555,11 @@ bool Contains(const Rectangle &rect, Point p)
 	return p.x >= rect.position.x && p.y >= rect.position.y && p.x < rect.position.x + rect.size.width && p.y < rect.position.y + rect.size.height;
 }
 
+bool IsOverStrip(Point mouse);
+
 bool IsMouseOverPanel()
 {
-	return modal != Modal::None || UiMousePosition().y >= PanelTop();
+	return modal != Modal::None || IsOverStrip(UiMousePosition());
 }
 
 bool IsShiftHeld()
@@ -1185,6 +1226,7 @@ void SelectTool(EditTool next)
 	else
 		SettleStamp();
 	tool = next;
+	toolHintUntil = SDL_GetTicks() + ToolHintMs;
 	if (next == EditTool::Corridor && brushSize < 2)
 		brushSize = 2;
 }
@@ -1221,55 +1263,166 @@ void ToggleDecor()
 
 // ---- the panel ----------------------------------------------------------------------------------
 
-std::vector<Button> PanelButtons()
-{
+std::string ToolHelp(std::string_view help);
+
+struct Strip {
 	std::vector<Button> buttons;
-	const int uiWidth = gnScreenWidth / UiPixelScale();
-	const int left = 6;
-	const int right = uiWidth - RightColumnWidth - 12;
-	int x = left;
-	int y = PanelTop() + 5;
-	const auto add = [&](std::string label, ActionKind action, size_t index, bool selected, bool enabled = true) {
-		const int width = std::max<int>(GetLineWidth(label) + 10, 34);
-		if (x + width > right) {
-			x = left;
-			y += ButtonHeight + 3;
-		}
-		buttons.push_back({ { { x, y }, { width, ButtonHeight } }, std::move(label), action, index, selected, enabled });
-		x += width + 3;
+	Rectangle tools;
+	Rectangle actions;
+	/** The title and what is wrong with the map: beside the buttons, or one line above them where there is no room. */
+	Rectangle status;
+	bool statusIsBadge = false;
+};
+
+std::string StatusSummary()
+{
+	if (problems.empty())
+		return "Ready to play";
+	const size_t blocking = static_cast<size_t>(std::count_if(problems.begin(), problems.end(), [](const MapProblem &problem) { return problem.blocking; }));
+	if (blocking > 0)
+		return fmt::format("{} {} to fix", blocking, blocking == 1 ? "problem" : "problems");
+	return fmt::format("{} {}", problems.size(), problems.size() == 1 ? "warning" : "warnings");
+}
+
+std::string MapTitle()
+{
+	return fmt::format("{}{}", model.name.empty() ? std::string_view("Untitled") : std::string_view(model.name), dirty ? " *" : "");
+}
+
+std::string ToolHint(EditTool forTool)
+{
+	std::string hint = ToolHelp(Tools[static_cast<size_t>(forTool)].help);
+	if (forTool == EditTool::Door && model.tileset == MapTileset::Caves)
+		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
+	if (forTool == EditTool::Floor || forTool == EditTool::Rock || forTool == EditTool::Corridor)
+		hint += fmt::format("  Size {}", brushSize);
+	return hint;
+}
+
+Strip LayoutStrip()
+{
+	struct Spec {
+		std::string label;
+		ActionKind action;
+		size_t index;
+		bool selected;
+		bool enabled;
+		std::string help;
 	};
+	Strip strip;
+	const int uiWidth = UiWidthPx();
+	const int buttonHeight = std::min(22, (StripHeightPx() - 2 * PanelPadding - ButtonGap) / 2);
+	const int panelHeight = 2 * buttonHeight + ButtonGap + 2 * PanelPadding;
+	const int panelY = UiHeightPx() - panelHeight;
+	const bool narrow = uiWidth < 900;
+
+	std::vector<Spec> toolSpecs;
 	for (size_t i = 0; i < NumEditTools; i++) {
 		const auto thisTool = static_cast<EditTool>(i);
-		// A controller has no number keys to go with the labels.
-		const std::string key = IsPadInUse() ? std::string() : fmt::format("{} ", Tools[i].key);
-		std::string label = fmt::format("{}{}", key, Tools[i].name);
+		// A controller has no number keys to go with the labels, and a narrow screen no room for them.
+		const std::string key = (IsPadInUse() || narrow) ? std::string() : fmt::format("{} ", Tools[i].key);
+		std::string name(Tools[i].name);
 		if (thisTool == EditTool::Object)
-			label = fmt::format("{}{}", key, MapObjectName(objectKind));
+			name = std::string(MapObjectName(objectKind));
 		if (thisTool == EditTool::Stamp)
-			label = fmt::format("{}{}", key, CurrentStamp().label);
+			name = std::string(CurrentStamp().label);
 		bool enabled = true;
-		if (thisTool == EditTool::Door)
+		std::string help = fmt::format("{} ({}): {}", Tools[i].name, Tools[i].key, ToolHint(thisTool));
+		if (thisTool == EditTool::Door) {
 			enabled = MapTilesetHasDoors(model.tileset);
-		if (thisTool == EditTool::Arch)
+			if (!enabled)
+				help = "Door: this set has none";
+		}
+		if (thisTool == EditTool::Arch) {
 			enabled = MapTilesetHasArches(model.tileset);
-		add(std::move(label), ActionKind::Tool, i, tool == thisTool, enabled);
+			if (!enabled)
+				help = "Arch: this set has none";
+		}
+		toolSpecs.push_back({ FitText(fmt::format("{}{}", key, name), narrow ? 60 : 100), ActionKind::Tool, i, tool == thisTool, enabled, std::move(help) });
 	}
-	x = left;
-	y += ButtonHeight + 7;
-	add("Undo", ActionKind::Undo, 0, false, !undoStack.empty() || stampPreview.active);
-	add("Redo", ActionKind::Redo, 0, false, !redoStack.empty());
-	add("New", ActionKind::New, 0, false);
-	add("Save", ActionKind::Save, 0, false);
-	add("Save As", ActionKind::SaveAs, 0, false);
-	add("Load", ActionKind::Load, 0, false);
-	add(fmt::format("Set: {}", MapTilesetName(model.tileset)), ActionKind::Tileset, 0, false);
-	add("Author", ActionKind::Author, 0, false);
-	add(IsViewZoomed() ? "Zoom: 2x" : "Zoom: 1x", ActionKind::Zoom, 0, IsViewZoomed());
-	add("Grid", ActionKind::Grid, 0, showGrid);
-	add("Variants", ActionKind::Decor, 0, decorPreview);
-	add("Dress", ActionKind::Dress, 0, false, model.entrance != NoMapPosition && model.vault != NoMapPosition);
-	add(IsPadInUse() ? "Test" : "F5 Test", ActionKind::Test, 0, false, !HasBlockingProblem());
-	return buttons;
+	const bool canTest = !HasBlockingProblem();
+	const bool canDress = model.entrance != NoMapPosition && model.vault != NoMapPosition;
+	const std::vector<Spec> actionSpecs {
+		{ "Undo", ActionKind::Undo, 0, false, !undoStack.empty() || stampPreview.active, "Undo the last change (Ctrl+Z)" },
+		{ "Redo", ActionKind::Redo, 0, false, !redoStack.empty(), "Put back what was undone (Ctrl+Y)" },
+		{ "New", ActionKind::New, 0, false, true, "Start an empty map (Ctrl+N)" },
+		{ "Save", ActionKind::Save, 0, false, true, "Save the map (Ctrl+S)" },
+		{ "Save As", ActionKind::SaveAs, 0, false, true, "Save the map under another name (Ctrl+Shift+S)" },
+		{ "Load", ActionKind::Load, 0, false, true, "Open a saved map (Ctrl+O)" },
+		{ FitText(std::string(MapTilesetName(model.tileset)), narrow ? 60 : 100), ActionKind::Tileset, 0, false, true, fmt::format("Dungeon set: {}. Click to change it", MapTilesetName(model.tileset)) },
+		{ "Author", ActionKind::Author, 0, false, true, "Put your name on the map" },
+		{ IsViewZoomed() ? "Zoom 2x" : "Zoom 1x", ActionKind::Zoom, 0, IsViewZoomed(), true, "Zoom the view (+ and -, or the mouse wheel)" },
+		{ "Grid", ActionKind::Grid, 0, showGrid, true, "Show the cell grid (G)" },
+		{ "Variants", ActionKind::Decor, 0, decorPreview, true, "Show the wall and floor variants a saved map will have (P)" },
+		{ "Dress", ActionKind::Dress, 0, false, canDress, canDress ? "Add lights and props off the heroes' way. Undo takes them out" : "Dress: place the entrance and the vault first" },
+		{ IsPadInUse() ? "Test" : "F5 Test", ActionKind::Test, 0, false, canTest, canTest ? "Play the map as a keep. It ends where it began (F5)" : "Test: fix the problems in red first" },
+	};
+
+	// Two rows of buttons to a panel, each column as wide as its widest label needs.
+	const auto place = [&](const std::vector<Spec> &specs, int x, bool commit) {
+		const int count = static_cast<int>(specs.size());
+		const int columns = (count + 1) / 2;
+		std::vector<int> widths(static_cast<size_t>(columns), 30);
+		for (int i = 0; i < count; i++) {
+			int &width = widths[static_cast<size_t>(i % columns)];
+			width = std::max(width, GetLineWidth(specs[static_cast<size_t>(i)].label) + ButtonMargin);
+		}
+		std::vector<int> starts;
+		int at = x + PanelPadding;
+		for (const int width : widths) {
+			starts.push_back(at);
+			at += width + ButtonGap;
+		}
+		if (!commit)
+			return Rectangle { { x, panelY }, { at - ButtonGap + PanelPadding - x, panelHeight } };
+		for (int i = 0; i < count; i++) {
+			const Spec &spec = specs[static_cast<size_t>(i)];
+			const size_t column = static_cast<size_t>(i % columns);
+			const int row = i / columns;
+			strip.buttons.push_back({ { { starts[column], panelY + PanelPadding + row * (buttonHeight + ButtonGap) }, { widths[column], buttonHeight } },
+			    spec.label, spec.action, spec.index, spec.selected, spec.enabled, spec.help });
+		}
+		return Rectangle { { x, panelY }, { at - ButtonGap + PanelPadding - x, panelHeight } };
+	};
+
+	const int hudWidth = std::min(uiWidth, StripMaxWidth);
+	const int hudLeft = (uiWidth - hudWidth) / 2;
+	strip.tools = place(toolSpecs, hudLeft, true);
+	const int actionsLeft = strip.tools.position.x + strip.tools.size.width + PanelGap;
+	if (actionsLeft + place(actionSpecs, actionsLeft, false).size.width <= hudLeft + hudWidth) {
+		strip.actions = place(actionSpecs, actionsLeft, true);
+	} else {
+		// Not all of them fit: the ones that are pressed all the time, and a menu for the rest.
+		const std::vector<Spec> few {
+			actionSpecs[0],
+			actionSpecs[1],
+			{ "Menu", ActionKind::Menu, 0, false, true, "New, save, load, set, author, zoom, grid, variants, dress" },
+			actionSpecs[12],
+		};
+		strip.actions = place(few, actionsLeft, true);
+	}
+
+	const int statusWidth = std::clamp(std::max(GetLineWidth(MapTitle()), GetLineWidth(StatusSummary())) + 12, 96, 170);
+	const int statusLeft = hudLeft + hudWidth - statusWidth;
+	if (statusLeft >= strip.actions.position.x + strip.actions.size.width + PanelGap) {
+		strip.status = { { statusLeft, panelY }, { statusWidth, panelHeight } };
+	} else {
+		const int width = std::min(uiWidth, GetLineWidth(MapTitle()) + GetLineWidth(StatusSummary()) + 30);
+		strip.status = { { hudLeft, panelY - BadgeHeight - 2 }, { width, BadgeHeight } };
+		strip.statusIsBadge = true;
+	}
+	return strip;
+}
+
+std::vector<Button> PanelButtons()
+{
+	return LayoutStrip().buttons;
+}
+
+bool IsOverStrip(Point mouse)
+{
+	const Strip strip = LayoutStrip();
+	return Contains(strip.tools, mouse) || Contains(strip.actions, mouse) || Contains(strip.status, mouse);
 }
 
 void DoAction(const Button &button)
@@ -1327,6 +1480,31 @@ void DoAction(const Button &button)
 	case ActionKind::Test:
 		StartTest();
 		break;
+	case ActionKind::Menu: {
+		const bool canDress = model.entrance != NoMapPosition && model.vault != NoMapPosition;
+		modal = Modal::MenuList;
+		modalList.clear();
+		menuActions.clear();
+		const auto add = [&](std::string label, ActionKind action) {
+			modalList.push_back(std::move(label));
+			menuActions.push_back(action);
+		};
+		add("New map", ActionKind::New);
+		add("Save", ActionKind::Save);
+		add("Save as...", ActionKind::SaveAs);
+		add("Load...", ActionKind::Load);
+		add(fmt::format("Dungeon set: {}", MapTilesetName(model.tileset)), ActionKind::Tileset);
+		add("Author...", ActionKind::Author);
+		add(IsViewZoomed() ? "Zoom: 2x" : "Zoom: 1x", ActionKind::Zoom);
+		add(showGrid ? "Grid: on" : "Grid: off", ActionKind::Grid);
+		add(decorPreview ? "Variants: on" : "Variants: off", ActionKind::Decor);
+		if (canDress)
+			add("Dress the map", ActionKind::Dress);
+		modalScroll = 0;
+		modalRow = 0;
+		modalNote.clear();
+		break;
+	}
 	}
 }
 
@@ -1352,19 +1530,50 @@ std::string ToolHelp(std::string_view help)
 	return text;
 }
 
-void DrawFrame(const Surface &out, const Rectangle &rect, uint8_t color)
+/**
+ * A fill that is never the colour already there. The scaled UI only copies back the pixels that differ from
+ * the view it sampled, so a solid panel has to differ from it everywhere, or the keep shows through.
+ */
+uint8_t NearBlack()
 {
-	DrawHorizontalLine(out, rect.position, rect.size.width, color);
-	DrawHorizontalLine(out, rect.position + Displacement { 0, rect.size.height - 1 }, rect.size.width, color);
-	DrawVerticalLine(out, rect.position, rect.size.height, color);
-	DrawVerticalLine(out, rect.position + Displacement { rect.size.width - 1, 0 }, rect.size.height, color);
+	// The darkest colour of the level's palette that isn't black itself.
+	uint8_t darkest = 1;
+	int least = 1 << 30;
+	for (int i = 1; i < 256; i++) {
+		const SDL_Color &c = logical_palette[i];
+		const int brightness = c.r * 3 + c.g * 6 + c.b;
+		if (brightness < least) {
+			least = brightness;
+			darkest = static_cast<uint8_t>(i);
+		}
+	}
+	return darkest;
+}
+
+void FillSolid(const Surface &out, const Rectangle &rect, uint8_t color)
+{
+	const uint8_t other = color == 0 ? NearBlack() : color - 1;
+	for (int y = std::max(rect.position.y, 0); y < std::min(rect.position.y + rect.size.height, static_cast<int>(out.h())); y++) {
+		for (int x = std::max(rect.position.x, 0); x < std::min(rect.position.x + rect.size.width, static_cast<int>(out.w())); x++) {
+			uint8_t *pixel = out.at(x, y);
+			*pixel = *pixel == color ? other : color;
+		}
+	}
+}
+
+void DrawSolidFrame(const Surface &out, const Rectangle &rect, uint8_t color)
+{
+	FillSolid(out, { rect.position, { rect.size.width, 1 } }, color);
+	FillSolid(out, { rect.position + Displacement { 0, rect.size.height - 1 }, { rect.size.width, 1 } }, color);
+	FillSolid(out, { rect.position, { 1, rect.size.height } }, color);
+	FillSolid(out, { rect.position + Displacement { rect.size.width - 1, 0 }, { 1, rect.size.height } }, color);
 }
 
 Rectangle ModalRect()
 {
 	const int uiWidth = gnScreenWidth / UiPixelScale();
 	int height = 86;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList)
+	if (IsListModalKind())
 		height = 44 + ModalRows * ModalRowHeight;
 	return { { (uiWidth - ModalWidth) / 2, std::max(10, PanelTop() - height - 10) }, { ModalWidth, height } };
 }
@@ -1386,6 +1595,8 @@ std::string_view ModalTitle()
 		return "Room stamp";
 	case Modal::ConfirmNew:
 		return "Start a new map?";
+	case Modal::MenuList:
+		return "Map";
 	case Modal::None:
 		break;
 	}
@@ -1394,7 +1605,7 @@ std::string_view ModalTitle()
 
 std::optional<size_t> ModalRowAt(Point mouse)
 {
-	if (modal != Modal::LoadList && modal != Modal::TilesetList && modal != Modal::PropList && modal != Modal::StampList)
+	if (!IsListModalKind())
 		return std::nullopt;
 	const Rectangle box = ModalRect();
 	const Rectangle rows { box.position + Displacement { 8, 24 }, { box.size.width - 16, ModalRows * ModalRowHeight } };
@@ -1407,16 +1618,16 @@ std::optional<size_t> ModalRowAt(Point mouse)
 void DrawModal(const Surface &out)
 {
 	const Rectangle box = ModalRect();
-	FillRect(out, box.position.x, box.position.y, box.size.width, box.size.height, PAL16_GRAY + 14);
-	DrawFrame(out, box, PAL16_YELLOW + 4);
+	FillSolid(out, box, PAL16_GRAY + 14);
+	DrawSolidFrame(out, box, PAL16_YELLOW + 4);
 	const Point text = box.position + Displacement { 8, 6 };
 	const int width = box.size.width - 16;
 	DrawString(out, ModalTitle(), { text, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
 
 	if (modal == Modal::SaveName || modal == Modal::Author) {
 		const Rectangle field { text + Displacement { 0, 20 }, { width, 18 } };
-		FillRect(out, field.position.x, field.position.y, field.size.width, field.size.height, 0);
-		DrawFrame(out, field, PAL16_GRAY + 6);
+		FillSolid(out, field, 0);
+		DrawSolidFrame(out, field, PAL16_GRAY + 6);
 		const bool caretOn = (SDL_GetTicks() / 400) % 2 == 0;
 		DrawString(out, fmt::format("{}{}", modalText, caretOn ? "_" : ""), { field.position + Displacement { 4, 2 }, { width - 8, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
 		const std::string keys = IsPadInUse() ? fmt::format("{}: accept   {}: cancel", InputName(PadAction::Confirm), InputName(PadAction::Cancel)) : std::string("Enter: accept   Esc: cancel");
@@ -1438,7 +1649,7 @@ void DrawModal(const Surface &out)
 			break;
 		const Point at = text + Displacement { 0, 18 + row * ModalRowHeight };
 		if (hovered ? *hovered == index : index == static_cast<size_t>(modalRow))
-			FillRect(out, at.x, at.y, width, ModalRowHeight, PAL16_RED + 12);
+			FillSolid(out, { at, { width, ModalRowHeight } }, PAL16_RED + 12);
 		bool current = modalList[index] == fileName;
 		if (modal == Modal::TilesetList)
 			current = index == static_cast<size_t>(model.tileset);
@@ -1543,6 +1754,8 @@ void ClickModalRow(size_t row)
 			objectKind = picked.kind;
 			break;
 		}
+	} else if (kind == Modal::MenuList && row < menuActions.size()) {
+		DoAction({ {}, {}, menuActions[row] });
 	} else if (kind == Modal::StampList && row < stampListStamps.size()) {
 		stampIndex = static_cast<size_t>(stampListStamps[row] - RoomStamps().data());
 		ChoseStamp();
@@ -1663,6 +1876,11 @@ void DrawStairsMarker(const Surface &out, Point position, bool entrance, int max
 } // namespace
 
 // ---- public -----------------------------------------------------------------------------------------
+
+int EditorStripHeight()
+{
+	return StripHeightPx();
+}
 
 bool IsEditorActive()
 {
@@ -1892,7 +2110,7 @@ bool EditorOnKeyDown(SDL_Keycode key)
 	if (modal != Modal::None) {
 		if (key == SDLK_ESCAPE)
 			modal = Modal::None;
-		if ((modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList) && !modalList.empty()) {
+		if (IsListModalKind() && !modalList.empty()) {
 			const int last = static_cast<int>(modalList.size()) - 1;
 			if (key == SDLK_DOWN || key == SDLK_UP) {
 				modalRow = std::clamp(modalRow + (key == SDLK_DOWN ? 1 : -1), 0, last);
@@ -1967,6 +2185,7 @@ bool EditorOnKeyDown(SDL_Keycode key)
 				SetFeedback(fmt::format("Stamp: {}", CurrentStamp().label));
 		} else {
 			brushSize = std::clamp(brushSize + (key == SDLK_LEFTBRACKET ? -1 : 1), 1, MaxBrush);
+			toolHintUntil = SDL_GetTicks() + ToolHintMs;
 		}
 		return true;
 	case SDLK_G:
@@ -2033,7 +2252,7 @@ bool EditorOnMouseDown(bool right)
 			modal = Modal::None;
 		return true;
 	}
-	if (mouse.y >= PanelTop()) {
+	if (IsOverStrip(mouse)) {
 		if (right)
 			return true;
 		for (const Button &button : PanelButtons()) {
@@ -2052,7 +2271,7 @@ bool EditorOnMouseWheel(int deltaY)
 {
 	if (levelReloading)
 		return true;
-	if (modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList) {
+	if (IsListModalKind()) {
 		const int maxScroll = std::max(0, static_cast<int>(modalList.size()) - ModalRows);
 		modalScroll = std::clamp(modalScroll + (deltaY > 0 ? -1 : 1), 0, maxScroll);
 		return true;
@@ -2065,7 +2284,8 @@ bool EditorOnMouseWheel(int deltaY)
 
 void EditorDrawWorld(const Surface &out)
 {
-	const int maxY = PanelTop() * UiPixelScale();
+	// The keep goes down to the foot of the screen: the strip's panels are drawn over it.
+	const int maxY = out.h();
 
 	if (showGrid) {
 		for (int x = 0; x < DMAXX; x++) {
@@ -2152,80 +2372,127 @@ void EditorDrawWorld(const Surface &out)
 	}
 }
 
-void EditorDrawUi(const Surface &out)
-{
-	const int top = PanelTop();
-	FillRect(out, 0, top, out.w(), out.h() - top, 0);
-	DrawHorizontalLine(out, { 0, top }, out.w(), PAL16_RED + 8);
+namespace {
 
+/** What to say above the strip, and the left edge to say it from: a hovered button's help, or the tool's hint while it is fresh. */
+struct Tooltip {
+	std::string text;
+	int left = 0;
+};
+
+Tooltip StripTooltip(const Strip &strip, Point mouse)
+{
+	if (modal != Modal::None)
+		return {};
+	const int hudLeft = strip.tools.position.x;
+	if (Contains(strip.status, mouse)) {
+		std::string text = problems.empty() ? std::string("Ready to play") : std::string();
+		for (const MapProblem &problem : problems)
+			text += (text.empty() ? "" : "\n") + problem.text;
+		return { text, strip.status.position.x };
+	}
+	for (const Button &button : strip.buttons) {
+		if (Contains(button.rect, mouse))
+			return { button.help, button.rect.position.x };
+	}
+	if (!IsMouseOverPanel()) {
+		if (tool == EditTool::Object) {
+			if (const std::string why = ObjectForClick(cursPosition).second; !why.empty() && FindObjectForClick(cursPosition) == model.objects.end())
+				return { fmt::format("{}: {}", MapObjectName(objectKind), why), hudLeft };
+		}
+	}
+	if (tool == EditTool::Stamp && stampPreview.active)
+		return { fmt::format("{}: {}", CurrentStamp().label, StampKeysHint()), hudLeft };
+	if (SDL_GetTicks() < toolHintUntil) {
+		std::string text = ToolHint(tool);
+		if (tool == EditTool::Stamp)
+			text = fmt::format("{}: {}", CurrentStamp().label, text);
+		return { text, hudLeft };
+	}
+	return {};
+}
+
+void DrawStripPanel(const Surface &out, const Rectangle &rect)
+{
+	FillSolid(out, rect, 0);
+	DrawSolidFrame(out, rect, PAL16_GRAY + 11);
+}
+
+void DrawStrip(const Surface &out)
+{
 	const Point mouse = UiMousePosition();
-	const std::vector<Button> buttons = PanelButtons();
-	int contentBottom = top;
-	for (const Button &button : buttons) {
+	const Strip strip = LayoutStrip();
+
+	DrawStripPanel(out, strip.tools);
+	DrawStripPanel(out, strip.actions);
+	DrawStripPanel(out, strip.status);
+
+	for (const Button &button : strip.buttons) {
 		const Rectangle &r = button.rect;
-		FillRect(out, r.position.x, r.position.y, r.size.width, r.size.height, button.selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
+		FillSolid(out, r, button.selected ? PAL16_RED + 12 : PAL16_GRAY + 14);
 		uint8_t frame = PAL16_GRAY + 8;
 		if (button.selected)
 			frame = PAL16_YELLOW + 2;
-		else if (button.enabled && Contains(r, mouse))
+		else if (button.enabled && modal == Modal::None && Contains(r, mouse))
 			frame = PAL16_GRAY;
-		DrawFrame(out, r, frame);
+		DrawSolidFrame(out, r, frame);
 		UiFlags color = UiFlags::ColorWhite;
 		if (!button.enabled)
 			color = UiFlags::ColorBlack;
 		else if (button.selected)
 			color = UiFlags::ColorGold;
-		DrawString(out, button.label, { r.position + Displacement { 0, 2 }, { r.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
-		contentBottom = std::max(contentBottom, r.position.y + r.size.height);
+		DrawString(out, button.label, { r.position + Displacement { 0, (r.size.height - 14) / 2 + 1 }, { r.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | color });
 	}
 
-	// What the tool does (or what's under the mouse), under the buttons.
-	const int leftWidth = out.w() - RightColumnWidth - 18;
-	std::string hint = ToolHelp(Tools[static_cast<size_t>(tool)].help);
-	if (tool == EditTool::Door && model.tileset == MapTileset::Caves)
-		hint = "Click floor in a straight stretch two or more wide: a fence crosses the cave there, with a gate in it. Right-click: remove.";
-	if (tool == EditTool::Floor || tool == EditTool::Rock || tool == EditTool::Corridor)
-		hint += fmt::format("  Size {}", brushSize);
-	if (tool == EditTool::Stamp) {
-		hint = fmt::format("{}: {}{}", CurrentStamp().label, hint, stampPreview.active ? "  " + StampKeysHint() : std::string());
+	// The map's name and whether it can be played; what is wrong with it is in the tooltip.
+	const Rectangle &status = strip.status;
+	const UiFlags summaryColor = problems.empty() ? UiFlags::ColorGold : (HasBlockingProblem() ? UiFlags::ColorRed : UiFlags::ColorOrange);
+	const std::string title = MapTitle();
+	const std::string summary = StatusSummary();
+	if (strip.statusIsBadge) {
+		DrawString(out, FitText(title, status.size.width - 8), { status.position + Displacement { 5, 1 }, { status.size.width - 8, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+		DrawString(out, summary, { status.position + Displacement { 0, 1 }, { status.size.width - 5, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | summaryColor });
+	} else {
+		const int width = status.size.width - 10;
+		DrawString(out, FitText(title, width), { status.position + Displacement { 5, PanelPadding + 2 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
+		DrawString(out, FitText(summary, width), { status.position + Displacement { 5, status.size.height / 2 + 2 }, { width, 14 } }, { .flags = UiFlags::FontSize12 | summaryColor });
 	}
-	if (tool == EditTool::Object && !IsMouseOverPanel()) {
-		if (const std::string why = ObjectForClick(cursPosition).second; !why.empty() && FindObjectForClick(cursPosition) == model.objects.end())
-			hint = fmt::format("{}: {}", MapObjectName(objectKind), why);
-	}
-	DrawString(out, WordWrapString(hint, leftWidth), { { 6, contentBottom + 5 }, { leftWidth, out.h() - contentBottom - 6 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
 
-	// Right column: the map and what's wrong with it.
-	const int columnX = out.w() - RightColumnWidth - 6;
-	const int columnWidth = RightColumnWidth;
-	FillRect(out, columnX, top + 4, columnWidth, out.h() - top - 8, PAL16_GRAY + 14);
-	DrawFrame(out, { { columnX, top + 4 }, { columnWidth, out.h() - top - 8 } }, PAL16_GRAY + 10);
-	const std::string title = fmt::format("{}{}", model.name.empty() ? std::string_view("Untitled") : std::string_view(model.name), dirty ? " *" : "");
-	DrawString(out, title, { { columnX + 6, top + 7 }, { columnWidth - 12, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	const std::string by = model.author.empty() ? std::string(MapTilesetName(model.tileset)) : fmt::format("{}, by {}", MapTilesetName(model.tileset), model.author);
-	DrawString(out, by, { { columnX + 6, top + 21 }, { columnWidth - 12, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite });
-
-	int y = top + 38;
-	if (problems.empty()) {
-		DrawString(out, "Ready to play", { { columnX + 6, y }, { columnWidth - 12, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorGold });
-	}
-	for (const MapProblem &problem : problems) {
-		if (y + 13 > out.h() - 6)
-			break;
-		const std::string wrapped = WordWrapString(problem.text, columnWidth - 12);
-		DrawString(out, wrapped, { { columnX + 6, y }, { columnWidth - 12, out.h() - y - 6 } },
-		    { .flags = UiFlags::FontSize12 | (problem.blocking ? UiFlags::ColorRed : UiFlags::ColorOrange), .lineHeight = 13 });
-		y += 13 * static_cast<int>(1 + std::count(wrapped.begin(), wrapped.end(), '\n'));
+	// Above all that: what the mouse is on, or the tool's hint, only as long as it is wanted.
+	int roomAbove = strip.statusIsBadge ? status.position.y : strip.tools.position.y;
+	const Tooltip tip = StripTooltip(strip, mouse);
+	if (!tip.text.empty()) {
+		const int maxWidth = std::min(380, out.w() - 12);
+		const std::string wrapped = WordWrapString(tip.text, static_cast<unsigned>(maxWidth - 10));
+		int width = 0;
+		size_t from = 0;
+		while (from <= wrapped.size()) {
+			const size_t end = wrapped.find('\n', from);
+			width = std::max(width, GetLineWidth(wrapped.substr(from, end == std::string::npos ? std::string::npos : end - from)));
+			if (end == std::string::npos)
+				break;
+			from = end + 1;
+		}
+		const Rectangle box { { std::clamp(tip.left, 2, std::max(2, out.w() - width - 12)), roomAbove - CountLinesOfText(wrapped) * 13 - 10 }, { width + 10, CountLinesOfText(wrapped) * 13 + 6 } };
+		DrawStripPanel(out, box);
+		DrawString(out, wrapped, { box.position + Displacement { 5, 3 }, { box.size.width - 10, box.size.height - 6 } }, { .flags = UiFlags::FontSize12 | UiFlags::ColorWhite, .lineHeight = 13 });
+		roomAbove = box.position.y;
 	}
 
 	if (!feedback.empty() && SDL_GetTicks() < feedbackUntil) {
 		const int width = std::min<int>(GetLineWidth(feedback) + 16, out.w());
-		const Rectangle line { { (out.w() - width) / 2, top - 22 }, { width, 18 } };
-		DrawHalfTransparentRectTo(out, line.position.x, line.position.y, line.size.width, line.size.height);
+		const Rectangle line { { (out.w() - width) / 2, roomAbove - 22 }, { width, 18 } };
+		DrawStripPanel(out, line);
 		DrawString(out, feedback, { line.position + Displacement { 0, 2 }, { line.size.width, 14 } },
 		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (feedbackIsError ? UiFlags::ColorRed : UiFlags::ColorGold) });
 	}
+}
 
+} // namespace
+
+void EditorDrawUi(const Surface &out)
+{
+	DrawStrip(out);
 	if (modal != Modal::None)
 		DrawModal(out);
 }
@@ -2243,7 +2510,7 @@ bool IsTextModal()
 
 bool IsListModal()
 {
-	return modal == Modal::LoadList || modal == Modal::TilesetList || modal == Modal::PropList || modal == Modal::StampList;
+	return IsListModalKind();
 }
 
 Rectangle ModalRowRect(int row)

@@ -3986,8 +3986,8 @@ Point UiMousePosition()
 
 int UiBarHeight()
 {
-	// The map editor's bar: still the height of the engine's control panel.
-	return gnScreenHeight - GetMainPanel().position.y;
+	// The map editor's strip, a tenth of the screen at most.
+	return EditorStripHeight();
 }
 
 } // namespace devilution::keeper
