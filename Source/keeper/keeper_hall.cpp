@@ -348,16 +348,11 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 	}
 	if (!info.corner.empty()) {
 		DrawString(out, info.corner, { image.position + Displacement { 2, 1 }, { image.size.width - 4, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed)) });
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignRight | UiFlags::Outlined | (info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorBlue : UiFlags::ColorRed)) });
 	}
-	const UiFlags nameColor = info.owned ? UiFlags::ColorGold : (info.canBuy ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark);
+	const UiFlags nameColor = info.owned ? UiFlags::ColorGold : (info.canBuy ? (compact ? UiFlags::ColorBlue : UiFlags::ColorWhite) : UiFlags::ColorUiSilverDark);
 	if (compact) {
-		// The state sits on the picture, the price beside it, and the name has both lines under it.
-		const UiFlags stateColor = info.owned ? UiFlags::ColorWhite : (info.canBuy ? UiFlags::ColorGold : UiFlags::ColorRed);
-		std::string_view state = info.owned ? "Owned" : (info.canBuy ? "Unlock" : "Locked");
-		if (GetLineWidth(state) + GetLineWidth(info.corner) + 8 > image.size.width)
-			state = info.owned ? "Owned" : (info.canBuy ? "Buy" : "Lock");
-		DrawString(out, state, { image.position + Displacement { 2, 1 }, { image.size.width - 4, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::Outlined | stateColor });
+		// Colour tells the state (gold owned, blue buyable, red locked); only the price sits on the picture.
 		const auto [first, second] = SplitName(info.name, rect.size.width - 4);
 		const int firstY = second.empty() ? nameY + NameLineHeight / 2 : nameY;
 		DrawString(out, first, { rect.position + Displacement { 0, firstY }, { rect.size.width, 14 } }, { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | nameColor });
@@ -371,6 +366,8 @@ void DrawCardBody(const Surface &out, const CardInfo &info, bool isSelected, Poi
 	}
 
 	uint8_t frame = info.owned ? PAL16_YELLOW + 6 : (info.canBuy ? PAL16_ORANGE + 4 : FrameColor);
+	if (compact)
+		frame = info.owned ? PAL16_YELLOW + 4 : (info.canBuy ? PAL16_BLUE + 3 : PAL16_RED + 8);
 	if (Inside(rect, mouse))
 		frame = PAL16_GRAY;
 	Frame(out, rect, frame);
@@ -519,10 +516,18 @@ void DrawBar(const Surface &out, const std::vector<Chip> &chips, Point origin, P
 		const Rectangle rect { origin + Displacement { chip.rect.position.x, chip.rect.position.y }, chip.rect.size };
 		const bool active = chip.isFilter ? static_cast<size_t>(filter) == chip.index : (topGroup && static_cast<size_t>(*topGroup) == chip.index);
 		PadAddTarget(rect);
+		// The state filters wear the cards' colours, so the row doubles as the key.
+		std::optional<UiFlags> stateColor;
+		if (chip.isFilter && chip.index == static_cast<size_t>(Filter::Owned))
+			stateColor = UiFlags::ColorGold;
+		else if (chip.isFilter && chip.index == static_cast<size_t>(Filter::Afford))
+			stateColor = UiFlags::ColorBlue;
+		else if (chip.isFilter && chip.index == static_cast<size_t>(Filter::Locked))
+			stateColor = UiFlags::ColorRed;
 		Fill(out, rect, active ? PAL16_RED + 12 : CardColor);
 		Frame(out, rect, active ? PAL16_YELLOW + 4 : (Inside(rect, mouse) ? PAL16_GRAY : FrameColor));
 		DrawString(out, chip.label, { rect.position + Displacement { 0, 3 }, { rect.size.width, 14 } },
-		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | (active ? UiFlags::ColorGold : (chip.isFilter ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark)) });
+		    { .flags = UiFlags::FontSize12 | UiFlags::AlignCenter | stateColor.value_or(active ? UiFlags::ColorGold : (chip.isFilter ? UiFlags::ColorWhite : UiFlags::ColorUiSilverDark))) });
 		if (clicked && Inside(rect, mouse)) {
 			if (chip.isFilter) {
 				filter = static_cast<Filter>(chip.index);
