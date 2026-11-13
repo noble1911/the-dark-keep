@@ -69,6 +69,8 @@ Independent of steps 1 and 2. It only touches `Source/keeper/keeper_hall.cpp`.
 
 **Done 11 November 2026** (`ui/hall`): families flow across the list (two across at 1280, three from about 1500 UI pixels wide), grouped by dungeon with jump buttons, a filter row (All, Owned, Can afford, Locked), and the family ladder in the details panel. About 14 families show at 1280x720, 19 at 3440x1440 and 30 at 1920x1080.
 
+**Polish 13 November 2026** (`ui/polish-hall`): card names read in full on two lines (a hyphen break only for one long word), the state and price sit on the picture, and each group's name shares its first family's title line. 15 families show at 1280x720, 21 at 3440x1440 and 37 at 1920x1080.
+
 ### Step 4: Scale and menus
 Small and independent.
 
